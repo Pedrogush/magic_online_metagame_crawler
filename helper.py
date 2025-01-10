@@ -25,36 +25,7 @@ def default_label(root):
 class MTGHelperWidget:
     def __init__(self, root):
         self.root = root
-        self.root.title('MTG Opponent Deck Monitor')
-        self.player_label = default_label(root)
-        self.deck_label = default_label(root)
-        self.instructions_label = default_label(root)
-        self.configure_box_button = tk.Button(
-            root,
-            text='Configure box',
-            font=('calibri', 13, 'bold'),
-            background='purple',
-            command=self.update_box
-        )
-        self.choose_format_button = tk.Button(
-            root,
-            text='Choose format',
-            font=('calibri', 13, 'bold'),
-            background='purple',
-            command=self.update_format
-        )
-        self.login_button = tk.Button(
-            root,
-            text='Login',
-            font=('calibri', 13, 'bold'),
-            background='green',
-            command=login
-        )
-        self.player_label.pack(anchor="center", expand=True, fill='both')
-        self.deck_label.pack(anchor="center", expand=True, fill='both')
-        self.choose_format_button.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
-        self.configure_box_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=True)
-        self.login_button.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
+        self.ui_make_components()
         self.load_cache()
         self.last_looked_at_ts = time.time()
         self.load_config()
@@ -63,6 +34,41 @@ class MTGHelperWidget:
         self.format = 'Modern'
         self.updating = False
         self.update_deck()
+
+    def ui_make_components(self):
+        self.root.title('MTG Helper')
+        self.player_label = default_label(self.root)
+        self.deck_label = default_label(self.root)
+        self.instructions_label = default_label(self.root)
+        self.configure_box_button = tk.Button(
+            self.root,
+            text='Configure box',
+            font=('calibri', 13, 'bold'),
+            background='purple',
+            command=self.update_box
+        )
+        self.choose_format_button = tk.Button(
+            self.root,
+            text='Choose format',
+            font=('calibri', 13, 'bold'),
+            background='purple',
+            command=self.update_format
+        )
+        self.login_button = tk.Button(
+            self.root,
+            text='Login',
+            font=('calibri', 13, 'bold'),
+            background='green',
+            command=login
+        )
+        self.ui_pack_components()
+
+    def ui_pack_components(self):
+        self.player_label.pack(anchor="center", expand=True, fill='both')
+        self.deck_label.pack(anchor="center", expand=True, fill='both')
+        self.choose_format_button.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
+        self.configure_box_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=True)
+        self.login_button.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
 
     def update_box(self):
         self.hide_labels()
