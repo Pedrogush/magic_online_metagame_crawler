@@ -25,5 +25,6 @@ setuptools.setup(
         "curl_cffi",
         "pytesseract",
         "pymongo",
+        "selenium"
     ]
 )
