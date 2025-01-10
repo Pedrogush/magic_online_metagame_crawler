@@ -99,20 +99,21 @@ class Netdecker:
     def manatraders_rent_deck(self, deck_num: str):
         # mtggoldfish_download_deck(self, deck_num)
         self.driver.get("https://www.manatraders.com/webshop")
-        clear_all_btn = self.driver.find_elements(by=By.CLASS_NAME, value='btn-link')[8]
-        self.achains.move_to_element(clear_all_btn).click().perform()
         upload_btn = self.driver.find_elements(by=By.CLASS_NAME, value='btn-link')[5]
-        self.achains.move_to_element(upload_btn).click().click().perform()
-
+        self.achains.move_to_element(upload_btn).click().perform()
         # upload_input = open('curr_deck.txt', 'rb')
         upload_input = '1 Lightning Bolt'
         text_area = self.driver.find_element(by=By.ID, value='text')
-        print(text_area.is_displayed())
+        time.sleep(1.5)
         self.achains.move_to_element(text_area).click().send_keys(upload_input).perform()
-        submit_btn = self.driver.find_element(by='type', value='submit')
+        # working up to here
+
+        submit_btn = self.driver.find_element(by=By.CSS_SELECTOR, value='[type="submit"]')
         self.achains.move_to_element(submit_btn).click().click().perform()
+        time.sleep(5)
         rent_button = self.driver.find_elements(by=By.CLASS_NAME, value='btn-primary-blue')[1]
         self.achains.move_to_element(rent_button).click().perform()
+        time.sleep(1.5)
         confirm_rent_button = self.driver.find_elements(by=By.CLASS_NAME, value='btn-primary-blue')[2]
         self.achains.move_to_element(confirm_rent_button).click().perform()
 
