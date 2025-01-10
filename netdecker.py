@@ -22,20 +22,10 @@ def mtggoldfish_get_deck(self, deck_num: str):
 
 class Netdecker:
     def __init__(self):
-        self.chrome_options = webdriver.ChromeOptions()
-        prefs = {
-            "download.enable": True,
-            "download.default_directory": '.',
-            "download.prompt_for_download": False,
-            "directory_upgrade": True,
-            "safebrowsing.enabled": True
-        }
-        self.chrome_options.add_experimental_option("prefs", prefs)
-        self.driver: webdriver.Chrome = webdriver.Chrome(options=self.chrome_options)
+        self.driver: webdriver.Chrome = webdriver.Chrome()
         self.driver.implicitly_wait(10)
         self.achains = webdriver.ActionChains(self.driver)
         self.config = json.load(open('config.json', 'r'))
-        self.driver.capabilities["se:downloadsEnabled"] = True
 
     def manatraders_login(self):
         self.driver.get("https://www.manatraders.com/users/sign_in")
