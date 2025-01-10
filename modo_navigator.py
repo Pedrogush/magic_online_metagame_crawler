@@ -5,40 +5,40 @@ from ocr import get_words_position_on_screen
 from utils import (
     focus_magic_online,
     click_and_return,
-    
 )
 import time
 from PIL import Image, ImageDraw
 import json
 import os
-TAB_OPTIONS = {
-    "home": 0,
-    "collection": 1,
-    "constructed": 2,
-    "limited": 3,
-    "store": 4,
-    "trade": 5,
-    "settings": 6,
-}
-TAB_OPTIONS.update({v: k for k, v in TAB_OPTIONS.items()})
-TAB_POSITIONS = {
-    "home": (132, 100),
-    "collection": (451, 84),
-    "constructed": (783, 84),
-    "limited": (1085, 84),
-    "store": (1303, 84),
-    "trade": (1482, 84),
-}
+CONFIG = json.load(open('config.json', 'r'))
 # If you're on Windows, specify the path to the Tesseract executable
 # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 
-def click_tab(tab_name: str):
-    x, y = TAB_POSITIONS[tab_name]
-    click_and_return(x, y)
-    logger.debug(f'clicked {x, y} will wait 1 sec for page to load')
-    time.sleep(1)
-    return True
+def login():
+    focus_magic_online()
+    click_and_return(*CONFIG["login_name_pos"])
+    time.sleep(0.01)
+    pyautogui.hotkey('ctrl', 'a')
+    time.sleep(0.01)
+    pyautogui.write(CONFIG["login_name"])
+    time.sleep(0.01)
+    click_and_return(*CONFIG["login_pass_pos"])
+    time.sleep(0.01)
+    pyautogui.write(CONFIG["login_pass"])
+    time.sleep(0.01)
+    click_and_return(*CONFIG["login_button_pos"])
+
+
+def navigate_to(tab_name: str, left_hand_field: str = ''):
+    """ navigate to the desired tab """
+    """ tab_name in [home, collection, constructed, limited, store, trade, configuration]"""
+    focus_magic_online()
+    click_and_return(*CONFIG["tabs"][tab_name])
+    if tab_name == 'constructed':
+        click_and_return(*CONFIG["left_hand_tabs_constructed"][left_hand_field])
+    if tab_name == 'limited':
+        click_and_return(*CONFIG["left_hand_tabs_limited"][left_hand_field])
 
 
 def get_latest_challenge_pos():
@@ -121,17 +121,6 @@ def wait_for_click() -> tuple:
 
 if __name__ == '__main__':
     focus_magic_online()
-    configure_box_positions()
+    # configure_box_positions()
+    login()
     # logger.debug('clicking home/colletion/constructed/limited/store/trade in sequence')
-    # click_tab('home')
-    # time.sleep(2)
-    # click_tab('collection')
-    # time.sleep(2)
-    # click_tab('constructed')
-    # time.sleep(2)
-    # click_tab('limited')
-    # time.sleep(2)
-    # click_tab('store')
-    # time.sleep(2)
-    # click_tab('trade')
-    # time.sleep(2)

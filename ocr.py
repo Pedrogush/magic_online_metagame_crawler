@@ -3,6 +3,7 @@ import pytesseract
 import pyautogui
 from PIL import Image
 from loguru import logger
+SCALING_FACTOR = 1.25
 
 
 def set_dpi(image, dpi):
@@ -21,8 +22,9 @@ def preprocess_image(img: Image.Image, color):
     return img
 
 
-def detect_word(image, color):
+def detect_word(image, color) -> str:
     image = preprocess_image(image, color)
+    image.save('filtered.png')
     config = '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_ --psm 6'
     word = pytesseract.image_to_string(image, config=config)
     return word
@@ -36,21 +38,28 @@ def get_words_position_on_screen() -> list[dict]:
 
 
 def get_box(box) -> Image.Image:
+    box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
     return screenshot
 
 
-def get_word_on_box(box, color) -> list[dict]:
+def get_word_on_box(box, color) -> str:
+    box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
+    screenshot = screenshot.resize((screenshot.width*2, screenshot.height*2))
     # debug save a the screenshot
     screenshot.save('box.png')
-    word = detect_word(screenshot, color)
+    image = filter_image_only_accept_white(screenshot)
+    image.save('filtered_only_white.png')
+    config = '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_ --psm 6'
+    word = pytesseract.image_to_string(image, config=config)
     return word
 
 
 def get_matchups_on_box(box) -> list[dict]:
+    box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
     config = '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_/:-()'
@@ -59,6 +68,7 @@ def get_matchups_on_box(box) -> list[dict]:
 
 
 def get_matchup_on_box(box) -> str:
+    box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
     config = '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_/:-()# --psm 6'
@@ -67,6 +77,7 @@ def get_matchup_on_box(box) -> str:
 
 
 def get_game_description_on_box(box) -> str:
+    box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
     screenshot = screenshot.resize((screenshot.width*2, screenshot.height*2))
@@ -76,6 +87,7 @@ def get_game_description_on_box(box) -> str:
 
 
 def get_game_number_on_box(box) -> str:
+    box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
     config = '-c tessedit_char_whitelist=#0123456789 --psm 7'
@@ -85,6 +97,7 @@ def get_game_number_on_box(box) -> str:
 
 
 def get_game_ended_on_box(box) -> bool:
+    box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
     word: str = pytesseract.image_to_string(screenshot)
@@ -112,13 +125,26 @@ def filter_image_0(image: Image.Image) -> Image.Image:
     data = resized_im.getdata()
     mod_data = []
     for d in data:
-        if all([i < 25 for i in d]):
+        if all([i < 115 for i in d]):
             mod_data.append((0, 0, 0))
         else:
             mod_data.append((255, 255, 255))
     resized_im.putdata(mod_data)
     filtered_im = resized_im.resize(size=(image.width, image.height))
     return filtered_im
+
+
+def filter_image_only_accept_white(image: Image.Image) -> Image.Image:
+    '''Filter image by only keeping the brightest pixels'''
+    data = image.getdata()
+    mod_data = []
+    for d in data:
+        if all([i <= 140 for i in d]):
+            mod_data.append((0, 0, 0))
+        else:
+            mod_data.append(d)
+    image.putdata(mod_data)
+    return image
 
 
 def test():

@@ -1,2 +1,9 @@
 env/
 magic_online_metagame_crawler.egg-info/
+config.json
+leaderboard_positions.json
+deck_monitor_cache.json
+deck_monitor_config.json
+box.png
+filtered_only_white.png
+__pycache__/

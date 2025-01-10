@@ -2,6 +2,7 @@ from ocr import get_word_on_box, get_box
 from loguru import logger
 from utils import focus_magic_online, scroll_down, scroll_up
 from modo_navigator import (
+
     load_box_positions
 )
 from curl_cffi import requests
@@ -67,7 +68,10 @@ def get_player_trophy_count(boxes, color):
 
 
 def get_latest_deck(player: str, option: str):
+    if not player:
+        return 'No player name'
     logger.debug(player)
+    player = player.strip()
     res = requests.get(GOLDFISH+player, impersonate='chrome')
     soup = bs4.BeautifulSoup(res.text, 'html.parser')
     table = soup.find('table')
@@ -118,7 +122,7 @@ def get_top_leaderboard():
     return leaderboard
 
 
-def get_bottom_leaderboard(count=95):
+def get_bottom_leaderboard(count=999):
     leaderboard = {}
     scrolls = 0
     while True:

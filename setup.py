@@ -22,6 +22,8 @@ setuptools.setup(
         "pytesseract",
         "pynput",
         "keyboard",
-        "curl_cffi"
+        "curl_cffi",
+        "pytesseract",
+        "pymongo",
     ]
 )
