@@ -1,17 +1,38 @@
 import json
 import bs4
+import time
 from curl_cffi import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
 
 def mtggoldfish_get_archetypes(mtg_format: str):
-    page = requests.get('https://www.mtggoldfish.com/metagame/modern/full')
+    page = requests.get(f'https://www.mtggoldfish.com/metagame/{mtg_format}/full')
     soup = bs4.BeautifulSoup(page.text, 'html.parser')
     metagame_decks = soup.select_one("#metagame-decks-container")
     archetypes: list[bs4.Tag] = metagame_decks.find_all("span", attrs={"class": "deck-price-paper"})
     archetypes = [tag for tag in archetypes if tag.find('a') and not tag.find('div')]
-    return set(tag.text.strip() for tag in archetypes)
+    return [
+        {tag.text.strip(): tag.find('a')['href'].replace('/archetype/', '').replace('#paper', '')} for tag in archetypes
+    ]
+
+
+def mtggoldfish_get_archetype_decks(archetype: str):
+    page = requests.get(f'https://www.mtggoldfish.com/archetype/{archetype}/decks')
+    soup = bs4.BeautifulSoup(page.text, 'html.parser')
+    table = soup.select_one("table.table-striped")
+    trs: list[bs4.Tag] = table.find_all('tr')
+    trs = trs[1:]
+    decks = []
+    for tr in trs:
+        tds: list[bs4.Tag] = tr.find_all('td')
+        decks.append({
+            'date': tds[0].text.strip(),
+            'player': tds[2].text.strip(),
+            'event': tds[3].text.strip(),
+            'result': tds[4].text.strip(),
+        })
+    return decks
 
 
 def mtggoldfish_get_daily_decks(mtg_format: str):
@@ -53,7 +74,7 @@ def mtggoldfish_get_daily_decks(mtg_format: str):
     return decks
 
 
-def mtggoldfish_download_deck(self, deck_num: str):
+def mtggoldfish_download_deck(deck_num: str):
     file = requests.get(f'https://www.mtggoldfish.com/deck/download/{deck_num}')
     with open('curr_deck.txt', 'wb') as f:
         f.write(file.content)
@@ -75,9 +96,31 @@ class Netdecker:
         login_box = self.driver.find_element(by=By.NAME, value='commit')
         self.achains.move_to_element(login_box).click().perform()
 
+    def manatraders_rent_deck(self, deck_num: str):
+        # mtggoldfish_download_deck(self, deck_num)
+        self.driver.get("https://www.manatraders.com/webshop")
+        clear_all_btn = self.driver.find_elements(by=By.CLASS_NAME, value='btn-link')[8]
+        self.achains.move_to_element(clear_all_btn).click().perform()
+        upload_btn = self.driver.find_elements(by=By.CLASS_NAME, value='btn-link')[5]
+        self.achains.move_to_element(upload_btn).click().click().perform()
+
+        # upload_input = open('curr_deck.txt', 'rb')
+        upload_input = '1 Lightning Bolt'
+        text_area = self.driver.find_element(by=By.ID, value='text')
+        print(text_area.is_displayed())
+        self.achains.move_to_element(text_area).click().send_keys(upload_input).perform()
+        submit_btn = self.driver.find_element(by='type', value='submit')
+        self.achains.move_to_element(submit_btn).click().click().perform()
+        rent_button = self.driver.find_elements(by=By.CLASS_NAME, value='btn-primary-blue')[1]
+        self.achains.move_to_element(rent_button).click().perform()
+        confirm_rent_button = self.driver.find_elements(by=By.CLASS_NAME, value='btn-primary-blue')[2]
+        self.achains.move_to_element(confirm_rent_button).click().perform()
 
 
 if __name__ == '__main__':
-    # nd = Netdecker()
-    # nd.driver.maximize_window()
-    print(mtggoldfish_get_daily_decks('modern'))
+    nd = Netdecker()
+    nd.driver.maximize_window()
+    nd.manatraders_login()
+    nd.manatraders_rent_deck('1234567')
+    # print(mtggoldfish_get_archetypes('modern'))
+    # print(mtggoldfish_get_archetype_decks('modern-song-of-creation'))
