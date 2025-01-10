@@ -23,8 +23,8 @@ def default_label(root):
 
 
 class MTGHelperWidget:
-    def __init__(self, root):
-        self.root = root
+    def __init__(self, root: tk.Tk):
+        self.root: tk.Tk = root
         self.ui_make_components()
         self.load_cache()
         self.last_looked_at_ts = time.time()
@@ -125,6 +125,7 @@ class MTGHelperWidget:
         self.show_labels()
 
     def update_deck(self):
+        self.save_config()  # doing this to save the current position of the helper
         if self.updating:
             self.root.after(10000, self.update_deck)
             return
@@ -166,6 +167,7 @@ class MTGHelperWidget:
             'box': self.box,
             'format': self.format,
             'vertices': self.vertices,
+            'screen_pos': (self.root.winfo_x(), self.root.winfo_y())
         }
         json.dump(config, open('deck_monitor_config.json', 'w'), indent=4)
 
@@ -175,6 +177,7 @@ class MTGHelperWidget:
             self.box = config['box']
             self.vertices = config['vertices']
             self.format = config['format']
+            self.root.geometry(f'+{config["screen_pos"][0]}+{config["screen_pos"][1]}')
             return
         self.box = (93, 320, 311, 358)  # any valid box works fine
         self.format = 'Modern'
