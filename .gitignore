@@ -7,3 +7,4 @@ deck_monitor_config.json
 box.png
 filtered_only_white.png
 __pycache__/
+curr_deck.txt
