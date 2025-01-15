@@ -6,5 +6,6 @@ deck_monitor_cache.json
 deck_monitor_config.json
 box.png
 filtered_only_white.png
+trade_request.png
 __pycache__/
 curr_deck.txt

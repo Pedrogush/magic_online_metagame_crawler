@@ -58,6 +58,17 @@ def get_word_on_box(box, color) -> str:
     return word
 
 
+def get_trade_request_on_box(box) -> str:
+    box = [int(b*SCALING_FACTOR) for b in box]
+    screenshot = pyautogui.screenshot()
+    screenshot = screenshot.crop(box)
+    image = filter_image_trade_request(screenshot)
+    screenshot.save('trade_request.png')
+    config = '-c tessedit_char_whitelist=TradeRequest --psm 7'
+    word = pytesseract.image_to_string(screenshot, config=config)
+    return word
+
+
 def get_matchups_on_box(box) -> list[dict]:
     box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
@@ -140,6 +151,19 @@ def filter_image_only_accept_white(image: Image.Image) -> Image.Image:
     mod_data = []
     for d in data:
         if all([i <= 140 for i in d]):
+            mod_data.append((0, 0, 0))
+        else:
+            mod_data.append(d)
+    image.putdata(mod_data)
+    return image
+
+
+def filter_image_trade_request(image: Image.Image) -> Image.Image:
+    '''Filter image by only keeping the brightest pixels'''
+    data = image.getdata()
+    mod_data = []
+    for d in data:
+        if all([i <= 240 for i in d]):
             mod_data.append((0, 0, 0))
         else:
             mod_data.append(d)

@@ -1,7 +1,11 @@
 import pyautogui
 from pynput import mouse
 from loguru import logger
-from ocr import get_words_position_on_screen
+from ocr import (
+    get_word_on_box,
+    get_words_position_on_screen,
+    get_trade_request_on_box
+)
 from utils import (
     focus_magic_online,
     click_and_return,
@@ -121,24 +125,42 @@ def wait_for_click() -> tuple:
 
 
 def accept_trade():
+    logger.debug('accepting trade')
     focus_magic_online()
     click_and_return(*CONFIG["trade_request"]["full_trade_list"])
     click_and_return(*CONFIG["trade_request"]["ok"])
+    logger.debug('trade accepted')
+    time.sleep(20)
 
 
 def submit_trade():
+    logger.debug('submitting trade')
     click_and_return(*CONFIG["trade_request"]["submit"])
 
 
 def wait_for_trade():
+    logger.debug('waiting for trade request')
+    start = time.time()
     focus_magic_online()
+    word = get_trade_request_on_box(CONFIG["trade_request"]["trade_request_box"])
+    logger.debug(word)
+    while 'traderequest' not in word.lower() and time.time() - start < 125:
+        word = get_trade_request_on_box(CONFIG["trade_request"]["trade_request_box"])
+        logger.debug(word)
+        time.sleep(1)
+    if time.time() - start >= 125:
+        logger.debug('trade request not found')
+        return False
+    return True
 
 
 def confirm_trade():
+    logger.debug('confirming trade')
     click_and_return(*CONFIG["trade_request"]["confirm"])
 
 
 def drag_and_drop_cards_from_trade():
+    logger.debug('dragging and dropping cards from trade')
     drag_and_drop_all(*CONFIG["trade_request"]["drag_from"], *CONFIG["trade_request"]["drag_to"])
 
 
@@ -152,4 +174,3 @@ if __name__ == '__main__':
     drag_and_drop_cards_from_trade()
     # time.sleep(0.5)
     # submit_trade()
-

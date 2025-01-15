@@ -7,7 +7,14 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
-from modo_navigator import focus_magic_online
+from modo_navigator import (
+    focus_magic_online,
+    wait_for_trade,
+    accept_trade,
+    drag_and_drop_cards_from_trade,
+    submit_trade,
+    confirm_trade,
+)
 from loguru import logger
 
 
@@ -96,6 +103,17 @@ def manatraders_wait_for_upload_menu_fade_in(driver: webdriver.Chrome):
     return True
 
 
+def manatraders_wait_for_rent_return_menu_fade_in(driver: webdriver.Chrome):
+    start_time = time.time()
+    rental_menu = driver.find_element(by=By.ID, value='rent-return-info')
+    style = rental_menu.get_attribute('style')
+    while not style or 'display: none' in style and time.time() - start_time < 15:
+        style = rental_menu.get_attribute('style')
+    if time.time() - start_time >= 15:
+        return False
+    return True
+
+
 def manatraders_wait_for_upload_menu_fade_out(driver: webdriver.Chrome):
     start_time = time.time()
     modal_upload_menu = driver.find_element(by=By.ID, value="import-modal")
@@ -139,6 +157,30 @@ def manatraders_find_submit_decklist_button(driver: webdriver.Chrome):
     return modal_footer.find_element(by=By.CLASS_NAME, value='btn-primary')
 
 
+def manatraders_wait_for_bot_to_load_cards(driver: webdriver.Chrome):
+    start_time = time.time()
+    bot_loading = driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[1]/div[1]/div[1]/div[1]/form/button') # noqa
+    enabled = bot_loading.is_enabled()
+    while not enabled and time.time() - start_time < 125:
+        enabled = bot_loading.is_enabled()
+    if time.time() - start_time >= 125:
+        logger.debug("bot loading timed out")
+        return False
+    return True
+
+
+def manatraders_wait_for_bot_to_be_ready_to_request_cards(driver: webdriver.Chrome):
+    start_time = time.time()
+    bot_ready = driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[3]/div/div/div[1]/form/button')
+    enabled = bot_ready.is_enabled()
+    while not enabled and time.time() - start_time < 125:
+        enabled = bot_ready.is_enabled()
+    if time.time() - start_time >= 125:
+        logger.debug("bot ready timed out")
+        return False
+    return True
+
+
 class Netdecker:
     def __init__(self):
         self.options = Options()
@@ -160,7 +202,7 @@ class Netdecker:
     def manatraders_rent_deck(self, deck_num: str):
         mtggoldfish_download_deck(deck_num)
         self.driver.get("https://www.manatraders.com/webshop")
-        upload_btn = self.driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[2]/div/div[2]/div[4]/button[2]')
+        upload_btn = self.driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[2]/div/div[2]/div[4]/button[2]') # noqa
         self.achains.move_to_element(upload_btn).click().perform()
         pyperclip.copy(open('curr_deck.txt').read())
         manatraders_wait_for_upload_menu_fade_in(self.driver)
@@ -177,12 +219,45 @@ class Netdecker:
         confirm_rent_button = self.driver.find_element(by=By.XPATH, value='//*[@id="insert-username-for-rent-modal"]/div/div/div[3]/button[2]') # noqa
         self.achains.move_to_element(confirm_rent_button).click().click().perform()
 
+    def manatraders_receive_cards(self):
+        # manatraders_wait_for_bot_to_load_cards(self.driver)
+        focus_magic_online()
+        wait_for_trade()
+        accept_trade()
+        time.sleep(5)
+        drag_and_drop_cards_from_trade()
+        time.sleep(5)
+        submit_trade()
+        time.sleep(5)
+        confirm_trade()
+
+    def manatraders_return_cards(self):
+        self.driver.get("https://www.manatraders.com/dashboard")
+        return_rental_button = self.driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[2]/div[2]/div[2]/div/div/div/div[2]/div[1]/button') # noqa
+        self.achains.move_to_element(return_rental_button).click().click().perform()
+        manatraders_wait_for_rent_return_menu_fade_in(self.driver)
+        return_cards_btn = self.driver.find_element(by=By.CSS_SELECTOR, value='input[value="Return cards"]')
+        return_cards_btn.submit()
+        manatraders_wait_for_bot_to_be_ready_to_request_cards(self.driver)
+        focus_magic_online()
+        wait_for_trade()
+        accept_trade()
+        time.sleep(5)
+        submit_trade()
+        time.sleep(5)
+        confirm_trade()
+
 
 if __name__ == '__main__':
     nd = Netdecker()
     nd.driver.maximize_window()
     nd.manatraders_login()
-    nd.manatraders_rent_deck('6866938')
+    # nd.manatraders_rent_deck('6866938')
+    # time.sleep(5)
+    # nd.manatraders_receive_cards()
+    # time.sleep(5)
+    nd.manatraders_return_cards()
+    # wait_for_trade()
     # focus_magic_online()
     # print(mtggoldfish_get_archetypes('modern'))
     # print(mtggoldfish_get_archetype_decks('modern-song-of-creation'))
