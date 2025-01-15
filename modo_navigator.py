@@ -127,7 +127,6 @@ def wait_for_click() -> tuple:
 def accept_trade():
     logger.debug('accepting trade')
     focus_magic_online()
-    click_and_return(*CONFIG["trade_request"]["full_trade_list"])
     click_and_return(*CONFIG["trade_request"]["ok"])
     logger.debug('trade accepted')
     time.sleep(20)
@@ -136,6 +135,7 @@ def accept_trade():
 def submit_trade():
     logger.debug('submitting trade')
     click_and_return(*CONFIG["trade_request"]["submit"])
+    time.sleep(10)
 
 
 def wait_for_trade():
