@@ -5,6 +5,7 @@ from ocr import get_words_position_on_screen
 from utils import (
     focus_magic_online,
     click_and_return,
+    drag_and_drop_all,
 )
 import time
 from PIL import Image, ImageDraw
@@ -119,8 +120,36 @@ def wait_for_click() -> tuple:
     return (x, y)
 
 
-if __name__ == '__main__':
+def accept_trade():
     focus_magic_online()
+    click_and_return(*CONFIG["trade_request"]["full_trade_list"])
+    click_and_return(*CONFIG["trade_request"]["ok"])
+
+
+def submit_trade():
+    click_and_return(*CONFIG["trade_request"]["submit"])
+
+
+def wait_for_trade():
+    focus_magic_online()
+
+
+def confirm_trade():
+    click_and_return(*CONFIG["trade_request"]["confirm"])
+
+
+def drag_and_drop_cards_from_trade():
+    drag_and_drop_all(*CONFIG["trade_request"]["drag_from"], *CONFIG["trade_request"]["drag_to"])
+
+
+if __name__ == '__main__':
+    # focus_magic_online()
     # configure_box_positions()
-    login()
+    # login()
     # logger.debug('clicking home/colletion/constructed/limited/store/trade in sequence')
+    # accept_trade()
+    # time.sleep(10)
+    drag_and_drop_cards_from_trade()
+    # time.sleep(0.5)
+    # submit_trade()
+

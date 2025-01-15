@@ -89,6 +89,30 @@ def click_and_return(x, y):
     return
 
 
+def drag_and_drop(x1, y1, x2, y2):
+    x0, y0 = pyautogui.position()
+    pyautogui.moveTo(x1, y1)
+    pyautogui.mouseDown()
+    pyautogui.moveTo(x2, y2)
+    pyautogui.mouseUp()
+    pyautogui.moveTo(x0, y0)
+    return
+
+
+def drag_and_drop_all(x1, y1, x2, y2):
+    x0, y0 = pyautogui.position()
+    pyautogui.moveTo(x1, y1)
+    pyautogui.mouseDown()
+    pyautogui.keyDown('ctrl')
+    pyautogui.keyDown('a')
+    pyautogui.moveTo(x2, y2)
+    pyautogui.mouseUp()
+    pyautogui.moveTo(x0, y0)
+    pyautogui.keyUp('ctrl')
+    pyautogui.keyUp('a')
+    return
+
+
 def locate(image_path):
     try:
         pos = pyautogui.locateOnScreen(image_path)

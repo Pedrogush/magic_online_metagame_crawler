@@ -4,7 +4,8 @@ import time
 from curl_cffi import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-
+from selenium.webdriver.chrome.options import Options
+from modo_navigator import focus_magic_online
 
 def mtggoldfish_get_archetypes(mtg_format: str):
     page = requests.get(f'https://www.mtggoldfish.com/metagame/{mtg_format}/full')
@@ -80,9 +81,61 @@ def mtggoldfish_download_deck(deck_num: str):
         f.write(file.content)
 
 
+def manatraders_wait_for_upload_menu_fade_in(driver: webdriver.Chrome):
+    start_time = time.time()
+    modal_upload_menu = driver.find_element(by=By.ID, value="import-modal")
+    style = modal_upload_menu.get_attribute('style')
+    while not style or 'display: none' in style and time.time() - start_time < 15:
+        style = modal_upload_menu.get_attribute('style')
+    if time.time() - start_time >= 15:
+        return False
+    return True
+
+
+def manatraders_wait_for_upload_menu_fade_out(driver: webdriver.Chrome):
+    start_time = time.time()
+    modal_upload_menu = driver.find_element(by=By.ID, value="import-modal")
+    style = modal_upload_menu.get_attribute('style')
+    while 'display: none' not in style and time.time() - start_time < 15:
+        style = modal_upload_menu.get_attribute('style')
+    if time.time() - start_time >= 15:
+        return False
+    return True
+
+
+def manatraders_wait_for_rent_button_enabled(driver: webdriver.Chrome):
+    start_time = time.time()
+    rent_button = driver.find_element(by=By.CLASS_NAME, value='checkout-get')
+    while not rent_button.is_enabled() and time.time() - start_time < 15:
+        rent_button = driver.find_element(by=By.CLASS_NAME, value='checkout-get')
+    if time.time() - start_time >= 15:
+        return False
+    return True
+
+
+def manatraders_wait_for_confirm_rent_dialog(driver: webdriver.Chrome):
+    start_time = time.time()
+    confirm_rent_dialog = driver.find_element(by=By.ID, value='insert-username-for-rent-modal')
+    style = confirm_rent_dialog.get_attribute('style')
+    while not style or 'display: none' in style and time.time() - start_time < 15:
+        style = confirm_rent_dialog.get_attribute('style')
+    if time.time() - start_time >= 15:
+        return False
+    return True
+
+
+def manatraders_find_submit_decklist_button(driver: webdriver.Chrome):
+    import_modal = driver.find_element(by=By.ID, value='import-modal')
+    import_by_text = import_modal.find_element(by=By.ID, value='import-by-text')
+    modal_footer = import_by_text.find_element(by=By.CLASS_NAME, value='modal-footer')
+    return modal_footer.find_element(by=By.CLASS_NAME, value='btn-primary')
+
+
 class Netdecker:
     def __init__(self):
-        self.driver: webdriver.Chrome = webdriver.Chrome()
+        self.options = Options()
+        self.options.add_experimental_option("detach", True)
+        self.driver: webdriver.Chrome = webdriver.Chrome(self.options)
         self.driver.implicitly_wait(10)
         self.achains = webdriver.ActionChains(self.driver)
         self.config = json.load(open('config.json', 'r'))
@@ -102,26 +155,28 @@ class Netdecker:
         upload_btn = self.driver.find_elements(by=By.CLASS_NAME, value='btn-link')[5]
         self.achains.move_to_element(upload_btn).click().perform()
         # upload_input = open('curr_deck.txt', 'rb')
+        manatraders_wait_for_upload_menu_fade_in(self.driver)
         upload_input = '1 Lightning Bolt'
         text_area = self.driver.find_element(by=By.ID, value='text')
-        time.sleep(1.5)
         self.achains.move_to_element(text_area).click().send_keys(upload_input).perform()
         # working up to here
-
-        submit_btn = self.driver.find_element(by=By.CSS_SELECTOR, value='[type="submit"]')
+        submit_btn = manatraders_find_submit_decklist_button(self.driver)
         self.achains.move_to_element(submit_btn).click().click().perform()
-        time.sleep(5)
-        rent_button = self.driver.find_elements(by=By.CLASS_NAME, value='btn-primary-blue')[1]
-        self.achains.move_to_element(rent_button).click().perform()
-        time.sleep(1.5)
-        confirm_rent_button = self.driver.find_elements(by=By.CLASS_NAME, value='btn-primary-blue')[2]
-        self.achains.move_to_element(confirm_rent_button).click().perform()
+        manatraders_wait_for_upload_menu_fade_out(self.driver)
+        manatraders_wait_for_rent_button_enabled(self.driver)
+        rent_button = self.driver.find_element(by=By.CLASS_NAME, value='checkout-get')
+        self.achains.move_to_element(rent_button).click().click().perform()
+        manatraders_wait_for_confirm_rent_dialog(self.driver)
+        confirm_rent_dialog = self.driver.find_element(by=By.ID, value='insert-username-for-rent-modal')
+        confirm_rent_button = confirm_rent_dialog.find_element(by=By.CLASS_NAME, value='btn-primary-blue')
+        self.achains.move_to_element(confirm_rent_button).click().click().perform()
 
 
 if __name__ == '__main__':
-    nd = Netdecker()
-    nd.driver.maximize_window()
-    nd.manatraders_login()
-    nd.manatraders_rent_deck('1234567')
+    # nd = Netdecker()
+    # nd.driver.maximize_window()
+    # nd.manatraders_login()
+    # nd.manatraders_rent_deck('1234567')
+    focus_magic_online()
     # print(mtggoldfish_get_archetypes('modern'))
     # print(mtggoldfish_get_archetype_decks('modern-song-of-creation'))
