@@ -1,11 +1,15 @@
 import json
 import bs4
 import time
+import pyperclip
 from curl_cffi import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
 from modo_navigator import focus_magic_online
+from loguru import logger
+
 
 def mtggoldfish_get_archetypes(mtg_format: str):
     page = requests.get(f'https://www.mtggoldfish.com/metagame/{mtg_format}/full')
@@ -108,7 +112,10 @@ def manatraders_wait_for_rent_button_enabled(driver: webdriver.Chrome):
     rent_button = driver.find_element(by=By.CLASS_NAME, value='checkout-get')
     while not rent_button.is_enabled() and time.time() - start_time < 15:
         rent_button = driver.find_element(by=By.CLASS_NAME, value='checkout-get')
+        rent_button.get_attribute('disabled')
+        time.sleep(0.5)
     if time.time() - start_time >= 15:
+        logger.debug("rent button enabled timed out")
         return False
     return True
 
@@ -120,6 +127,7 @@ def manatraders_wait_for_confirm_rent_dialog(driver: webdriver.Chrome):
     while not style or 'display: none' in style and time.time() - start_time < 15:
         style = confirm_rent_dialog.get_attribute('style')
     if time.time() - start_time >= 15:
+        logger.debug("confirm rent dialog timed out")
         return False
     return True
 
@@ -150,33 +158,31 @@ class Netdecker:
         self.achains.move_to_element(login_box).click().perform()
 
     def manatraders_rent_deck(self, deck_num: str):
-        # mtggoldfish_download_deck(self, deck_num)
+        mtggoldfish_download_deck(deck_num)
         self.driver.get("https://www.manatraders.com/webshop")
-        upload_btn = self.driver.find_elements(by=By.CLASS_NAME, value='btn-link')[5]
+        upload_btn = self.driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[2]/div/div[2]/div[4]/button[2]')
         self.achains.move_to_element(upload_btn).click().perform()
-        # upload_input = open('curr_deck.txt', 'rb')
+        pyperclip.copy(open('curr_deck.txt').read())
         manatraders_wait_for_upload_menu_fade_in(self.driver)
-        upload_input = '1 Lightning Bolt'
-        text_area = self.driver.find_element(by=By.ID, value='text')
-        self.achains.move_to_element(text_area).click().send_keys(upload_input).perform()
-        # working up to here
+        text_area = self.driver.find_element(by=By.XPATH, value='//*[@id="text"]')
+        self.achains.move_to_element(text_area).click().click().key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform() # noqa
         submit_btn = manatraders_find_submit_decklist_button(self.driver)
         self.achains.move_to_element(submit_btn).click().click().perform()
         manatraders_wait_for_upload_menu_fade_out(self.driver)
         manatraders_wait_for_rent_button_enabled(self.driver)
-        rent_button = self.driver.find_element(by=By.CLASS_NAME, value='checkout-get')
+        rent_button = self.driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[2]/div/div[2]/div[2]/div/button') # noqa
         self.achains.move_to_element(rent_button).click().click().perform()
         manatraders_wait_for_confirm_rent_dialog(self.driver)
-        confirm_rent_dialog = self.driver.find_element(by=By.ID, value='insert-username-for-rent-modal')
-        confirm_rent_button = confirm_rent_dialog.find_element(by=By.CLASS_NAME, value='btn-primary-blue')
+        time.sleep(2)
+        confirm_rent_button = self.driver.find_element(by=By.XPATH, value='//*[@id="insert-username-for-rent-modal"]/div/div/div[3]/button[2]') # noqa
         self.achains.move_to_element(confirm_rent_button).click().click().perform()
 
 
 if __name__ == '__main__':
-    # nd = Netdecker()
-    # nd.driver.maximize_window()
-    # nd.manatraders_login()
-    # nd.manatraders_rent_deck('1234567')
-    focus_magic_online()
+    nd = Netdecker()
+    nd.driver.maximize_window()
+    nd.manatraders_login()
+    nd.manatraders_rent_deck('6866938')
+    # focus_magic_online()
     # print(mtggoldfish_get_archetypes('modern'))
     # print(mtggoldfish_get_archetype_decks('modern-song-of-creation'))
