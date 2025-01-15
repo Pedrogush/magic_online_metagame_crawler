@@ -1,7 +1,7 @@
 from ocr import get_word_on_box, get_box
 from loguru import logger
 from utils import focus_magic_online, scroll_down, scroll_up
-from modo_navigator import (
+from mtgo_navigator import (
 
     load_box_positions
 )

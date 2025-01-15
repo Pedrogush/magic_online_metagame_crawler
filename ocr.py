@@ -62,7 +62,7 @@ def get_trade_request_on_box(box) -> str:
     box = [int(b*SCALING_FACTOR) for b in box]
     screenshot = pyautogui.screenshot()
     screenshot = screenshot.crop(box)
-    image = filter_image_trade_request(screenshot)
+    screenshot = filter_image_trade_request(screenshot)
     screenshot.save('trade_request.png')
     config = '-c tessedit_char_whitelist=TradeRequest --psm 7'
     word = pytesseract.image_to_string(screenshot, config=config)

@@ -2,7 +2,6 @@ import pyautogui
 from pynput import mouse
 from loguru import logger
 from ocr import (
-    get_word_on_box,
     get_words_position_on_screen,
     get_trade_request_on_box
 )
@@ -167,10 +166,10 @@ def drag_and_drop_cards_from_trade():
 if __name__ == '__main__':
     # focus_magic_online()
     # configure_box_positions()
-    # login()
+    login()
     # logger.debug('clicking home/colletion/constructed/limited/store/trade in sequence')
     # accept_trade()
     # time.sleep(10)
-    drag_and_drop_cards_from_trade()
+    # drag_and_drop_cards_from_trade()
     # time.sleep(0.5)
     # submit_trade()

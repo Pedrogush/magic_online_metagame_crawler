@@ -4,7 +4,7 @@ import time
 import tkinter as tk
 import json
 import os
-from modo_navigator import wait_for_click, login
+from mtgo_navigator import wait_for_click, login
 from ocr import get_word_on_box
 from metagame import get_latest_deck
 from loguru import logger
