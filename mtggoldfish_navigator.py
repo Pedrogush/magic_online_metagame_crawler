@@ -11,7 +11,10 @@ def get_archetypes(mtg_format: str):
     archetypes: list[bs4.Tag] = metagame_decks.find_all("span", attrs={"class": "deck-price-paper"})
     archetypes = [tag for tag in archetypes if tag.find('a') and not tag.find('div')]
     return [
-        {tag.text.strip(): tag.find('a')['href'].replace('/archetype/', '').replace('#paper', '')} for tag in archetypes
+        {
+            "name": tag.text.strip(),
+            "href": tag.find('a')['href'].replace('/archetype/', '').replace('#paper', '')
+         } for tag in archetypes
     ]
 
 
@@ -26,9 +29,11 @@ def get_archetype_decks(archetype: str):
         tds: list[bs4.Tag] = tr.find_all('td')
         decks.append({
             'date': tds[0].text.strip(),
+            'number': tds[1].select_one('a').attrs.get('href').replace('/deck/', ''),
             'player': tds[2].text.strip(),
             'event': tds[3].text.strip(),
             'result': tds[4].text.strip(),
+            'name': archetype,
         })
     return decks
 
@@ -86,3 +91,8 @@ def download_deck(deck_num: str):
         f.write(file.content)
     deck_cache[deck_num] = open('curr_deck.txt').read()
     json.dump(deck_cache, open('deck_cache.json', 'w'))
+
+
+if __name__ == "__main__":
+    print(get_archetypes('modern'))
+    print('done')

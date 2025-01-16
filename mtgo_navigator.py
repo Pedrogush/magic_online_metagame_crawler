@@ -10,6 +10,7 @@ from utils import (
     click_and_return,
     drag_and_drop_all,
 )
+import pyperclip
 import time
 from PIL import Image, ImageDraw
 import json
@@ -156,6 +157,8 @@ def wait_for_trade():
 def confirm_trade():
     logger.debug('confirming trade')
     click_and_return(*CONFIG["trade_request"]["confirm"])
+    time.sleep(15)
+    click_and_return(*CONFIG["trade_request"]["close_received_cards_window_btn"])
 
 
 def drag_and_drop_cards_from_trade():
@@ -163,10 +166,28 @@ def drag_and_drop_cards_from_trade():
     drag_and_drop_all(*CONFIG["trade_request"]["drag_from"], *CONFIG["trade_request"]["drag_to"])
 
 
+def register_deck(deck_name: str):
+    logger.debug('registering deck')
+    focus_magic_online()
+    click_and_return(*CONFIG["tabs"]["collection"])
+    time.sleep(1)
+    click_and_return(*CONFIG["collection"]["register_deck_btn"])
+    logger.debug('clicking register deck btn')
+    pyperclip.copy(open('curr_deck.txt').read())
+    time.sleep(1)
+    click_and_return(*CONFIG["collection"]["import_clipboard_btn"])
+    click_and_return(*CONFIG["collection"]["deck_name_box"])
+    pyautogui.hotkey('ctrl', 'a')
+    pyautogui.write(deck_name)
+    click_and_return(*CONFIG["collection"]["import_ok_btn"])
+    logger.debug('register_deck returning')
+    return
+
 if __name__ == '__main__':
+    register_deck('_test2')
     # focus_magic_online()
     # configure_box_positions()
-    login()
+    # login()
     # logger.debug('clicking home/colletion/constructed/limited/store/trade in sequence')
     # accept_trade()
     # time.sleep(10)

@@ -97,6 +97,7 @@ def wait_for_bot_to_load_cards(driver: webdriver.Chrome):
 
 
 def wait_for_bot_to_be_ready_to_request_cards(driver: webdriver.Chrome):
+    logger.debug('waiting for bot to be ready to request cards')
     start_time = time.time()
     bot_ready = driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[3]/div/div/div[1]/form/button')
     enabled = bot_ready.is_enabled()
@@ -164,7 +165,9 @@ def return_cards(driver: webdriver.Chrome, action_chains: webdriver.ActionChains
     focus_magic_online()
     wait_for_trade()
     accept_trade()
+    time.sleep(10)
     submit_trade()
+    time.sleep(5)
     confirm_trade()
 
 

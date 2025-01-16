@@ -8,14 +8,30 @@ from mtgo_navigator import wait_for_click, login
 from ocr import get_word_on_box
 from metagame import get_latest_deck
 from loguru import logger
-
+from mtggoldfish_navigator import (
+    get_archetypes,
+    get_archetype_decks,
+)
+from manatraders_navigator import (
+    Webdriver,
+    login as manatraders_login,
+    rent_deck,
+    receive_cards,
+    return_cards,
+)
+from mtgo_navigator import (
+    register_deck,
+)
+# TODO: make webdriver close upon trade completed
+# organize UI so that GUI buttons are divided properly per function
+# hide/show buttons for rent functions when appropriate
 
 def default_label(root):
     return tk.Label(
         root,
         font=('calibri', 15, 'bold'),
-        background='purple',
-        foreground='white',
+        background='skyblue',
+        foreground='black',
         borderwidth=2,
         justify='left',
         relief='solid'
@@ -44,22 +60,46 @@ class MTGHelperWidget:
             self.root,
             text='Configure box',
             font=('calibri', 13, 'bold'),
-            background='purple',
+            background='skyblue',
             command=self.update_box
         )
         self.choose_format_button = tk.Button(
             self.root,
             text='Choose format',
             font=('calibri', 13, 'bold'),
-            background='purple',
+            background='skyblue',
             command=self.update_format
         )
         self.login_button = tk.Button(
             self.root,
             text='Login',
             font=('calibri', 13, 'bold'),
-            background='green',
+            background='light green',
             command=login
+        )
+        self.archetype_list = tk.Listbox(
+            self.root,
+            selectmode=tk.SINGLE,
+            background='skyblue',
+            foreground='black',
+            font=('calibri', 15, 'bold')
+        )
+        self.select_archetype_btn = tk.Button(
+            self.root,
+            text='Select archetype',
+            font=('calibri', 13, 'bold'),
+            background='skyblue',
+            command=self.select_archetype
+        )
+        self.archetypes = get_archetypes('modern')
+        for index, archetype in enumerate(self.archetypes):
+            self.archetype_list.insert(index, archetype["name"])
+        self.return_cards_btn = tk.Button(
+            self.root,
+            text='Return cards',
+            font=('calibri', 13, 'bold'),
+            background='skyblue',
+            command=self.return_cards
         )
         self.ui_pack_components()
 
@@ -69,6 +109,67 @@ class MTGHelperWidget:
         self.choose_format_button.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
         self.configure_box_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=True)
         self.login_button.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
+        self.archetype_list.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
+        self.select_archetype_btn.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
+        self.return_cards_btn.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
+
+    def select_archetype(self):
+        selected = self.archetype_list.curselection()
+        logger.debug(selected)
+        if not selected:
+            return
+        selected = selected[0]
+        logger.debug(selected)
+        archetype = self.archetypes[selected]["href"]
+        logger.debug(archetype)
+        self.decks = get_archetype_decks(archetype)
+        logger.debug(self.decks)
+        self.decks_list_box = tk.Listbox(
+            self.root,
+            selectmode=tk.SINGLE,
+            background='skyblue',
+            foreground='black',
+            font=('calibri', 15, 'bold')
+        )
+        for index, deck in enumerate(self.decks):
+            self.decks_list_box.insert(index, deck["player"])
+        self.decks_list_box.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
+        self.select_deck_btn = tk.Button(
+            self.root,
+            text='Select deck',
+            font=('calibri', 13, 'bold'),
+            background='skyblue',
+            command=self.select_deck
+        )
+        self.select_deck_btn.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
+
+    def select_deck(self):
+        selected = self.decks_list_box.curselection()
+        logger.debug(selected)
+        if not selected:
+            return
+        selected = selected[0]
+        logger.debug(selected)
+        deck = self.decks[selected]
+        logger.debug(deck)
+        self.root.iconify()
+        webdriver = Webdriver()
+        webdriver.driver.maximize_window()
+        manatraders_login(webdriver.driver, webdriver.achains)
+        rent_deck(webdriver.driver, webdriver.achains, deck['number'])
+        time.sleep(5)
+        receive_cards(webdriver.driver)
+        time.sleep(10)
+        register_deck(deck['name']+deck['number'])
+        self.root.deiconify()
+
+    def return_cards(self):
+        self.root.iconify()
+        webdriver = Webdriver()
+        webdriver.driver.maximize_window()
+        manatraders_login(webdriver.driver, webdriver.achains)
+        return_cards(webdriver.driver, webdriver.achains)
+        self.root.deiconify()
 
     def update_box(self):
         self.hide_labels()
@@ -99,14 +200,14 @@ class MTGHelperWidget:
         self.choose_format_button.pack_forget()
         self.configure_box_button.pack_forget()
         self.instructions_label.config(text='Please choose the format')
-        self.text_field = tk.Entry(self.root, font=('calibri', 24, 'bold'), background='purple', foreground='white')
+        self.text_field = tk.Entry(self.root, font=('calibri', 24, 'bold'), background='skyblue', foreground='black')
         self.text_field.pack(anchor="center", fill='x')
         self.text_field.focus()
         self.accept_button = tk.Button(
             root,
             text='Accept',
             font=('calibri', 20, 'bold'),
-            background='purple',
+            background='skyblue',
             command=lambda: self.update_format_done(self.text_field)
         )
         self.accept_button.pack(anchor="center", fill='x')
