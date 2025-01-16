@@ -119,12 +119,13 @@ def login(driver: webdriver.Chrome, achains: webdriver.ActionChains):
     achains.move_to_element(login_box).click().perform()
 
 
-def rent_deck(driver: webdriver.Chrome, achains: webdriver.ActionChains, deck_num: str):
-    download_deck(deck_num)
+def rent_deck(driver: webdriver.Chrome, achains: webdriver.ActionChains, deck_num: str = ''):
+    if deck_num:
+        download_deck(deck_num)
+        pyperclip.copy(open('curr_deck.txt').read())
     driver.get("https://www.manatraders.com/webshop")
     upload_btn = driver.find_element(by=By.XPATH, value='//*[@id="page-wrapper"]/div[2]/div/div[2]/div[4]/button[2]') # noqa
     achains.move_to_element(upload_btn).click().perform()
-    pyperclip.copy(open('curr_deck.txt').read())
     wait_for_upload_menu_fade_in(driver)
     text_area = driver.find_element(by=By.XPATH, value='//*[@id="text"]')
     achains.move_to_element(text_area).click().click().key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform() # noqa

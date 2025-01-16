@@ -90,7 +90,7 @@ def download_deck(deck_num: str):
     with open('curr_deck.txt', 'wb') as f:
         f.write(file.content)
     deck_cache[deck_num] = open('curr_deck.txt').read()
-    json.dump(deck_cache, open('deck_cache.json', 'w'))
+    json.dump(deck_cache, open('deck_cache.json', 'w'), indent=4)
 
 
 if __name__ == "__main__":
