@@ -1,14 +1,14 @@
-from ocr import get_word_on_box, get_box
+from utils.ocr import get_word_on_box, get_box
 from loguru import logger
-from utils import focus_magic_online, scroll_down, scroll_up
-from mtgo_navigator import (
+from utils.mouse_ops import focus_magic_online, scroll_down, scroll_up
+from navigators.mtgo import (
 
     load_box_positions
 )
 from curl_cffi import requests
 import bs4
 import time
-from dbq import get_db
+from utils.dbq import get_db
 CHALLENGE_LOOKUP_OPTIONS = (
     'Modern',
     'Pionneer',

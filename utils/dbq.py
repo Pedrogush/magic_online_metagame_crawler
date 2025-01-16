@@ -1,6 +1,6 @@
 import pymongo
 from dataclasses import asdict
-from common import Card
+from utils.common import Card
 
 
 def get_db():

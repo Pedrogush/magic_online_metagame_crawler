@@ -6,8 +6,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from loguru import logger
-from mtggoldfish_navigator import download_deck
-from mtgo_navigator import (
+from navigators.mtggoldfish import download_deck
+from navigators.mtgo import (
     focus_magic_online,
     wait_for_trade,
     accept_trade,

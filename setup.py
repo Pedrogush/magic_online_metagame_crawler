@@ -6,7 +6,7 @@ setuptools.setup(
     author="yochi",
     author_email="pedrogush@gmail.com",
     description="get stats out of modo",
-    packages=[],
+    packages=['widgets', 'navigators', 'utils'],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: Windows"

@@ -1,11 +1,11 @@
 import pyautogui
 from pynput import mouse
 from loguru import logger
-from ocr import (
+from utils.ocr import (
     get_words_position_on_screen,
     get_trade_request_on_box
 )
-from utils import (
+from utils.mouse_ops import (
     focus_magic_online,
     click_and_return,
     drag_and_drop_all,
