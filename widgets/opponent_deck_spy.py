@@ -78,7 +78,6 @@ class MTGOpponentDeckSpy:
     def hide_widget(self, event):
         if time.time() - self.last_hidden < 5:
             return
-        self.opponent_name_label.forget()
         self.frame_title_top_right.forget()
         self.frame_bottom.forget()
         self.last_hidden = time.time()
@@ -86,9 +85,7 @@ class MTGOpponentDeckSpy:
     def show_widget(self, event):
         self.frame_bottom.pack(anchor="center", fill='x', side=tk.BOTTOM, expand=False)
         self.opponent_deck_label.forget()
-        self.opponent_name_label.forget()
         self.frame_title_top_right.pack(anchor="center", fill='both', side=tk.TOP, expand=True)
-        self.opponent_name_label.pack(anchor="center", expand=False, fill='both')
         self.opponent_deck_label.pack(anchor="center", expand=False, fill='both')
 
     def start_move(self, event):
@@ -116,7 +113,6 @@ class MTGOpponentDeckSpy:
         self.frame_top_right, self.frame_title_top_right = default_frame(self.frame_top, "Opponent Deck Monitor", color=CS[1])
         self.frame_bottom, self.frame_title_bottom = default_frame(self.root, "Configuration", color=CS[3])
         # labels
-        self.opponent_name_label = default_label(self.frame_top_right)
         self.opponent_deck_label = default_label(self.frame_top_right)
         self.deck_monitor_instructions_label = default_label(self.frame_top_right)
         self.configure_box_button = default_button(self.frame_bottom, 'Configure box', self.update_box)
@@ -152,7 +148,6 @@ class MTGOpponentDeckSpy:
         self.ui_pack_components()
 
     def ui_pack_components(self):
-        self.opponent_name_label.pack(anchor="center", expand=False, fill='both')
         self.opponent_deck_label.pack(anchor="center", expand=False, fill='both')
         self.login_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=False)
         self.choose_format_button.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
@@ -206,8 +201,6 @@ class MTGOpponentDeckSpy:
         self.refresh_labels()
 
     def refresh_labels(self):
-        self.opponent_name_label.config(text=self.player_name.strip(), border=2)
-        self.opponent_name_label.update()
         self.opponent_deck_label.config(text=f"{self.last_seen_deck}", border=2)
         self.opponent_deck_label.update()
 
