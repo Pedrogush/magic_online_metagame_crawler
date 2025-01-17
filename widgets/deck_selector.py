@@ -6,6 +6,7 @@ import json
 import pyperclip
 from navigators.mtgo import login
 from loguru import logger
+from utils.deck import deck_to_dictionary, add_dicts
 from navigators.mtggoldfish import (
     get_archetypes,
     get_archetype_decks,
@@ -21,9 +22,13 @@ from navigators.manatraders import (
 from navigators.mtgo import (
     register_deck,
 )
-# TODO: make webdriver close upon trade completed
-# organize UI so that GUI buttons are divided properly per function
-# hide/show buttons for rent functions when appropriate
+# TODO: add buttons
+# return to select archetype state
+# clear buffer
+# clear list
+# round decklist down
+# round decklist up
+# round decklist
 COLOR_SCHEME = 'bisque'
 CS = [COLOR_SCHEME+'1', COLOR_SCHEME+'2', COLOR_SCHEME+'3', COLOR_SCHEME+'4', COLOR_SCHEME]
 
@@ -89,6 +94,8 @@ class MTGDeckSelectionWidget:
         self.format = 'Modern'
         self.updating = False
         self.user_has_edited_deck = False
+        self.deck_buffer: dict = {}
+        self.decks_added = 0
 
     def ui_make_components(self):
         self.root.title('MTG Helper')
@@ -96,9 +103,14 @@ class MTGDeckSelectionWidget:
         self.frame_top = default_frame(self.root, "", color='bisque4')
         self.frame_top_left = default_frame(self.frame_top, "Manatraders Card Rental Automation", color=CS[1])
         self.frame_top_right = default_frame(self.frame_top, "Decklist", color=CS[1])
+        self.frame_top_right_top = default_frame(self.frame_top_right, '', color=CS[2])
         self.frame_bottom = default_frame(self.root, "Configuration", color=CS[3])
         # labels
+        self.save_deck_button = default_button(self.frame_top_right_top, 'Save deck', self.save_deck_as)
+        self.add_deck_to_buffer_button = default_button(self.frame_top_right_top, 'Add deck to buffer', self.add_deck_to_buffer)
+        self.make_average_deck_button = default_button(self.frame_top_right_top, 'Make average deck', self.make_average_deck)
         self.choose_format_button = default_button(self.frame_bottom, 'Choose format', self.update_format)
+        self.reset_button = default_button(self.frame_bottom, 'Reset', self.reset)
         self.login_button = default_button(self.frame_bottom, 'MTGO Login', login, color=CS[2], font=('calibri', 15, 'bold'))
         self.listbox = default_listbox(self.frame_top_left, color=CS[4])
         self.listbox_scrollbar = tk.Scrollbar(self.listbox, orient="vertical")
@@ -111,6 +123,27 @@ class MTGDeckSelectionWidget:
         self.ui_pack_components()
         self.ui_bind_components()
 
+    def save_deck_as(self):
+        pass
+
+    def add_deck_to_buffer(self):
+        self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(self.textbox.get("1.0", tk.END)))
+        self.decks_added += 1
+
+    def make_average_deck(self):
+        deck_string = ''
+        added_sideboard_blank_line = False
+        sorted_cards = sorted(self.deck_buffer.items(), key=lambda x: 'Sideboard' in x[0])
+        for card in sorted_cards:
+            if 'Sideboard' in card[0] and not added_sideboard_blank_line:
+                deck_string += '\n'
+                added_sideboard_blank_line = True
+            deck_string += f'{float(card[1])/self.decks_added:.2f} {card[0].replace('Sideboard ', '')}\n'
+        self.textbox.delete('1.0', tk.END)
+        self.textbox.insert('1.0', deck_string)
+        self.decks_added = 0
+        self.deck_buffer = {}
+
     def textbox_on_change(self, event):
         self.last_event = event
         self.user_has_edited_deck = True
@@ -119,15 +152,20 @@ class MTGDeckSelectionWidget:
         self.textbox.bind("<Key>", self.textbox_on_change)
 
     def ui_pack_components(self):
+
         self.login_button.pack(anchor="center", fill='x', side=tk.LEFT, expand=False)
         self.choose_format_button.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
         self.listbox.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
         self.listbox_btn.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=False)
         self.listbox_scrollbar.pack(anchor="center", fill='y', side=tk.RIGHT)
         self.return_cards_btn.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=False)
+        self.save_deck_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=False)
+        self.add_deck_to_buffer_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=False)
+        self.make_average_deck_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=False)
         self.textbox.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
         self.frame_top.pack(anchor="center", fill='both', side=tk.TOP, expand=True)
         self.frame_top_right.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
+        self.frame_top_right_top.pack(anchor="center", fill='both', side=tk.TOP, expand=False)
         self.frame_top_left.pack(anchor="center", fill='both', side=tk.LEFT, expand=True)
         self.frame_bottom.pack(anchor="center", fill='x', side=tk.BOTTOM, expand=False)
 
