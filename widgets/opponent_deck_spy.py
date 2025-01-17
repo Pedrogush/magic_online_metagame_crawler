@@ -22,7 +22,7 @@ def default_label(root, text=' ', color=CS[0]):
     return tk.Label(
         root,
         text=text,
-        font=('calibri', 10, 'bold'),
+        font=('calibri', 7, 'bold'),
         background=color,
         foreground='black',
         borderwidth=2,
@@ -31,7 +31,7 @@ def default_label(root, text=' ', color=CS[0]):
     )
 
 
-def default_button(root, text, command, color=CS[0], font=('calibri', 10, 'bold')):
+def default_button(root, text, command, color=CS[0], font=('calibri', 7, 'bold')):
     return tk.Button(
         root,
         text=text,
@@ -45,7 +45,7 @@ def default_frame(root, name, color=CS[3]):
     frame = tk.Frame(root, relief='solid', padx=3, pady=3, background=color, borderwidth=2, highlightbackground=color, highlightthickness=1)
     frame_title = None
     if name:
-        frame_title = tk.Label(frame, text=name, font=('calibri', 11, 'bold'), background=CS[2], foreground='black', relief='solid')
+        frame_title = tk.Label(frame, text=name, font=('calibri', 7, 'bold'), background=CS[2], foreground='black', relief='solid')
         frame_title.pack(anchor="center", expand=False, fill='both')
     return frame, frame_title
 
@@ -53,7 +53,7 @@ def default_frame(root, name, color=CS[3]):
 class MTGOpponentDeckSpy:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.config(background=CS[3], relief="solid", bg=CS[2], highlightbackground=CS[3], highlightthickness=1)
+        self.root.config(background=CS[3], relief="solid", bg=CS[2], highlightbackground=CS[3], highlightthickness=1, width=200, height=100)
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', 'true')
         self.ui_make_components()
@@ -62,12 +62,10 @@ class MTGOpponentDeckSpy:
         self.exit_button = tk.Button(self.frame_bottom, text='Exit', command=self.root.quit, bg='bisque4')
         self.exit_button.pack(anchor="center", fill='x', side=tk.BOTTOM, expand=False)
         self.label.pack(side="right", fill="both", expand=True)
-        self.last_hidden = time.time()
         self.label.bind("<ButtonPress-1>", self.start_move)
         self.label.bind("<ButtonRelease-1>", self.stop_move)
         self.label.bind("<B1-Motion>", self.do_move)
-        self.root.bind("<Enter>", self.show_widget)
-        self.root.bind("<Leave>", self.hide_widget)
+        self.root.bind("<Enter>", self.show_bottom_frame)
         self.last_looked_at_ts = time.time()
         self.load_config()
         self.player_name: str = get_word_on_box((self.box), 'black')
@@ -75,21 +73,13 @@ class MTGOpponentDeckSpy:
         self.updating = False
         self.update_deck()
 
-    def hide_widget(self, event):
-        if time.time() - self.last_hidden < 5:
-            return
-        self.frame_title_top_right.forget()
+    def hide_bottom_frame(self):
         self.frame_bottom.forget()
-        self.last_hidden = time.time()
 
-    def show_widget(self, event):
+    def show_bottom_frame(self, event):
         self.frame_bottom.pack(anchor="center", fill='x', side=tk.BOTTOM, expand=False)
-        self.opponent_deck_label.forget()
-        self.frame_title_top_right.pack(anchor="center", fill='both', side=tk.TOP, expand=True)
-        self.opponent_deck_label.pack(anchor="center", expand=False, fill='both')
 
     def start_move(self, event):
-        self.frame_title_top_right.forget()
         self.frame_bottom.forget()
         self.root.x = event.x
         self.root.y = event.y
@@ -109,12 +99,11 @@ class MTGOpponentDeckSpy:
     def ui_make_components(self):
         self.root.title("Umezawa's Monitor")
         # frames
-        self.frame_top, self.frame_title_top = default_frame(self.root, "", color='bisque4')
-        self.frame_top_right, self.frame_title_top_right = default_frame(self.frame_top, "Opponent Deck Monitor", color=CS[1])
+        self.frame_top, self.frame_title_top = default_frame(self.root, "Playing", color=CS[1])
         self.frame_bottom, self.frame_title_bottom = default_frame(self.root, "Configuration", color=CS[3])
         # labels
-        self.opponent_deck_label = default_label(self.frame_top_right)
-        self.deck_monitor_instructions_label = default_label(self.frame_top_right)
+        self.opponent_deck_label = default_label(self.frame_top)
+        self.deck_monitor_instructions_label = default_label(self.frame_top)
         self.configure_box_button = default_button(self.frame_bottom, 'Configure box', self.update_box)
         self.format = tk.StringVar(value=FORMAT_OPTIONS[0])
         self.choose_format_frame = tk.Frame(self.frame_bottom, background=CS[2])
@@ -141,10 +130,8 @@ class MTGOpponentDeckSpy:
             borderwidth=2,
             relief='solid',
         )
-    
-        logger.debug(dict(self.choose_format_button["menu"]))
-        logger.debug(dir(self.choose_format_button["menu"]))
         self.login_button = default_button(self.frame_bottom, 'MTGO Login', login, color=CS[2], font=('calibri', 10, 'bold'))
+        self.hide_widget_button = default_button(self.frame_bottom, 'Hide', self.hide_bottom_frame, color=CS[2], font=('calibri', 10, 'bold'))
         self.ui_pack_components()
 
     def ui_pack_components(self):
@@ -153,8 +140,8 @@ class MTGOpponentDeckSpy:
         self.choose_format_button.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
         self.choose_format_frame.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
         self.configure_box_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=True)
+        self.hide_widget_button.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
         self.frame_top.pack(anchor="center", fill='both', side=tk.TOP, expand=True)
-        self.frame_top_right.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
         self.frame_bottom.pack(anchor="center", fill='x', side=tk.BOTTOM, expand=False)
 
     def update_box(self):
@@ -222,7 +209,6 @@ class MTGOpponentDeckSpy:
             logger.debug(config["screen_pos"])
             self.root.geometry(f'+{config["screen_pos"][0]}+{config["screen_pos"][1]}')
             self.root.update()
-            logger.debug([self.root.winfo_x(), self.root.winfo_y()])
             return
         self.box = (93, 320, 311, 358)  # any valid box works fine
         self.vertices = ((93, 320), (93, 358), (311, 320), (311, 358))
