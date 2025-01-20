@@ -96,6 +96,9 @@ class MTGDeckSelectionWidget:
         self.user_has_edited_deck = False
         self.deck_buffer: dict = {}
         self.decks_added = 0
+        
+    def reset(self):
+        pass    
 
     def ui_make_components(self):
         self.root.title('MTG Helper')
@@ -138,7 +141,7 @@ class MTGDeckSelectionWidget:
             if 'Sideboard' in card[0] and not added_sideboard_blank_line:
                 deck_string += '\n'
                 added_sideboard_blank_line = True
-            deck_string += f'{float(card[1])/self.decks_added:.2f} {card[0].replace('Sideboard ', '')}\n'
+            deck_string += f'{float(card[1])/self.decks_added:.2f} {card[0].replace("Sideboard ", "")}\n'
         self.textbox.delete('1.0', tk.END)
         self.textbox.insert('1.0', deck_string)
         self.decks_added = 0
@@ -163,6 +166,7 @@ class MTGDeckSelectionWidget:
         self.add_deck_to_buffer_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=False)
         self.make_average_deck_button.pack(anchor="center", fill='both', side=tk.LEFT, expand=False)
         self.textbox.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=True)
+        self.reset_button.pack(anchor="center", fill='both', side=tk.RIGHT, expand=False)
         self.frame_top.pack(anchor="center", fill='both', side=tk.TOP, expand=True)
         self.frame_top_right.pack(anchor="center", fill='both', side=tk.RIGHT, expand=True)
         self.frame_top_right_top.pack(anchor="center", fill='both', side=tk.TOP, expand=False)
