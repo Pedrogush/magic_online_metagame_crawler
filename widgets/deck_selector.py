@@ -31,7 +31,7 @@ from navigators.mtgo import (
 # round decklist
 COLOR_SCHEME = 'bisque'
 CS = [COLOR_SCHEME+'1', COLOR_SCHEME+'2', COLOR_SCHEME+'3', COLOR_SCHEME+'4', COLOR_SCHEME]
-
+CONFIG = json.load(open('config.json'))
 
 def default_label(root, text=' ', color=CS[0]):
     return tk.Label(
@@ -81,7 +81,7 @@ def repopulate_listbox(listbox: tk.Listbox, items: list):
         listbox.insert(index, item)
 
 
-def format_deck(deck: dict):
+def format_deck_name(deck: dict):
     return f"{deck['date']} {deck['player']} {deck['event']} {deck['result']}"
 
 
@@ -94,6 +94,7 @@ class MTGDeckSelectionWidget:
         self.format = 'Modern'
         self.updating = False
         self.user_has_edited_deck = False
+        self.currently_selected_deck = {}
         self.deck_buffer: dict = {}
         self.decks_added = 0
 
@@ -118,6 +119,7 @@ class MTGDeckSelectionWidget:
         self.save_deck_button = default_button(self.frame_top_right_top, 'Save deck', self.save_deck_as)
         self.add_deck_to_buffer_button = default_button(self.frame_top_right_top, 'Add deck to buffer', self.add_deck_to_buffer)
         self.make_average_deck_button = default_button(self.frame_top_right_top, 'Make average deck', self.make_average_deck)
+        self.make_daily_average_deck_button = default_button(self.frame_top_right_top, 'Archetype Average for the Day', self.set_daily_average_deck)
         self.choose_format_button = default_button(self.frame_bottom, 'Choose format', self.update_format)
         self.reset_button = default_button(self.frame_top_left, 'Reset', self.ui_reset_to_archetype_selection)
         self.login_button = default_button(self.frame_bottom, 'MTGO Login', login, color=CS[2], font=('calibri', 15, 'bold'))
@@ -133,7 +135,10 @@ class MTGDeckSelectionWidget:
         self.ui_bind_components()
 
     def save_deck_as(self):
-        pass
+        logger.debug(self.currently_selected_deck)
+        deck_name = f'{format_deck_name(self.currently_selected_deck)}.txt'
+        with open(CONFIG['deck_selector_save_path']+deck_name, 'w') as f:
+            f.write(self.textbox.get("1.0", tk.END))
 
     def add_deck_to_buffer(self):
         self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(self.textbox.get("1.0", tk.END)))
@@ -184,16 +189,31 @@ class MTGDeckSelectionWidget:
         selected = selected[0]
         archetype = self.archetypes[selected]["href"]
         self.decks = get_archetype_decks(archetype)
-        repopulate_listbox(self.listbox, [format_deck(deck) for deck in self.decks])
+        repopulate_listbox(self.listbox, [format_deck_name(deck) for deck in self.decks])
         self.listbox_btn.config(text='Select deck', command=self.select_deck)
         self.listbox.bind('<<ListboxSelect>>', self.set_textbox)
         self.reset_button.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=False)
+        
+        self.make_daily_average_deck_button.pack(anchor="center", fill='both', side=tk.BOTTOM, expand=False)
+
+    def set_daily_average_deck(self):
+        today = time.strftime('%Y-%m-%d')
+        decks_from_today = [d for d in self.decks if today.lower() in d['date']]
+        self.deck_buffer = {}
+        self.decks_added = 0
+        for deck in decks_from_today:
+            download_deck(deck['number'])
+            deck_str = open('curr_deck.txt').read()
+            self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(deck_str))
+            self.decks_added += 1
+        self.make_average_deck()
 
     def set_textbox(self, event):
         selected = self.listbox.curselection()
         if not selected:
             return
         selected = selected[0]
+        self.currently_selected_deck = self.decks[selected]
         deck = self.decks[selected]
         self.textbox.delete('1.0', tk.END)
         download_deck(deck['number'])
@@ -206,8 +226,8 @@ class MTGDeckSelectionWidget:
             return
         selected = selected[0]
         logger.debug(selected)
-        deck = self.decks[selected]
-        logger.debug(deck)
+        self.currently_selected_deck = self.decks[selected]
+        logger.debug(self.currently_selected_deck)
         self.root.iconify()
         webdriver = Webdriver()
         webdriver.driver.maximize_window()
@@ -217,11 +237,11 @@ class MTGDeckSelectionWidget:
             pyperclip.copy(self.textbox.get("1.0", tk.END))
             rent_deck(webdriver.driver, webdriver.achains)
         else:
-            rent_deck(webdriver.driver, webdriver.achains, deck['number'])
+            rent_deck(webdriver.driver, webdriver.achains, self.currently_selected_deck['number'])
         time.sleep(5)
         receive_cards(webdriver.driver)
         time.sleep(10)
-        register_deck(deck['name']+deck['number'])
+        register_deck(self.currently_selected_deck['name']+self.currently_selected_deck['number'])
         self.root.deiconify()
         webdriver.driver.quit()
         repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])

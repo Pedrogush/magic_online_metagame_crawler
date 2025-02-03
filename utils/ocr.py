@@ -3,7 +3,7 @@ import pytesseract
 import pyautogui
 from PIL import Image
 from loguru import logger
-SCALING_FACTOR = 1.25
+SCALING_FACTOR = 1
 
 
 def set_dpi(image, dpi):

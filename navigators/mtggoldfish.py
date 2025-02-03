@@ -5,7 +5,7 @@ import os
 
 
 def get_archetypes(mtg_format: str):
-    page = requests.get(f'https://www.mtggoldfish.com/metagame/{mtg_format}/full')
+    page = requests.get(f'https://www.mtggoldfish.com/metagame/{mtg_format}/full', impersonate="chrome")
     soup = bs4.BeautifulSoup(page.text, 'html.parser')
     metagame_decks = soup.select_one("#metagame-decks-container")
     archetypes: list[bs4.Tag] = metagame_decks.find_all("span", attrs={"class": "deck-price-paper"})
