@@ -67,6 +67,10 @@ def button(root, text, command, color=CS[0], font=("calibri", 13, "bold")):
     return tk.Button(root, text=text, font=font, background=color, command=command)
 
 
+def b_button(root, text, command, color=CS[0], font=("calibri", 13, "bold")):
+    return tk.Button(root, text=text, font=font, background=color, command=command, height=1)
+
+
 def listbox(root, color=CS[0], font=("calibri", 15, "bold")):
     return tk.Listbox(root, selectmode=tk.SINGLE, background=color, foreground="black", font=font)
 
@@ -83,6 +87,12 @@ def frame(root, name, color=CS[3]):
             relief="solid",
         )
         frame_title.pack(anchor="center", expand=False, fill="both")
+    return frame
+
+
+def b_frame(root, color=CS[3]):
+    frame = tk.Frame(root, relief="solid", padx=3, pady=0, background=color, borderwidth=0, height=15)
+    frame.pack(anchor="center", fill="y", side=tk.TOP, expand=True)
     return frame
 
 
@@ -160,23 +170,17 @@ class MTGDeckSelectionWidget:
         self.F_top_left = frame(self.F_top, "Manatraders Card Rental Automation", color=CS[1])
         self.F_top_right = frame(self.F_top, "Decklist", color=CS[1])
         self.F_top_right_top = frame(self.F_top_right, "", color=CS[2])
-        self.F_top_right_right = frame(self.F_top_right, "", color=CS[2])
+        self.F_top_textbox = frame(self.F_top_right, "", color=CS[2])
         self.F_bottom = frame(self.root, "Configuration", color=CS[3])
 
     def ui_create_buttons(self):
         self.save_deck_button: tk.Button
         self.save_deck_button = button(self.F_top_right_top, "Save deck", self.save_deck_as)
         self.add_deck_to_buffer_button = button(self.F_top_right_top, "Add deck to buffer", self.add_deck_to_buffer)
-        self.make_average_deck_button = button(self.F_top_right_top, "Make average deck", self.make_average_deck)
-        self.make_daily_average_deck_button = button(self.F_top_right_top, "Average", self.set_daily_average_deck)
+        self.make_average_deck_button = button(self.F_top_right_top, "Mean of buffer", self.make_average_deck)
+        self.make_daily_average_deck_button = button(self.F_top_right_top, "Day's Average", self.set_daily_average_deck)
         self.reset_button = button(self.F_top_left, "Reset", self.ui_reset_to_archetype_selection)
-        self.login_button = button(
-            self.F_bottom,
-            "MTGO Login",
-            login,
-            color=CS[2],
-            font=("calibri", 15, "bold"),
-        )
+        self.login_button = button(self.F_bottom, "MTGO Login", login)
         self.listbox_button = button(self.F_top_left, "Select archetype", self.select_archetype)
         self.return_cards_button = button(self.F_top_left, "Return cards", self.return_cards)
         self.ui_format_menu()
@@ -214,11 +218,14 @@ class MTGDeckSelectionWidget:
 
     def ui_create_textbox(self):
         self.textbox = tk.Text(
-            self.F_top_right,
+            self.F_top_textbox,
             font=("calibri", 15, "bold"),
             background=CS[1],
             foreground="black",
         )
+        self.textbox_plus_buttons: list[tk.Button] = []
+        self.textbox_minus_buttons: list[tk.Button] = []
+        self.textbox_remove_buttons: list[tk.Button] = []
 
     def save_deck_as(self):
         logger.debug(self.currently_selected_deck)
@@ -238,9 +245,15 @@ class MTGDeckSelectionWidget:
             if "Sideboard" in card[0] and not added_sideboard_blank_line:
                 deck_string += "\n"
                 added_sideboard_blank_line = True
+            card_average = float(card[1]) / self.decks_added
+            if card_average.is_integer():
+                deck_string += f"{int(card_average)} {card[0].replace('Sideboard ', '')}\n"
+                continue
             deck_string += f'{float(card[1])/self.decks_added:.2f} {card[0].replace("Sideboard ", "")}\n'
         self.textbox.delete("1.0", tk.END)
         self.textbox.insert("1.0", deck_string)
+        lines = self.textbox.get("1.0", tk.END).split("\n")
+        self.set_textbox_buttons(lines)
         self.decks_added = 0
         self.deck_buffer = {}
 
@@ -261,13 +274,13 @@ class MTGDeckSelectionWidget:
         self.save_deck_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
         self.add_deck_to_buffer_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
         self.make_average_deck_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
-        self.textbox.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=True)
+        self.textbox.pack(anchor="center", fill="both", side=tk.LEFT, expand=True)
         self.F_top.pack(anchor="center", fill="both", side=tk.TOP, expand=True)
         self.F_top_right.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
         self.F_top_right_top.pack(anchor="center", fill="both", side=tk.TOP, expand=False)
         self.F_top_left.pack(anchor="center", fill="both", side=tk.LEFT, expand=True)
         self.F_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
-        self.F_top_right_right.pack(anchor="center", fill="both", side=tk.RIGHT, expand=False)
+        self.F_top_textbox.pack(anchor="center", fill="both", side=tk.RIGHT, expand=False)
 
     def select_archetype(self):
         selected = self.listbox.curselection()
@@ -304,6 +317,71 @@ class MTGDeckSelectionWidget:
         self.textbox.delete("1.0", tk.END)
         download_deck(deck["number"])
         self.textbox.insert("1.0", open("curr_deck.txt").read())
+        lines = self.textbox.get("1.0", tk.END).split("\n")        
+        self.set_textbox_buttons(lines)
+
+    def set_textbox_buttons(self, lines):
+        accum_padding = 0
+        self.q_btn_frames = []
+        for line in lines:
+            FONT = ("verdana", 7)
+            if not line.strip():
+                empty_frame = b_frame(self.F_top_textbox, color=CS[2])
+                empty_frame.pack(anchor="center", fill="both", side=tk.TOP, expand=False)
+                self.q_btn_frames.append(empty_frame)
+                continue
+            qtn_btns_frame = b_frame(self.F_top_textbox, color=CS[2])
+            self.q_btn_frames.append(qtn_btns_frame)
+            plus_btn = b_button(qtn_btns_frame, "+", lambda line=line: self.increment_card(line), font=FONT)
+            minus_btn = b_button(qtn_btns_frame, "-", lambda line=line: self.decrement_card(line), font=FONT)
+            remove_btn = b_button(qtn_btns_frame, "X", lambda line=line: self.remove_card(line), font=FONT)
+            plus_btn.pack(anchor="center", fill="x", side=tk.LEFT, expand=False)
+            minus_btn.pack(anchor="center", fill="x", side=tk.LEFT, expand=False)
+            remove_btn.pack(anchor="center", fill="x", side=tk.LEFT, expand=False)
+            if accum_padding < 8:
+                qtn_btns_frame.pack(anchor="center", fill="both", side=tk.TOP, expand=False, ipady=2)
+                accum_padding += 2
+                continue
+            qtn_btns_frame.pack(anchor="center", fill="both", side=tk.TOP, expand=False, ipady=0)
+            accum_padding = 0
+
+    def increment_card(self, line):
+        card = ' '.join(line.split(" ")[1:])
+        lines = self.textbox.get("1.0", tk.END).split("\n")
+        index = [lines.index(card_description) for card_description in lines if card in card_description][0]
+        for curr_line in lines:
+            if card not in curr_line:
+                continue
+            amount = int(float(curr_line.split(" ")[0]))
+            amount += 1
+            line = f"{str(amount)} {''.join(card)}"
+        lines[index] = line
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", "\n".join(lines))
+
+    def decrement_card(self, line):
+        card = ' '.join(line.split(" ")[1:])
+        lines = self.textbox.get("1.0", tk.END).split("\n")
+        index = [lines.index(card_description) for card_description in lines if card in card_description][0]
+        for curr_line in lines:
+            if card not in curr_line:
+                continue
+            amount = int(float(curr_line.split(" ")[0]))
+            amount -= 1
+            line = f"{str(amount)} {''.join(card)}"
+        lines[index] = line
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", "\n".join(lines))
+
+    def remove_card(self, line):
+        card = ' '.join(line.split(" ")[1:])
+        lines = self.textbox.get("1.0", tk.END).split("\n")
+        index = [lines.index(card_description) for card_description in lines if card in card_description][0]
+        lines.pop(index)
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", "\n".join(lines))
+        self.q_btn_frames[index].pack_forget()
+        self.q_btn_frames.pop(index)
 
     def select_deck(self):
         selected = self.listbox.curselection()
