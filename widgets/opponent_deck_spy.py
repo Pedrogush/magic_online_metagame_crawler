@@ -88,12 +88,8 @@ class MTGOpponentDeckSpy:
         self.root.attributes("-topmost", "true")
         self.ui_make_components()
         self.load_cache()
-        self.label = tk.Label(
-            self.frame_bottom, text="Click here to move", bg="bisque3"
-        )
-        self.exit_button = tk.Button(
-            self.frame_bottom, text="Exit", command=self.root.quit, bg="bisque4"
-        )
+        self.label = tk.Label(self.frame_bottom, text="Click here to move", bg="bisque3")
+        self.exit_button = tk.Button(self.frame_bottom, text="Exit", command=self.root.quit, bg="bisque4")
         self.exit_button.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
         self.label.pack(side="right", fill="both", expand=True)
         self.label.bind("<ButtonPress-1>", self.start_move)
@@ -133,18 +129,12 @@ class MTGOpponentDeckSpy:
     def ui_make_components(self):
         self.root.title("Umezawa's Monitor")
         # frames
-        self.frame_top, self.frame_title_top = default_frame(
-            self.root, "Playing", color=CS[1]
-        )
-        self.frame_bottom, self.frame_title_bottom = default_frame(
-            self.root, "Configuration", color=CS[3]
-        )
+        self.frame_top, self.frame_title_top = default_frame(self.root, "Playing", color=CS[1])
+        self.frame_bottom, self.frame_title_bottom = default_frame(self.root, "Configuration", color=CS[3])
         # labels
         self.opponent_deck_label = default_label(self.frame_top)
         self.deck_monitor_instructions_label = default_label(self.frame_top)
-        self.configure_box_button = default_button(
-            self.frame_bottom, "Configure box", self.update_box
-        )
+        self.configure_box_button = default_button(self.frame_bottom, "Configure box", self.update_box)
         self.format = tk.StringVar(value=FORMAT_OPTIONS[0])
         self.choose_format_frame = tk.Frame(self.frame_bottom, background=CS[2])
         self.choose_format_button = tk.OptionMenu(
@@ -195,42 +185,26 @@ class MTGOpponentDeckSpy:
     def ui_pack_components(self):
         self.opponent_deck_label.pack(anchor="center", expand=False, fill="both")
         self.login_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
-        self.choose_format_button.pack(
-            anchor="center", fill="both", side=tk.RIGHT, expand=True
-        )
-        self.choose_format_frame.pack(
-            anchor="center", fill="both", side=tk.RIGHT, expand=True
-        )
-        self.configure_box_button.pack(
-            anchor="center", fill="both", side=tk.LEFT, expand=True
-        )
-        self.hide_widget_button.pack(
-            anchor="center", fill="both", side=tk.BOTTOM, expand=True
-        )
+        self.choose_format_button.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
+        self.choose_format_frame.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
+        self.configure_box_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=True)
+        self.hide_widget_button.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=True)
         self.frame_top.pack(anchor="center", fill="both", side=tk.TOP, expand=True)
         self.frame_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
 
     def update_box(self):
-        self.deck_monitor_instructions_label.pack(
-            anchor="center", expand=True, fill="both", side=tk.TOP
-        )
+        self.deck_monitor_instructions_label.pack(anchor="center", expand=True, fill="both", side=tk.TOP)
         self.updating = True
         logger.debug("Updating box")
-        self.deck_monitor_instructions_label.config(
-            text="Click on the top left corner of the box"
-        )
+        self.deck_monitor_instructions_label.config(text="Click on the top left corner of the box")
         self.deck_monitor_instructions_label.update()
         v1 = wait_for_click()
-        self.deck_monitor_instructions_label.config(
-            text="Click on the bottom right corner of the box"
-        )
+        self.deck_monitor_instructions_label.config(text="Click on the bottom right corner of the box")
         self.deck_monitor_instructions_label.update()
         v2 = wait_for_click()
         self.box = (v1[0], v1[1], v2[0], v2[1])
         self.vertices = ((v1[0], v1[1]), (v1[0], v2[1]), (v2[0], v1[1]), (v2[0], v2[1]))
-        self.deck_monitor_instructions_label.config(
-            text="Box updated, vertices are {}".format(self.vertices)
-        )
+        self.deck_monitor_instructions_label.config(text="Box updated, vertices are {}".format(self.vertices))
         self.deck_monitor_instructions_label.update()
         self.save_config()
         time.sleep(1.5)
@@ -249,10 +223,7 @@ class MTGOpponentDeckSpy:
             self.refresh_labels()
             return
         self.player_name = get_word_on_box(self.box, "black")
-        if (
-            self.player_name in self.cache
-            and time.time() - self.cache[self.player_name]["ts"] < 1800
-        ):
+        if self.player_name in self.cache and time.time() - self.cache[self.player_name]["ts"] < 1800:
             self.last_seen_deck = self.cache[self.player_name]["deck"]
             self.root.after(10000, self.update_deck)
             self.refresh_labels()

@@ -68,15 +68,11 @@ def button(root, text, command, color=CS[0], font=("calibri", 13, "bold")):
 
 
 def listbox(root, color=CS[0], font=("calibri", 15, "bold")):
-    return tk.Listbox(
-        root, selectmode=tk.SINGLE, background=color, foreground="black", font=font
-    )
+    return tk.Listbox(root, selectmode=tk.SINGLE, background=color, foreground="black", font=font)
 
 
 def frame(root, name, color=CS[3]):
-    frame = tk.Frame(
-        root, relief="solid", padx=3, pady=3, background=color, borderwidth=2, border=1
-    )
+    frame = tk.Frame(root, relief="solid", padx=3, pady=3, background=color, borderwidth=2, border=1)
     if name:
         frame_title = tk.Label(
             frame,
@@ -145,12 +141,8 @@ class MTGDeckSelectionWidget:
         self.deck_buffer = {}
         self.decks_added = 0
         self.listbox_button.unbind("<<ListboxSelect>>")
-        self.listbox_button.config(
-            text="Select archetype", command=self.select_archetype
-        )
-        repopulate_listbox(
-            self.listbox, [archetype["name"] for archetype in self.archetypes]
-        )
+        self.listbox_button.config(text="Select archetype", command=self.select_archetype)
+        repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])
         self.reset_button.forget()
 
     def ui_make_components(self):
@@ -165,30 +157,19 @@ class MTGDeckSelectionWidget:
 
     def ui_create_frames(self):
         self.F_top = frame(self.root, "", color="bisque4")
-        self.F_top_left = frame(
-            self.F_top, "Manatraders Card Rental Automation", color=CS[1]
-        )
+        self.F_top_left = frame(self.F_top, "Manatraders Card Rental Automation", color=CS[1])
         self.F_top_right = frame(self.F_top, "Decklist", color=CS[1])
         self.F_top_right_top = frame(self.F_top_right, "", color=CS[2])
         self.F_top_right_right = frame(self.F_top_right, "", color=CS[2])
         self.F_bottom = frame(self.root, "Configuration", color=CS[3])
 
     def ui_create_buttons(self):
-        self.save_deck_button = button(
-            self.F_top_right_top, "Save deck", self.save_deck_as
-        )
-        self.add_deck_to_buffer_button = button(
-            self.F_top_right_top, "Add deck to buffer", self.add_deck_to_buffer
-        )
-        self.make_average_deck_button = button(
-            self.F_top_right_top, "Make average deck", self.make_average_deck
-        )
-        self.make_daily_average_deck_button = button(
-            self.F_top_right_top, "Average", self.set_daily_average_deck
-        )
-        self.reset_button = button(
-            self.F_top_left, "Reset", self.ui_reset_to_archetype_selection
-        )
+        self.save_deck_button: tk.Button
+        self.save_deck_button = button(self.F_top_right_top, "Save deck", self.save_deck_as)
+        self.add_deck_to_buffer_button = button(self.F_top_right_top, "Add deck to buffer", self.add_deck_to_buffer)
+        self.make_average_deck_button = button(self.F_top_right_top, "Make average deck", self.make_average_deck)
+        self.make_daily_average_deck_button = button(self.F_top_right_top, "Average", self.set_daily_average_deck)
+        self.reset_button = button(self.F_top_left, "Reset", self.ui_reset_to_archetype_selection)
         self.login_button = button(
             self.F_bottom,
             "MTGO Login",
@@ -196,12 +177,8 @@ class MTGDeckSelectionWidget:
             color=CS[2],
             font=("calibri", 15, "bold"),
         )
-        self.listbox_button = button(
-            self.F_top_left, "Select archetype", self.select_archetype
-        )
-        self.return_cards_button = button(
-            self.F_top_left, "Return cards", self.return_cards
-        )
+        self.listbox_button = button(self.F_top_left, "Select archetype", self.select_archetype)
+        self.return_cards_button = button(self.F_top_left, "Return cards", self.return_cards)
         self.ui_format_menu()
 
     def ui_format_menu(self):
@@ -250,17 +227,13 @@ class MTGDeckSelectionWidget:
             f.write(self.textbox.get("1.0", tk.END))
 
     def add_deck_to_buffer(self):
-        self.deck_buffer = add_dicts(
-            self.deck_buffer, deck_to_dictionary(self.textbox.get("1.0", tk.END))
-        )
+        self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(self.textbox.get("1.0", tk.END)))
         self.decks_added += 1
 
     def make_average_deck(self):
         deck_string = ""
         added_sideboard_blank_line = False
-        sorted_cards = sorted(
-            self.deck_buffer.items(), key=lambda x: "Sideboard" in x[0]
-        )
+        sorted_cards = sorted(self.deck_buffer.items(), key=lambda x: "Sideboard" in x[0])
         for card in sorted_cards:
             if "Sideboard" in card[0] and not added_sideboard_blank_line:
                 deck_string += "\n"
@@ -280,37 +253,21 @@ class MTGDeckSelectionWidget:
 
     def ui_pack_components(self):
         self.login_button.pack(anchor="center", fill="x", side=tk.LEFT, expand=False)
-        self.choose_format_button.pack(
-            anchor="center", fill="both", side=tk.RIGHT, expand=False
-        )
+        self.choose_format_button.pack(anchor="center", fill="both", side=tk.RIGHT, expand=False)
         self.listbox.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=True)
-        self.listbox_button.pack(
-            anchor="center", fill="both", side=tk.BOTTOM, expand=False
-        )
+        self.listbox_button.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=False)
         self.listbox_scrollbar.pack(anchor="center", fill="y", side=tk.RIGHT)
-        self.return_cards_button.pack(
-            anchor="center", fill="both", side=tk.BOTTOM, expand=False
-        )
-        self.save_deck_button.pack(
-            anchor="center", fill="both", side=tk.LEFT, expand=False
-        )
-        self.add_deck_to_buffer_button.pack(
-            anchor="center", fill="both", side=tk.LEFT, expand=False
-        )
-        self.make_average_deck_button.pack(
-            anchor="center", fill="both", side=tk.LEFT, expand=False
-        )
+        self.return_cards_button.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=False)
+        self.save_deck_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
+        self.add_deck_to_buffer_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
+        self.make_average_deck_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
         self.textbox.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=True)
         self.F_top.pack(anchor="center", fill="both", side=tk.TOP, expand=True)
         self.F_top_right.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
-        self.F_top_right_top.pack(
-            anchor="center", fill="both", side=tk.TOP, expand=False
-        )
+        self.F_top_right_top.pack(anchor="center", fill="both", side=tk.TOP, expand=False)
         self.F_top_left.pack(anchor="center", fill="both", side=tk.LEFT, expand=True)
         self.F_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
-        self.F_top_right_right.pack(
-            anchor="center", fill="both", side=tk.RIGHT, expand=False
-        )
+        self.F_top_right_right.pack(anchor="center", fill="both", side=tk.RIGHT, expand=False)
 
     def select_archetype(self):
         selected = self.listbox.curselection()
@@ -319,17 +276,11 @@ class MTGDeckSelectionWidget:
         selected = selected[0]
         archetype = self.archetypes[selected]["href"]
         self.decks = get_archetype_decks(archetype)
-        repopulate_listbox(
-            self.listbox, [format_deck_name(deck) for deck in self.decks]
-        )
+        repopulate_listbox(self.listbox, [format_deck_name(deck) for deck in self.decks])
         self.listbox_button.config(text="Select deck", command=self.select_deck)
         self.listbox.bind("<<ListboxSelect>>", self.set_textbox)
-        self.reset_button.pack(
-            anchor="center", fill="both", side=tk.BOTTOM, expand=False
-        )
-        self.make_daily_average_deck_button.pack(
-            anchor="center", fill="both", side=tk.BOTTOM, expand=False
-        )
+        self.reset_button.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=False)
+        self.make_daily_average_deck_button.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=False)
 
     def set_daily_average_deck(self):
         today = time.strftime("%Y-%m-%d")
@@ -380,18 +331,11 @@ class MTGDeckSelectionWidget:
         time.sleep(5)
         receive_cards(webdriver.driver)
         time.sleep(10)
-        register_deck(
-            self.currently_selected_deck["name"]
-            + self.currently_selected_deck["number"]
-        )
+        register_deck(self.currently_selected_deck["name"] + self.currently_selected_deck["number"])
         self.root.deiconify()
         webdriver.driver.quit()
-        repopulate_listbox(
-            self.listbox, [archetype["name"] for archetype in self.archetypes]
-        )
-        self.listbox_button.config(
-            text="Select archetype", command=self.select_archetype
-        )
+        repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])
+        self.listbox_button.config(text="Select archetype", command=self.select_archetype)
         self.user_has_edited_deck = False
         self.listbox.unbind("<<ListboxSelect>>")
 
@@ -409,12 +353,8 @@ class MTGDeckSelectionWidget:
         self.login_button.pack_forget()
 
     def show_labels(self):
-        self.choose_format_button.pack(
-            anchor="center", fill="both", side=tk.RIGHT, expand=True
-        )
-        self.login_button.pack(
-            anchor="center", fill="both", side=tk.BOTTOM, expand=True
-        )
+        self.choose_format_button.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
+        self.login_button.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=True)
 
     def save_config(self):
         config = {
