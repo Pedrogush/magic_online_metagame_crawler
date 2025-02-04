@@ -6,11 +6,8 @@ setuptools.setup(
     author="yochi",
     author_email="pedrogush@gmail.com",
     description="get stats out of modo",
-    packages=['widgets', 'navigators', 'utils'],
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "Operating System :: Windows"
-    ],
+    packages=["widgets", "navigators", "utils"],
+    classifiers=["Programming Language :: Python :: 3", "Operating System :: Windows"],
     python_requires=">=3.11",
     install_requires=[
         "opencv-python>=4.0",
@@ -18,13 +15,13 @@ setuptools.setup(
         "numpy",
         "pyautogui",
         "pillow",
-        'loguru',
+        "loguru",
         "pytesseract",
         "pynput",
         "keyboard",
         "curl_cffi",
         "pytesseract",
         "pymongo",
-        "selenium"
-    ]
+        "selenium",
+    ],
 )

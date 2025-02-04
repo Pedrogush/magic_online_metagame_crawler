@@ -6,38 +6,38 @@ from PIL import Image
 
 
 def focus_magic_online(width=1200, height=800):
-    windows = pyautogui.getWindowsWithTitle('Magic: The Gathering Online')
+    windows = pyautogui.getWindowsWithTitle("Magic: The Gathering Online")
     if not windows:
-        logger.debug('Failed to find modo window')
+        logger.debug("Failed to find modo window")
         return False
     w = windows[0]
     try:
         w.activate()
     except Exception:
         # windows throws an exception if the window is already focused
-        logger.debug('w.activate exception ignored')
+        logger.debug("w.activate exception ignored")
     if w.isMinimized:
         w.restore()
     w.moveTo(0, 0)
     w.resizeTo(width, height)
     logger.debug(w)
     if w.width != width or w.height != height:
-        logger.debug('Failed to resize modo window')
-        logger.debug(f'current size: {w.width} {w.height}')
+        logger.debug("Failed to resize modo window")
+        logger.debug(f"current size: {w.width} {w.height}")
     return
 
 
 def focus_game_window():
-    w = pyautogui.getWindowsWithTitle('Magic: The Gathering Online')
+    w = pyautogui.getWindowsWithTitle("Magic: The Gathering Online")
     if len(w) <= 1:
-        logger.debug('No modo game window')
+        logger.debug("No modo game window")
         return False
     w = w[0]
     try:
         w.activate()
     except Exception:
         # windows throws an exception if the window is already focused
-        logger.debug('w.activate exception ignored')
+        logger.debug("w.activate exception ignored")
     w.moveTo(0, 0)
     w.resizeTo(1240, 1000)
 
@@ -103,13 +103,13 @@ def drag_and_drop_all(x1, y1, x2, y2):
     x0, y0 = pyautogui.position()
     pyautogui.moveTo(x1, y1)
     pyautogui.mouseDown()
-    pyautogui.keyDown('ctrl')
-    pyautogui.keyDown('a')
+    pyautogui.keyDown("ctrl")
+    pyautogui.keyDown("a")
     pyautogui.moveTo(x2, y2)
     pyautogui.mouseUp()
     pyautogui.moveTo(x0, y0)
-    pyautogui.keyUp('ctrl')
-    pyautogui.keyUp('a')
+    pyautogui.keyUp("ctrl")
+    pyautogui.keyUp("a")
     return
 
 

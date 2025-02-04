@@ -4,8 +4,8 @@ from utils.common import Card
 
 
 def get_db():
-    client = pymongo.MongoClient('mongodb://localhost:27017/')
-    return client.get_database('lm_scraper')
+    client = pymongo.MongoClient("mongodb://localhost:27017/")
+    return client.get_database("lm_scraper")
 
 
 def update_scrape_records(card: Card):
@@ -16,7 +16,7 @@ def update_scrape_records(card: Card):
 
 def delete_card_records(card_name: str):
     db = get_db()
-    record = db.scrapes.find_one({'card_name': card_name})
+    record = db.scrapes.find_one({"card_name": card_name})
     db.deleted_scrapes.insert_one(record)
-    db.scrapes.delete_one({'card_name': card_name})
+    db.scrapes.delete_one({"card_name": card_name})
     return
