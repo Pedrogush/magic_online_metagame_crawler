@@ -147,7 +147,7 @@ class MTGDeckSelectionWidget:
         self.listbox_button.config(text="Select archetype", command=self.select_archetype)
         repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])
         if hasattr(self, "reset_button"):
-            self.reset_button.forget()
+            self.reset_button.grid_forget()
 
     def ui_make_components(self):
         self.root.title("MTG Helper")
@@ -159,14 +159,14 @@ class MTGDeckSelectionWidget:
         self.F_top = frame(self.root, "", color="bisque4")
         self.F_top.grid(column=0, row=0, sticky="nsew")
         self.F_top_left = frame(self.F_top, "Manatraders Card Rental Automation", color=CS[1])
-        self.F_top_left.rowconfigure(2, weight=1)
+        self.F_top_left.rowconfigure(3, weight=1)
         self.F_top_left.grid(column=0, row=1, sticky="nsew")
         self.F_top_right = frame(self.F_top, "Decklist", color=CS[1])
         self.F_top_right.grid(column=1, row=1, sticky="nsew")
         self.F_top_right_top = frame(self.F_top_right, "", color=CS[2])
-        self.F_top_right_top.grid(column=1, row=0, sticky="nsew")
+        self.F_top_right_top.grid(column=0, row=1, sticky="nsew")
         self.F_top_textbox = frame(self.F_top_right, "", color=CS[2])
-        self.F_top_textbox.grid(column=0, row=0, sticky="nsew")
+        self.F_top_textbox.grid(column=0, row=2, sticky="nsew")
         self.F_top_textbox.rowconfigure(0, weight=1)
         self.F_bottom = frame(self.root, "Configuration", color=CS[3])
         self.F_bottom.grid(column=0, row=2, sticky="nsew")
@@ -180,9 +180,9 @@ class MTGDeckSelectionWidget:
         self.login_button = button(self.F_bottom, "MTGO Login", login)
         self.login_button.grid(column=0, row=0, sticky="nsew")
         self.listbox_button = button(self.F_top_left, "Select archetype", self.select_archetype)
-        self.listbox_button.grid(column=0, row=0, sticky="nsew")
+        self.listbox_button.grid(column=0, row=1, sticky="nsew")
         self.return_cards_button = button(self.F_top_left, "Return cards", self.return_cards)
-        self.return_cards_button.grid(column=0, row=1, sticky="nsew")
+        self.return_cards_button.grid(column=0, row=2, sticky="nsew")
         self.listbox = tk.Listbox(
             self.F_top_left,
             selectmode=tk.SINGLE,
@@ -190,9 +190,9 @@ class MTGDeckSelectionWidget:
             foreground="black",
             font=("calibri", 15, "bold"),
         )
-        self.listbox.grid(column=0, row=2, sticky="nsew")
+        self.listbox.grid(column=0, row=3, sticky="nsew")
         self.listbox_scrollbar = tk.Scrollbar(self.F_top_left, orient="vertical")
-        self.listbox_scrollbar.grid(column=1, row=2, sticky="nsew")
+        self.listbox_scrollbar.grid(column=1, row=3, sticky="nsew")
         self.listbox.config(yscrollcommand=self.listbox_scrollbar.set)
         self.listbox_scrollbar.config(command=self.listbox.yview)
         self.textbox = tk.Text(
@@ -275,7 +275,7 @@ class MTGDeckSelectionWidget:
         self.listbox_button.config(text="Select deck", command=self.select_deck)
         self.listbox.bind("<<ListboxSelect>>", self.set_textbox)
         self.reset_button = button(self.F_top_left, "Reset", self.ui_reset_to_archetype_selection)
-        self.reset_button.grid(column=0, row=3, sticky="nsew")
+        self.reset_button.grid(column=0, row=0, sticky="nsew")
         self.make_daily_average_deck_button = button(self.F_top_right_top, "Day's Average", self.set_daily_average_deck)
         self.make_daily_average_deck_button.grid(column=3, row=0, sticky="nsew")
 
@@ -313,7 +313,8 @@ class MTGDeckSelectionWidget:
             FONT = ("verdana", 7)
             if not line.strip():
                 empty_frame = b_frame(self.F_top_textbox, color=CS[2])
-                self.textbox.window_create(tk.END, window=empty_frame)
+                self.textbox.window_create(f'{i+1}.0', window=empty_frame)
+                self.textbox.insert(tk.END, "\n")
                 self.q_btn_frames.append(empty_frame)
                 continue
             if i > sideboard_index:
@@ -321,7 +322,7 @@ class MTGDeckSelectionWidget:
             F_edit_deck = self.create_F_edit_deck(line, is_sideboard)
             self.q_btn_frames.append(F_edit_deck)
             self.textbox.insert(tk.END, line)
-            self.textbox.window_create(tk.END, window=F_edit_deck)
+            self.textbox.window_create(f'{i+1}.0', window=F_edit_deck)
             self.textbox.insert(tk.END, "\n")
 
     def set_textbox_scrollbar(self):
@@ -347,7 +348,7 @@ class MTGDeckSelectionWidget:
         self.textbox.replace(f"{index + 1}.0", f"{index + 1}.end", line)
         F_edit_deck = self.create_F_edit_deck(line, is_sideboard)
         self.q_btn_frames.append(F_edit_deck)
-        self.textbox.window_create(f"{index + 1}.end", window=F_edit_deck)
+        self.textbox.window_create(f"{index + 1}.0", window=F_edit_deck)
 
     def decrement_card(self, line, is_sideboard=False):
         card = " ".join(line.split(" ")[1:])
@@ -368,12 +369,12 @@ class MTGDeckSelectionWidget:
         self.textbox.replace(f"{index + 1}.0", f"{index + 1}.end", line)
         F_edit_deck = self.create_F_edit_deck(line, is_sideboard)
         self.q_btn_frames.append(F_edit_deck)
-        self.textbox.window_create(f"{index + 1}.end", window=F_edit_deck)
+        self.textbox.window_create(f"{index + 1}.0", window=F_edit_deck)
 
     def create_F_edit_deck(self, line, is_sideboard):
         F_edit_deck = b_frame(self.F_top_textbox, color=CS[2])
         self.q_btn_frames.append(F_edit_deck)
-        FONT = ("verdana", 7)
+        FONT = ("verdana", 9, "bold")
         plus_btn = b_button(F_edit_deck, "+", lambda line=line: self.increment_card(line, is_sideboard), font=FONT)
         minus_btn = b_button(F_edit_deck, "-", lambda line=line: self.decrement_card(line, is_sideboard), font=FONT)
         remove_btn = b_button(F_edit_deck, "X", lambda line=line: self.remove_card(line, is_sideboard), font=FONT)
@@ -435,8 +436,8 @@ class MTGDeckSelectionWidget:
         webdriver.driver.quit()
 
     def hide_labels(self):
-        self.choose_format_button.forget()
-        self.login_button.forget()
+        self.choose_format_button.grid_forget()
+        self.login_button.grid_forget()
 
     def show_labels(self):
         self.choose_format_button.grid(column=1, row=0, sticky="nsew")
