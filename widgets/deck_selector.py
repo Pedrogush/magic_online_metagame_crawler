@@ -22,6 +22,8 @@ from navigators.mtgo import (
     register_deck,
 )
 
+# TODO: add some deck managing stuff (save decks, access list of saved decks, auto-save, etc)
+
 FORMAT_OPTIONS = [
     "Modern",
     "Standard",
