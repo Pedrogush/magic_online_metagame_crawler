@@ -8,6 +8,7 @@ from loguru import logger
 from utils.deck import deck_to_dictionary, add_dicts
 from navigators.mtggoldfish import (
     get_archetypes,
+    get_archetype_stats,
     get_archetype_decks,
     download_deck,
 )
@@ -180,7 +181,7 @@ class MTGDeckSelectionWidget:
         self.make_average_deck_button = button(self.F_top_right_top, "Mean of buffer", self.make_average_deck)
         self.make_average_deck_button.grid(column=2, row=0, sticky="nsew")
         self.login_button = button(self.F_bottom, "MTGO Login", login)
-        self.login_button.grid(column=0, row=0, sticky="nsew")
+        self.login_button.grid(column=1, row=0, sticky="nsew")
         self.listbox_button = button(self.F_top_left, "Select archetype", self.select_archetype)
         self.listbox_button.grid(column=0, row=1, sticky="nsew")
         self.return_cards_button = button(self.F_top_left, "Return cards", self.return_cards)
@@ -221,6 +222,7 @@ class MTGDeckSelectionWidget:
 
     def ui_populate_archetypes(self):
         mtg_format = self.format.get()
+        self.archetype_stats = get_archetype_stats(mtg_format)
         self.archetypes = get_archetypes(mtg_format)
         for index, archetype in enumerate(self.archetypes):
             self.listbox.insert(index, archetype["name"])

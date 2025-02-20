@@ -4,6 +4,7 @@ config.json
 leaderboard_positions.json
 deck_monitor_cache.json
 deck_monitor_config.json
+archetype_cache.json
 deck_cache.json
 box.png
 filtered_only_white.png

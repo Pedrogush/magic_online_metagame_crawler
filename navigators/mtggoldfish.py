@@ -2,27 +2,23 @@ from curl_cffi import requests
 import bs4
 import json
 import os
+import time
+from datetime import datetime, timedelta
 from loguru import logger
 
 
 def get_archetypes(mtg_format: str):
     logger.debug(f"Searching for archetypes in {mtg_format}")
     mtg_format = mtg_format.lower()
-    page = requests.get(
-        f"https://www.mtggoldfish.com/metagame/{mtg_format}/full", impersonate="chrome"
-    )
+    page = requests.get(f"https://www.mtggoldfish.com/metagame/{mtg_format}/full", impersonate="chrome")
     soup = bs4.BeautifulSoup(page.text, "html.parser")
     metagame_decks = soup.select_one("#metagame-decks-container")
-    archetypes: list[bs4.Tag] = metagame_decks.find_all(
-        "span", attrs={"class": "deck-price-paper"}
-    )
+    archetypes: list[bs4.Tag] = metagame_decks.find_all("span", attrs={"class": "deck-price-paper"})
     archetypes = [tag for tag in archetypes if tag.find("a") and not tag.find("div")]
     return [
         {
             "name": tag.text.strip(),
-            "href": tag.find("a")["href"]
-            .replace("/archetype/", "")
-            .replace("#paper", ""),
+            "href": tag.find("a")["href"].replace("/archetype/", "").replace("#paper", ""),
         }
         for tag in archetypes
     ]
@@ -40,10 +36,7 @@ def get_archetype_decks(archetype: str):
         decks.append(
             {
                 "date": tds[0].text.strip(),
-                "number": tds[1]
-                .select_one("a")
-                .attrs.get("href")
-                .replace("/deck/", ""),
+                "number": tds[1].select_one("a").attrs.get("href").replace("/deck/", ""),
                 "player": tds[2].text.strip(),
                 "event": tds[3].text.strip(),
                 "result": tds[4].text.strip(),
@@ -51,6 +44,28 @@ def get_archetype_decks(archetype: str):
             }
         )
     return decks
+
+
+def get_archetype_stats(mtg_format: str):
+    if os.path.exists("archetype_cache.json"):
+        with open("archetype_cache.json", "r") as f:
+            stats = json.load(f)
+            if mtg_format in stats and time.time() - stats[mtg_format]["timestamp"] < 60 * 60 * 24:
+                return stats
+    archetypes = get_archetypes(mtg_format)
+    stats = {mtg_format: {"timestamp": time.time()}}
+    for archetype in archetypes:
+        stats[mtg_format][archetype["name"]] = {"decks": get_archetype_decks(archetype["href"])}
+        # for day in the past week display the number of decks
+        stats[mtg_format][archetype["name"]]["results"] = {}
+        for day in range(7):
+            date = (datetime.now() - timedelta(days=day)).strftime("%Y-%m-%d")
+            stats[mtg_format][archetype["name"]]["results"][date] = len(
+                [deck for deck in stats[mtg_format][archetype["name"]]["decks"] if date.lower() in deck["date"].lower()]
+            )
+    with open("archetype_cache.json", "w") as f:
+        json.dump(stats, f, indent=4)
+    return stats
 
 
 def get_daily_decks(mtg_format: str):
@@ -68,16 +83,9 @@ def get_daily_decks(mtg_format: str):
         tbody: bs4.Tag = h4.find_next_sibling()
         cells = tbody.select("tr.striped")
         for cell in cells:
-            deck_name = (
-                cell.select_one("td.column-deck")
-                .select_one("span.deck-price-paper")
-                .text.strip()
-            )
+            deck_name = cell.select_one("td.column-deck").select_one("span.deck-price-paper").text.strip()
             deck_number = (
-                cell.select_one("td.column-deck")
-                .select_one("a")["href"]
-                .replace("#online", "")
-                .replace("/deck/", "")
+                cell.select_one("td.column-deck").select_one("a")["href"].replace("#online", "").replace("/deck/", "")
             )
             player_name = cell.select_one("td.column-player").text.strip()
             placement = None
@@ -112,5 +120,12 @@ def download_deck(deck_num: str):
 
 
 if __name__ == "__main__":
-    print(get_archetypes("modern"))
+    stats = get_archetype_stats("modern")
+    print(
+        [
+            (archetype, stats["modern"][archetype]["results"])
+            for archetype in stats["modern"]
+            if archetype != "timestamp"
+        ]
+    )
     print("done")
