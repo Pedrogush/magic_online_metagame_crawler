@@ -7,6 +7,7 @@ Launches the opponent tracking widget and/or deck research browser.
 import tkinter as tk
 from tkinter import ttk
 import sys
+import threading
 from loguru import logger
 
 
@@ -107,6 +108,9 @@ class LauncherWindow:
         # Center window on screen
         self.center_window()
 
+        # Preload MTGJSON card data in background
+        self.preload_card_data()
+
     def center_window(self):
         """Center the launcher window on screen"""
         self.root.update_idletasks()
@@ -153,6 +157,21 @@ class LauncherWindow:
 
         # Launch in next event loop to allow UI to update
         self.root.after(50, launch)
+
+    def preload_card_data(self):
+        """Warm up card database for the integrated deck builder features"""
+
+        def worker():
+            try:
+                from utils.card_data import CardDataManager
+
+                manager = CardDataManager()
+                manager.ensure_latest()
+                logger.info("MTGJSON card data cache ready")
+            except Exception as exc:
+                logger.warning(f"Unable to preload card data: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def launch_both(self):
         """Launch both widgets"""

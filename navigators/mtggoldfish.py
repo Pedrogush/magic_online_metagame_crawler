@@ -1,12 +1,26 @@
+from pathlib import Path
+
 from curl_cffi import requests
 import bs4
 import json
-import os
 import time
 import re
 from urllib.parse import unquote
 from datetime import datetime, timedelta
 from loguru import logger
+from utils.paths import (
+    CONFIG_DIR,
+    ARCHETYPE_CACHE_FILE,
+    DECK_CACHE_FILE,
+    CURR_DECK_FILE,
+)
+
+LEGACY_ARCHETYPE_CACHE_FILE = Path("archetype_cache.json")
+LEGACY_DECK_CACHE_FILE = Path("deck_cache.json")
+LEGACY_ARCHETYPE_CACHE_CONFIG_FILE = CONFIG_DIR / "archetype_cache.json"
+LEGACY_DECK_CACHE_CONFIG_FILE = CONFIG_DIR / "deck_cache.json"
+LEGACY_CURR_DECK_CACHE_FILE = Path("cache") / "curr_deck.txt"
+LEGACY_CURR_DECK_ROOT_FILE = Path("curr_deck.txt")
 
 
 def get_archetypes(mtg_format: str):
@@ -49,10 +63,32 @@ def get_archetype_decks(archetype: str):
 
 
 def get_archetype_stats(mtg_format: str):
-    if os.path.exists("archetype_cache.json"):
-        with open("archetype_cache.json", "r") as f:
+    cache_path = ARCHETYPE_CACHE_FILE
+    legacy_source = False
+    if not cache_path.exists() and LEGACY_ARCHETYPE_CACHE_CONFIG_FILE.exists():
+        cache_path = LEGACY_ARCHETYPE_CACHE_CONFIG_FILE
+        legacy_source = True
+        logger.warning("Loaded legacy archetype_cache.json from config/; migrating to cache/")
+    if not cache_path.exists() and LEGACY_ARCHETYPE_CACHE_FILE.exists():
+        cache_path = LEGACY_ARCHETYPE_CACHE_FILE
+        legacy_source = True
+        logger.warning("Loaded legacy archetype_cache.json from project root; migrating to cache/")
+    if cache_path.exists():
+        with cache_path.open("r", encoding="utf-8") as f:
             stats = json.load(f)
             if mtg_format in stats and time.time() - stats[mtg_format]["timestamp"] < 60 * 60 * 24:
+                if legacy_source:
+                    try:
+                        ARCHETYPE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                        with ARCHETYPE_CACHE_FILE.open("w", encoding="utf-8") as target:
+                            json.dump(stats, target, indent=4)
+                        if cache_path != ARCHETYPE_CACHE_FILE:
+                            try:
+                                cache_path.unlink()
+                            except OSError as exc:
+                                logger.debug(f"Unable to remove legacy archetype cache {cache_path}: {exc}")
+                    except OSError as exc:
+                        logger.warning(f"Failed to migrate archetype cache: {exc}")
                 return stats
     archetypes = get_archetypes(mtg_format)
     stats = {mtg_format: {"timestamp": time.time()}}
@@ -65,7 +101,8 @@ def get_archetype_stats(mtg_format: str):
             stats[mtg_format][archetype["name"]]["results"][date] = len(
                 [deck for deck in stats[mtg_format][archetype["name"]]["decks"] if date.lower() in deck["date"].lower()]
             )
-    with open("archetype_cache.json", "w") as f:
+    ARCHETYPE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHETYPE_CACHE_FILE.open("w", encoding="utf-8") as f:
         json.dump(stats, f, indent=4)
     return stats
 
@@ -110,12 +147,24 @@ def download_deck(deck_num: str):
     Downloads deck list by scraping the deck page (robots.txt compliant).
     Previous implementation used /deck/download/ which is disallowed in robots.txt.
     """
-    if not os.path.exists("deck_cache.json"):
+    cache_path = DECK_CACHE_FILE
+    legacy_source = None
+    if not cache_path.exists() and LEGACY_DECK_CACHE_CONFIG_FILE.exists():
+        cache_path = LEGACY_DECK_CACHE_CONFIG_FILE
+        legacy_source = "config"
+        logger.warning("Loaded legacy deck_cache.json from config/; migrating to cache/")
+    if not cache_path.exists() and LEGACY_DECK_CACHE_FILE.exists():
+        cache_path = LEGACY_DECK_CACHE_FILE
+        legacy_source = "root"
+        logger.warning("Loaded legacy deck_cache.json from project root; migrating to cache/")
+    if cache_path.exists():
+        with cache_path.open("r", encoding="utf-8") as fh:
+            deck_cache = json.load(fh)
+    else:
         deck_cache = {}
-        json.dump(deck_cache, open("deck_cache.json", "w"))
-    deck_cache = json.load(open("deck_cache.json", "r"))
     if deck_num in deck_cache:
-        with open("curr_deck.txt", "w") as f:
+        CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with CURR_DECK_FILE.open("w", encoding="utf-8") as f:
             f.write(deck_cache[deck_num])
         return
 
@@ -135,11 +184,25 @@ def download_deck(deck_num: str):
     deck_text = unquote(encoded_deck)
 
     # Save to file and cache
-    with open("curr_deck.txt", "w", encoding="utf-8") as f:
+    CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with CURR_DECK_FILE.open("w", encoding="utf-8") as f:
         f.write(deck_text)
 
     deck_cache[deck_num] = deck_text
-    json.dump(deck_cache, open("deck_cache.json", "w"), indent=4)
+    DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
+        json.dump(deck_cache, fh, indent=4)
+    if legacy_source and cache_path != DECK_CACHE_FILE:
+        try:
+            cache_path.unlink()
+        except OSError as exc:
+            logger.debug(f"Unable to remove legacy deck cache {cache_path}: {exc}")
+    for legacy_curr in (LEGACY_CURR_DECK_CACHE_FILE, LEGACY_CURR_DECK_ROOT_FILE):
+        if legacy_curr.exists() and legacy_curr != CURR_DECK_FILE:
+            try:
+                legacy_curr.unlink()
+            except OSError as exc:
+                logger.debug(f"Unable to remove legacy deck file {legacy_curr}: {exc}")
 
 
 if __name__ == "__main__":

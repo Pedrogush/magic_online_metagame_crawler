@@ -1,18 +1,29 @@
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox, simpledialog
 import json
 import threading
+from pathlib import Path
 from loguru import logger
-from utils.deck import deck_to_dictionary, add_dicts
+from utils.deck import deck_to_dictionary, add_dicts, analyze_deck
+from utils.dbq import (
+    save_deck_to_db,
+    get_saved_decks,
+    load_deck_from_db,
+    delete_saved_deck,
+)
 from navigators.mtggoldfish import (
     get_archetypes,
     get_archetype_stats,
     get_archetype_decks,
     download_deck,
 )
-
-# TODO: add some deck managing stuff (save decks, access list of saved decks, auto-save, etc)
+from utils.paths import (
+    CONFIG_FILE,
+    DECK_SELECTOR_SETTINGS_FILE,
+    CURR_DECK_FILE,
+    DECKS_DIR,
+)
 
 FORMAT_OPTIONS = [
     "Modern",
@@ -33,7 +44,68 @@ CS = [
     COLOR_SCHEME + "4",
     COLOR_SCHEME,
 ]
-CONFIG = json.load(open("config.json"))
+LEGACY_CONFIG_FILE = Path("config.json")
+CONFIG = {}
+if CONFIG_FILE.exists():
+    try:
+        with CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
+            CONFIG = json.load(_cfg_file)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Invalid {CONFIG_FILE} ({exc}); using default deck save path")
+        CONFIG = {}
+elif LEGACY_CONFIG_FILE.exists():
+    try:
+        with LEGACY_CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
+            CONFIG = json.load(_cfg_file)
+        logger.warning("Loaded legacy config.json from project root; migrating to config/ directory")
+        try:
+            with CONFIG_FILE.open("w", encoding="utf-8") as fh:
+                json.dump(CONFIG, fh, indent=4)
+        except OSError as exc:
+            logger.warning(f"Failed to write migrated config.json: {exc}")
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Invalid legacy config.json ({exc}); using default deck save path")
+        CONFIG = {}
+else:
+    logger.warning(f"{CONFIG_FILE} not found; using default deck save path")
+
+default_deck_dir = Path(CONFIG.get("deck_selector_save_path") or DECKS_DIR)
+DECK_SAVE_DIR = default_deck_dir.expanduser()
+try:
+    DECK_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+except OSError as exc:
+    logger.warning(f"Unable to create deck save directory '{DECK_SAVE_DIR}': {exc}")
+CONFIG.setdefault("deck_selector_save_path", str(DECK_SAVE_DIR))
+
+CARD_SEARCH_FORMATS = [
+    "Any",
+    "standard",
+    "pioneer",
+    "modern",
+    "legacy",
+    "vintage",
+    "commander",
+    "pauper",
+    "historic",
+    "explorer",
+    "alchemy",
+    "brawl",
+]
+
+CARD_TYPE_FILTERS = [
+    "Any",
+    "creature",
+    "planeswalker",
+    "instant",
+    "sorcery",
+    "artifact",
+    "enchantment",
+    "battle",
+    "land",
+]
+
+LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
+LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
 
 
 def label(root, text=" ", color=CS[0]):
@@ -131,8 +203,20 @@ class MTGDeckSelectionWidget:
         self.decks_added = 0
         self.archetypes = []
         self.archetype_stats = {}
+        self.saved_decks = []  # For database saved decks
+        self.current_mode = "browse"  # "browse", "saved", or "builder"
         self.loading = False
         self.loading_daily_average = False  # Prevent simultaneous daily average loads
+        self.card_manager = None
+        self.card_data_ready = False
+        self.card_data_loading = False
+        self.card_search_results = []
+        self.builder_deck = {"main": {}, "side": {}}
+        self.saved_decks_popup = None
+        self.saved_decks_popup_listbox = None
+        self.saved_decks_popup_status = None
+        self.saved_decks_popup_data = []
+        self.deck_save_dir = DECK_SAVE_DIR
         self.ui_make_components()
         # Load archetypes asynchronously after window is shown
         self.root.after(100, self.lazy_load_archetypes)
@@ -142,10 +226,24 @@ class MTGDeckSelectionWidget:
         self.deck_buffer = {}
         self.decks_added = 0
         self.listbox_button.unbind("<<ListboxSelect>>")
-        self.listbox_button.config(text="Select archetype", command=self.select_archetype)
-        repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])
+        self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
+
+        # Check if archetypes are loaded
+        if self.archetypes:
+            repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])
+        else:
+            # Archetypes not loaded yet, trigger loading
+            self.listbox.delete(0, tk.END)
+            self.listbox.insert(0, "⏳ Loading archetypes...")
+            self.lazy_load_archetypes()
+
         if hasattr(self, "reset_button"):
             self.reset_button.grid_forget()
+        if getattr(self, "delete_deck_button", None):
+            self.delete_deck_button.grid_forget()
+            self.delete_deck_button = None
+        if hasattr(self, "make_daily_average_deck_button"):
+            self.make_daily_average_deck_button.grid_forget()
 
     def ui_make_components(self):
         self.root.title("MTG Deck Research Browser")
@@ -157,14 +255,39 @@ class MTGDeckSelectionWidget:
         self.F_top = frame(self.root, "", color="bisque4")
         self.F_top.grid(column=0, row=0, sticky="nsew")
         self.F_top_left = frame(self.F_top, "Deck Browser", color=CS[1])
-        self.F_top_left.rowconfigure(3, weight=1)
+        self.F_top_left.rowconfigure(5, weight=1)
         self.F_top_left.grid(column=0, row=1, sticky="nsew")
         self.F_top_right = frame(self.F_top, "Decklist", color=CS[1])
         self.F_top_right.grid(column=1, row=1, sticky="nsew")
+        self.F_top_right.rowconfigure(3, weight=1)
         self.F_top_right_top = frame(self.F_top_right, "", color=CS[2])
         self.F_top_right_top.grid(column=0, row=1, sticky="nsew")
+
+        # Add statistics panel
+        self.F_stats = frame(self.F_top_right, "Deck Statistics", color=CS[2])
+        self.F_stats.grid(column=0, row=0, sticky="nsew")
+        self.stats_label = label(self.F_stats, "", color=CS[2])
+        self.stats_label.config(font=("calibri", 12), justify="left", anchor="w")
+        self.stats_label.grid(column=0, row=0, sticky="nsew", padx=5, pady=5)
+        self.F_stats.grid_remove()  # Hidden by default
+
+        self.card_detail_frame = frame(self.F_top_right, "Card Details", color=CS[2])
+        self.card_detail_frame.grid(column=0, row=2, sticky="nsew")
+        self.card_detail_frame.grid_remove()
+        self.card_detail_frame.rowconfigure(0, weight=1)
+        self.card_detail_frame.columnconfigure(0, weight=1)
+        self.card_detail_text = tk.Text(self.card_detail_frame, height=8, wrap="word", background=CS[2], foreground="black", font=("calibri", 11))
+        self.card_detail_text.grid(column=0, row=0, sticky="nsew", padx=4, pady=4)
+        self.card_detail_text.config(state="disabled")
+        self.card_add_buttons = tk.Frame(self.card_detail_frame, background=CS[2], pady=4)
+        self.card_add_buttons.grid(column=0, row=1, sticky="ew")
+        self.builder_add_main_button = tk.Button(self.card_add_buttons, text="Add to Mainboard", command=lambda: self.builder_add_card("main"), state="disabled")
+        self.builder_add_main_button.pack(side="left", expand=True, fill="x", padx=(0, 4))
+        self.builder_add_side_button = tk.Button(self.card_add_buttons, text="Add to Sideboard", command=lambda: self.builder_add_card("side"), state="disabled")
+        self.builder_add_side_button.pack(side="left", expand=True, fill="x", padx=(4, 0))
+
         self.F_top_textbox = frame(self.F_top_right, "", color=CS[2])
-        self.F_top_textbox.grid(column=0, row=2, sticky="nsew")
+        self.F_top_textbox.grid(column=0, row=3, sticky="nsew")
         self.F_top_textbox.rowconfigure(0, weight=1)
         self.F_bottom = frame(self.root, "Configuration", color=CS[3])
         self.F_bottom.grid(column=0, row=2, sticky="nsew")
@@ -175,8 +298,50 @@ class MTGDeckSelectionWidget:
         self.add_deck_to_buffer_button.grid(column=1, row=0, sticky="nsew")
         self.make_average_deck_button = button(self.F_top_right_top, "Mean of buffer", self.make_average_deck)
         self.make_average_deck_button.grid(column=2, row=0, sticky="nsew")
+        self.copy_deck_button = button(self.F_top_right_top, "Copy to Clipboard", self.copy_deck_to_clipboard, color=CS[0])
+        self.copy_deck_button.grid(column=3, row=0, sticky="nsew")
+
+        # Add visualize button (initially hidden, shown in saved decks mode)
+        self.visualize_button = button(self.F_top_right_top, "📊 Show Stats", self.toggle_statistics_panel, color=CS[1])
+        self.visualize_button.grid(column=5, row=0, sticky="nsew")
+        self.visualize_button.grid_remove()  # Hidden initially
+        self.load_saved_into_builder_button = button(self.F_top_right_top, "Load Saved ➜ Builder", self.load_selected_saved_into_builder, color=CS[1])
+        self.load_saved_into_builder_button.grid(column=6, row=0, sticky="nsew")
+        self.load_saved_into_builder_button.grid_remove()
+
+        # Mode toggle buttons
+        self.browse_mode_button = button(self.F_top_left, "Browse MTGGoldfish", self.switch_to_browse_mode, color=CS[2])
+        self.browse_mode_button.grid(column=0, row=1, sticky="nsew")
+        self.saved_decks_button = button(self.F_top_left, "Saved Decks", self.switch_to_saved_mode, color=CS[0])
+        self.saved_decks_button.grid(column=0, row=2, sticky="nsew")
+        self.builder_mode_button = button(self.F_top_left, "Deck Builder", self.switch_to_builder_mode, color=CS[0])
+        self.builder_mode_button.grid(column=0, row=3, sticky="nsew")
+
         self.listbox_button = button(self.F_top_left, "Select archetype", self.select_archetype)
-        self.listbox_button.grid(column=0, row=1, sticky="nsew")
+        self.listbox_button.grid(column=0, row=4, sticky="nsew")
+
+        self.builder_controls_frame = tk.Frame(self.F_top_left, background=CS[2], padx=4, pady=4, relief="solid", borderwidth=1)
+        self.builder_controls_frame.grid(column=0, row=4, sticky="nsew")
+        self.builder_controls_frame.grid_remove()
+        self.card_search_var = tk.StringVar()
+        self.card_search_entry = tk.Entry(self.builder_controls_frame, textvariable=self.card_search_var, font=("calibri", 12))
+        self.card_search_entry.grid(column=0, row=0, columnspan=2, sticky="ew", pady=(0, 4))
+        self.card_search_entry.bind("<Return>", lambda _: self.perform_card_search())
+        self.card_format_var = tk.StringVar(value=CARD_SEARCH_FORMATS[0])
+        self.card_type_var = tk.StringVar(value=CARD_TYPE_FILTERS[0])
+        self.card_format_menu = ttk.Combobox(self.builder_controls_frame, textvariable=self.card_format_var, values=CARD_SEARCH_FORMATS, state="readonly")
+        self.card_format_menu.grid(column=0, row=1, sticky="ew", padx=(0, 2))
+        self.card_type_menu = ttk.Combobox(self.builder_controls_frame, textvariable=self.card_type_var, values=CARD_TYPE_FILTERS, state="readonly")
+        self.card_type_menu.grid(column=1, row=1, sticky="ew", padx=(2, 0))
+        self.card_search_button = tk.Button(self.builder_controls_frame, text="Search", command=self.perform_card_search)
+        self.card_search_button.grid(column=0, row=2, columnspan=2, sticky="ew", pady=(4, 0))
+        self.open_saved_decks_button = tk.Button(self.builder_controls_frame, text="Open Saved Decks", command=self.open_saved_decks_dialog)
+        self.open_saved_decks_button.grid(column=0, row=3, columnspan=2, sticky="ew", pady=(4, 0))
+        self.builder_status_var = tk.StringVar(value="")
+        self.card_status_label = tk.Label(self.builder_controls_frame, textvariable=self.builder_status_var, anchor="w", background=CS[2], fg="#555")
+        self.card_status_label.grid(column=0, row=4, columnspan=2, sticky="ew", pady=(4, 0))
+        self.builder_controls_frame.columnconfigure(0, weight=1)
+        self.builder_controls_frame.columnconfigure(1, weight=1)
         self.listbox = tk.Listbox(
             self.F_top_left,
             selectmode=tk.SINGLE,
@@ -184,9 +349,9 @@ class MTGDeckSelectionWidget:
             foreground="black",
             font=("calibri", 15, "bold"),
         )
-        self.listbox.grid(column=0, row=3, sticky="nsew")
+        self.listbox.grid(column=0, row=5, sticky="nsew")
         self.listbox_scrollbar = tk.Scrollbar(self.F_top_left, orient="vertical")
-        self.listbox_scrollbar.grid(column=1, row=3, sticky="nsew")
+        self.listbox_scrollbar.grid(column=1, row=5, sticky="nsew")
         self.listbox.config(yscrollcommand=self.listbox_scrollbar.set)
         self.listbox_scrollbar.config(command=self.listbox.yview)
         self.textbox = tk.Text(
@@ -205,6 +370,7 @@ class MTGDeckSelectionWidget:
         )
         self.choose_format_button.grid(column=0, row=0, sticky="nsew")
         choose_format_button_config(self.choose_format_button)
+        self.set_mode_button_states("browse")
 
     def choose_format_button_clicked(self):
         self.lazy_load_archetypes()
@@ -247,31 +413,108 @@ class MTGDeckSelectionWidget:
         self.archetype_stats = archetype_stats
         self.loading = False
 
-        # Update listbox
-        self.listbox.delete(0, tk.END)
-        for index, archetype in enumerate(self.archetypes):
-            self.listbox.insert(index, archetype["name"])
+        # Only update if we're still in browse mode
+        if self.current_mode == "browse":
+            # Update listbox
+            self.listbox.delete(0, tk.END)
+            for index, archetype in enumerate(self.archetypes):
+                self.listbox.insert(index, archetype["name"])
 
-        self.listbox_button.config(state="normal")
+            self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
+
         logger.info(f"Loaded {len(self.archetypes)} archetypes")
 
     def on_archetypes_error(self, error_msg):
         """Called on main thread if loading fails"""
         self.loading = False
-        self.listbox.delete(0, tk.END)
-        self.listbox.insert(0, f"❌ Error: {error_msg[:50]}")
-        self.listbox.insert(1, "Click 'Select archetype' to retry")
-        self.listbox_button.config(state="normal")
+
+        # Only update if we're still in browse mode
+        if self.current_mode == "browse":
+            self.listbox.delete(0, tk.END)
+            self.listbox.insert(0, f"❌ Error: {error_msg[:50]}")
+            self.listbox.insert(1, "Click 'Select archetype' to retry")
+            self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
 
     def save_deck_as(self):
+        """Save deck to both database and file"""
         logger.debug(self.currently_selected_deck)
+
+        # Get deck content
+        deck_content = self.textbox.get("1.0", tk.END).strip()
+        if not deck_content:
+            messagebox.showwarning("Empty Deck", "Cannot save an empty deck")
+            return
+
+        # Determine deck name and metadata
         if not self.currently_selected_deck:
             date = time.strftime("%Y-%m-%d-%H-%M-%S")
-            deck_name = f"edited_deck_{date}.txt"
+            default_name = f"edited_deck_{date}"
+            deck_name = simpledialog.askstring("Save Deck", "Enter deck name:", initialvalue=default_name)
+            if not deck_name:
+                return  # User cancelled
+
+            metadata = {"date": date}
+            source = "manual"
+            archetype_name = None
+            player_name = None
         else:
-            deck_name = f"{format_deck_name(self.currently_selected_deck)}.txt"
-        with open(CONFIG["deck_selector_save_path"] + deck_name, "w") as f:
-            f.write(self.textbox.get("1.0", tk.END))
+            # Saving a deck from MTGGoldfish
+            deck_name = format_deck_name(self.currently_selected_deck)
+            archetype_name = self.currently_selected_deck.get("name")
+            player_name = self.currently_selected_deck.get("player")
+            source = "mtggoldfish"
+            metadata = {
+                "date": self.currently_selected_deck.get("date"),
+                "event": self.currently_selected_deck.get("event"),
+                "result": self.currently_selected_deck.get("result"),
+                "deck_number": self.currently_selected_deck.get("number"),
+            }
+
+        try:
+            # Save to database
+            deck_id = save_deck_to_db(
+                deck_name=deck_name,
+                deck_content=deck_content,
+                format_type=self.format.get(),
+                archetype=archetype_name,
+                player=player_name,
+                source=source,
+                metadata=metadata
+            )
+
+            # Also save to file (backup/export)
+            safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in deck_name).strip()
+            if not safe_name:
+                safe_name = "saved_deck"
+            file_name = f"{safe_name}.txt"
+            save_dir = self.deck_save_dir
+            try:
+                save_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning(f"Failed to create deck save directory '{save_dir}': {exc}")
+            file_path = save_dir / file_name
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(deck_content)
+
+            messagebox.showinfo("Deck Saved", f"Deck saved successfully!\nDatabase ID: {deck_id}\nFile: {file_name}")
+            logger.info(f"Deck saved: {deck_name} (ID: {deck_id})")
+
+        except Exception as e:
+            logger.error(f"Failed to save deck: {e}", exc_info=True)
+            messagebox.showerror("Save Error", f"Failed to save deck:\n{str(e)}")
+
+    def copy_deck_to_clipboard(self):
+        deck_content = self.textbox.get("1.0", tk.END).strip()
+        if not deck_content:
+            messagebox.showinfo("Copy Deck", "Deck is empty.")
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(deck_content)
+            messagebox.showinfo("Copy Deck", "Deck copied to clipboard.")
+        except Exception as exc:
+            logger.error(f"Failed to copy deck to clipboard: {exc}")
+            messagebox.showerror("Copy Deck", f"Failed to copy deck:\n{exc}")
 
     def add_deck_to_buffer(self):
         self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(self.textbox.get("1.0", tk.END)))
@@ -296,13 +539,18 @@ class MTGDeckSelectionWidget:
         self.set_textbox_buttons(lines)
         self.decks_added = 0
         self.deck_buffer = {}
+        if self.current_mode == "builder":
+            self.builder_sync_from_text()
 
     def textbox_on_change(self, event):
         self.last_event = event
         self.user_has_edited_deck = True
+        if self.current_mode == "builder":
+            self.root.after_idle(self.builder_sync_from_text)
 
     def ui_bind_components(self):
         self.textbox.bind("<Key>", self.textbox_on_change)
+        self.textbox.bind("<ButtonRelease-1>", self.on_textbox_click)
 
     def select_archetype(self):
         # If still loading or error, retry loading
@@ -341,7 +589,7 @@ class MTGDeckSelectionWidget:
         self.reset_button = button(self.F_top_left, "Reset", self.ui_reset_to_archetype_selection)
         self.reset_button.grid(column=0, row=0, sticky="nsew")
         self.make_daily_average_deck_button = button(self.F_top_right_top, "Day's Average", self.set_daily_average_deck)
-        self.make_daily_average_deck_button.grid(column=3, row=0, sticky="nsew")
+        self.make_daily_average_deck_button.grid(column=4, row=0, sticky="nsew")
         logger.info(f"Loaded {len(decks)} decks")
 
     def on_decks_error(self, error_msg):
@@ -395,8 +643,7 @@ class MTGDeckSelectionWidget:
 
                     # Read deck content with proper file handling
                     try:
-                        with open("curr_deck.txt", "r", encoding="utf-8") as f:
-                            deck_str = f.read()
+                        deck_str = self._read_curr_deck_file()
                     except Exception as file_error:
                         logger.error(f"Failed to read deck file: {file_error}")
                         raise
@@ -455,8 +702,7 @@ class MTGDeckSelectionWidget:
 
                 # Read with proper file handling
                 try:
-                    with open("curr_deck.txt", "r", encoding="utf-8") as f:
-                        deck_content = f.read()
+                    deck_content = self._read_curr_deck_file()
                 except Exception as file_error:
                     logger.error(f"Failed to read deck file: {file_error}")
                     raise
@@ -488,7 +734,7 @@ class MTGDeckSelectionWidget:
 
     def set_textbox_buttons(self, lines):
         self.q_btn_frames = []
-        sideboard_index = lines.index("")
+        sideboard_index = lines.index("") if "" in lines else len(lines)
         is_sideboard = False
         self.textbox.delete("1.0", tk.END)
         for i, line in enumerate(lines):
@@ -531,6 +777,8 @@ class MTGDeckSelectionWidget:
         F_edit_deck = self.create_F_edit_deck(line, is_sideboard)
         self.q_btn_frames.append(F_edit_deck)
         self.textbox.window_create(f"{index + 1}.0", window=F_edit_deck)
+        if self.current_mode == "builder":
+            self.builder_sync_from_text()
 
     def decrement_card(self, line, is_sideboard=False):
         card = " ".join(line.split(" ")[1:])
@@ -573,6 +821,8 @@ class MTGDeckSelectionWidget:
         if num_occurrences == 2:
             index = [lines.index(lin) for lin in lines if card in lin][is_sideboard]
         self.textbox.replace(f"{index + 1}.0", f"{index + 2}.0", '')
+        if self.current_mode == "builder":
+            self.builder_sync_from_text()
 
     def select_deck(self):
         # Simply displays the selected deck without any automation
@@ -583,14 +833,680 @@ class MTGDeckSelectionWidget:
         selected = selected[0]
         logger.debug(selected)
         self.currently_selected_deck = self.decks[selected]
+
+    def set_mode_button_states(self, active_mode: str):
+        buttons = {
+            "browse": self.browse_mode_button,
+            "saved": self.saved_decks_button,
+            "builder": self.builder_mode_button,
+        }
+        for mode, btn in buttons.items():
+            btn.config(background=CS[2] if mode == active_mode else CS[0])
+
+    def disable_builder_ui(self):
+        self.builder_controls_frame.grid_remove()
+        if not self.listbox_button.winfo_ismapped():
+            self.listbox_button.grid()
+        self.card_detail_frame.grid_remove()
+        self.builder_add_main_button.config(state="disabled")
+        self.builder_add_side_button.config(state="disabled")
+        self.builder_status_var.set("")
+        self.listbox.unbind("<<ListboxSelect>>")
+
+    def enable_builder_ui(self):
+        if self.listbox_button.winfo_ismapped():
+            self.listbox_button.grid_remove()
+        self.builder_controls_frame.grid()
+        self.card_detail_frame.grid()
+        self.builder_add_main_button.config(state="disabled")
+        self.builder_add_side_button.config(state="disabled")
+        self.listbox.bind("<<ListboxSelect>>", self.on_card_result_selected)
+
+    def ensure_card_data_loaded(self):
+        if self.card_data_ready or self.card_data_loading:
+            return
+        self.card_data_loading = True
+        self.builder_status_var.set("Loading card database...")
+
+        def worker():
+            try:
+                from utils.card_data import CardDataManager
+
+                manager = CardDataManager()
+                manager.ensure_latest()
+                formats = manager.available_formats()
+                self.root.after(0, lambda: self.on_card_data_ready(manager, formats))
+            except Exception as exc:
+                logger.warning(f"Card data preload failed: {exc}")
+                self.root.after(0, lambda: self.on_card_data_failed(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_card_data_ready(self, manager, formats):
+        self.card_manager = manager
+        self.card_data_ready = True
+        self.card_data_loading = False
+        available_formats = ["Any"] + sorted({fmt.lower() for fmt in formats}) if formats else CARD_SEARCH_FORMATS
+        self.card_format_menu.configure(values=available_formats)
+        if self.card_format_var.get() not in available_formats:
+            self.card_format_var.set("Any")
+        self.card_search_button.config(state="normal")
+        self.card_search_entry.config(state="normal")
+        self.open_saved_decks_button.config(state="normal")
+        self.builder_status_var.set("Card data ready. Type to search.")
+
+    def on_card_data_failed(self, error):
+        self.card_data_loading = False
+        self.card_manager = None
+        self.builder_status_var.set(f"Card data unavailable: {error}")
+        self.card_data_ready = False
+        self.card_search_button.config(state="disabled")
+        self.card_search_entry.config(state="disabled")
+
+    def switch_to_builder_mode(self):
+        """Switch to deck builder mode"""
+        self.current_mode = "builder"
+        self.set_mode_button_states("builder")
+        self.disable_builder_ui()  # Reset bindings, then enable builder UI
+        self.enable_builder_ui()
+        self.load_saved_into_builder_button.grid(column=6, row=0, sticky="nsew")
+        self.load_saved_into_builder_button.config(state="normal")
+        self.hide_deck_statistics()
+        if hasattr(self, "visualize_button"):
+            self.visualize_button.grid_remove()
+        if hasattr(self, "reset_button"):
+            self.reset_button.grid_forget()
+        if getattr(self, "delete_deck_button", None):
+            self.delete_deck_button.grid_forget()
+            self.delete_deck_button = None
+        if hasattr(self, "make_daily_average_deck_button"):
+            self.make_daily_average_deck_button.grid_forget()
+
+        existing = self.textbox.get("1.0", tk.END)
+        self.builder_sync_from_text(existing)
+        self.builder_render_deck()
+        self.card_search_results = []
+        self.listbox.delete(0, tk.END)
+        self.builder_status_var.set("Loading card database...")
+        if self.card_data_ready:
+            self.card_search_button.config(state="normal")
+            self.card_search_entry.config(state="normal")
+        else:
+            self.card_search_button.config(state="disabled")
+            self.card_search_entry.config(state="disabled")
+        self.open_saved_decks_button.config(state="normal")
+        self.card_detail_text.config(state="normal")
+        self.card_detail_text.delete("1.0", tk.END)
+        self.card_detail_text.config(state="disabled")
+        self.ensure_card_data_loaded()
+
+    def perform_card_search(self):
+        if self.current_mode != "builder":
+            return
+        if not self.card_data_ready:
+            if not self.card_data_loading:
+                self.ensure_card_data_loaded()
+            self.builder_status_var.set("Card data still loading...")
+            return
+        query = self.card_search_var.get()
+        fmt = self.card_format_var.get()
+        type_filter = self.card_type_var.get()
+        fmt_value = None if fmt == "Any" else fmt.lower()
+        type_value = None if type_filter == "Any" else type_filter.lower()
+        self.listbox.delete(0, tk.END)
+        try:
+            matches = self.card_manager.search_cards(query=query, format_filter=fmt_value, type_filter=type_value)
+            self.card_search_results = matches
+            for card in matches:
+                cost = card.get("mana_cost") or ""
+                display = f"{card['name']} {cost}".strip()
+                self.listbox.insert(tk.END, display)
+            if matches:
+                self.builder_status_var.set(f"Found {len(matches)} cards.")
+            else:
+                self.builder_status_var.set("No matches found.")
+        except Exception as exc:
+            logger.exception("Card search failed")
+            self.builder_status_var.set(f"Search failed: {exc}")
+
+    def on_card_result_selected(self, event=None):
+        if self.current_mode != "builder":
+            return
+        selection = self.listbox.curselection()
+        if not selection:
+            self.builder_add_main_button.config(state="disabled")
+            self.builder_add_side_button.config(state="disabled")
+            return
+        card = self.card_search_results[selection[0]]
+        self.display_card_detail(card)
+        self.builder_add_main_button.config(state="normal")
+        self.builder_add_side_button.config(state="normal")
+
+    def display_card_detail(self, card):
+        mana_value = card.get('mana_value')
+        if isinstance(mana_value, float) and mana_value.is_integer():
+            mana_value_display = int(mana_value)
+        else:
+            mana_value_display = mana_value if mana_value is not None else '-'
+        details = [
+            card["name"],
+            f"Mana Cost: {card.get('mana_cost') or '-'}",
+            f"Mana Value: {mana_value_display}",
+            f"Type: {card.get('type_line') or '-'}",
+        ]
+        identity = "".join(card.get("color_identity") or [])
+        if identity:
+            details.append(f"Color Identity: {identity}")
+        text = card.get("oracle_text") or ""
+        if text:
+            details.append("")
+            details.append(text)
+        legal = sorted(fmt for fmt, state in (card.get("legalities") or {}).items() if state == "Legal")
+        if legal:
+            details.append("")
+            details.append("Legal in: " + ", ".join(legal))
+        self.card_detail_text.config(state="normal")
+        self.card_detail_text.delete("1.0", tk.END)
+        self.card_detail_text.insert("1.0", "\n".join(details))
+        self.card_detail_text.config(state="disabled")
+
+    def builder_add_card(self, zone: str):
+        if self.current_mode != "builder":
+            return
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        card = self.card_search_results[selection[0]]
+        name = card["name"]
+        zone_dict = self.builder_deck[zone]
+        zone_dict[name] = zone_dict.get(name, 0) + 1
+        self.builder_render_deck()
+
+    def builder_render_deck(self):
+        lines = []
+        for name in sorted(self.builder_deck["main"]):
+            count = self.builder_deck["main"][name]
+            lines.append(f"{count} {name}")
+        lines.append("")
+        for name in sorted(self.builder_deck["side"]):
+            count = self.builder_deck["side"][name]
+            lines.append(f"{count} {name}")
+        if not lines:
+            lines = [""]
+        self.set_textbox_buttons(lines)
+        self.builder_update_status_counts()
+
+    def builder_sync_from_text(self, content: str | None = None):
+        content = (content if content is not None else self.textbox.get("1.0", tk.END)).strip()
+        if not content:
+            self.builder_deck = {"main": {}, "side": {}}
+            self.builder_update_status_counts()
+            return
+        deck_dict = deck_to_dictionary(content)
+        main = {}
+        side = {}
+        for card_name, count in deck_dict.items():
+            if card_name.startswith("Sideboard "):
+                side[card_name.replace("Sideboard ", "")] = count
+            else:
+                main[card_name] = count
+        self.builder_deck = {"main": main, "side": side}
+        self.builder_update_status_counts()
+
+    def builder_update_status_counts(self):
+        main_total = sum(self.builder_deck["main"].values())
+        side_total = sum(self.builder_deck["side"].values())
+        if self.current_mode == "builder":
+            self.builder_status_var.set(f"Deck size: {main_total} main / {side_total} side")
+
+    def _read_curr_deck_file(self) -> str:
+        candidates = [CURR_DECK_FILE, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
+        for candidate in candidates:
+            if candidate.exists():
+                with candidate.open("r", encoding="utf-8") as fh:
+                    contents = fh.read()
+                if candidate != CURR_DECK_FILE:
+                    try:
+                        CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+                        with CURR_DECK_FILE.open("w", encoding="utf-8") as target:
+                            target.write(contents)
+                        try:
+                            candidate.unlink()
+                        except OSError:
+                            logger.debug(f"Unable to remove legacy deck file {candidate}")
+                    except OSError as exc:
+                        logger.debug(f"Failed to migrate curr_deck.txt from {candidate}: {exc}")
+                return contents
+        raise FileNotFoundError("Current deck file not found")
+
+    def open_saved_decks_dialog(self):
+        """Open a modal list of saved decks for loading into the builder."""
+        if self.saved_decks_popup and self.saved_decks_popup.winfo_exists():
+            self.saved_decks_popup.lift()
+            return
+
+        self.saved_decks_popup = tk.Toplevel(self.root)
+        self.saved_decks_popup.title("Load Saved Deck")
+        self.saved_decks_popup.geometry("420x360")
+        self.saved_decks_popup.transient(self.root)
+        self.saved_decks_popup.grab_set()
+
+        container = tk.Frame(self.saved_decks_popup, padx=8, pady=8)
+        container.pack(fill="both", expand=True)
+        tk.Label(container, text=f"Saved decks ({self.format.get()}):", font=("calibri", 12, "bold")).pack(anchor="w")
+
+        list_frame = tk.Frame(container)
+        list_frame.pack(fill="both", expand=True, pady=6)
+        listbox = tk.Listbox(list_frame, font=("calibri", 11), height=12)
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
+        scrollbar.pack(side="right", fill="y")
+        listbox.config(yscrollcommand=scrollbar.set)
+        status = tk.Label(container, text="Loading saved decks...", anchor="w")
+        status.pack(fill="x", pady=(4, 0))
+        button_bar = tk.Frame(container)
+        button_bar.pack(fill="x", pady=(8, 0))
+        load_btn = tk.Button(button_bar, text="Load Selected Deck", command=lambda: self.load_saved_deck_from_popup())
+        load_btn.pack(side="left", expand=True, fill="x")
+        cancel_btn = tk.Button(button_bar, text="Cancel", command=self.close_saved_decks_dialog)
+        cancel_btn.pack(side="right", expand=True, fill="x", padx=(8, 0))
+
+        self.saved_decks_popup_listbox = listbox
+        self.saved_decks_popup_status = status
+        self.saved_decks_popup_data = []
+        self.saved_decks_popup.protocol("WM_DELETE_WINDOW", self.close_saved_decks_dialog)
+        self.populate_saved_decks_dialog()
+
+    def close_saved_decks_dialog(self):
+        if self.saved_decks_popup and self.saved_decks_popup.winfo_exists():
+            self.saved_decks_popup.grab_release()
+            self.saved_decks_popup.destroy()
+        self.saved_decks_popup = None
+        self.saved_decks_popup_listbox = None
+        self.saved_decks_popup_status = None
+        self.saved_decks_popup_data = []
+
+    def populate_saved_decks_dialog(self):
+        if not self.saved_decks_popup or not self.saved_decks_popup.winfo_exists():
+            return
+        self.saved_decks_popup_listbox.delete(0, tk.END)
+        self.saved_decks_popup_status.config(text="Loading saved decks...")
+
+        def load():
+            try:
+                decks = get_saved_decks(format_type=self.format.get())
+            except Exception as exc:
+                self.root.after(0, lambda: self.saved_decks_popup_status.config(text=f"Error: {exc}"))
+                return
+
+            def finish():
+                if not (self.saved_decks_popup and self.saved_decks_popup.winfo_exists()):
+                    return
+                self.saved_decks_popup_data = decks
+                self.saved_decks_popup_listbox.delete(0, tk.END)
+                if not decks:
+                    self.saved_decks_popup_listbox.insert(tk.END, "No saved decks found")
+                    self.saved_decks_popup_status.config(text="No saved decks available.")
+                    return
+                for deck in decks:
+                    display = deck.get("name", "Unnamed deck")
+                    if deck.get("date_saved"):
+                        display = f"[{deck['date_saved'].strftime('%Y-%m-%d')}] {display}"
+                    self.saved_decks_popup_listbox.insert(tk.END, display)
+                self.saved_decks_popup_status.config(text=f"{len(decks)} decks loaded.")
+
+            self.root.after(0, finish)
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def load_saved_deck_from_popup(self):
+        if not (self.saved_decks_popup and self.saved_decks_popup_listbox):
+            return
+        selection = self.saved_decks_popup_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a deck to load.")
+            return
+        if not self.saved_decks_popup_data:
+            messagebox.showwarning("Unavailable", "Deck data not available.")
+            return
+        deck_doc = self.saved_decks_popup_data[selection[0]]
+        self.apply_saved_deck_to_builder(deck_doc)
+        self.close_saved_decks_dialog()
+
+    def apply_saved_deck_to_builder(self, deck_doc: dict):
+        deck_content = deck_doc.get("content", "")
+        if not deck_content:
+            messagebox.showwarning("Empty Deck", "Selected deck has no content.")
+            return
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", deck_content)
+        if self.current_mode != "builder":
+            self.switch_to_builder_mode()
+        else:
+            self.builder_sync_from_text(deck_content)
+            self.builder_render_deck()
+        deck_name = deck_doc.get("name", "Saved Deck")
+        self.builder_status_var.set(f"Loaded saved deck: {deck_name}")
+
+    def load_selected_saved_into_builder(self):
+        if self.current_mode != "saved":
+            self.open_saved_decks_dialog()
+            return
+        if not self.saved_decks:
+            messagebox.showwarning("No Decks", "No saved decks available.")
+            return
+        selection = self.listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a deck to load.")
+            return
+        deck_doc = self.saved_decks[selection[0]]
+        self.apply_saved_deck_to_builder(deck_doc)
+
+    def extract_card_name_from_line(self, line: str) -> str | None:
+        line = (line or "").strip()
+        if not line or line.lower() == "sideboard":
+            return None
+        parts = line.split(" ", 1)
+        if len(parts) < 2:
+            return None
+        try:
+            float(parts[0])
+        except ValueError:
+            return None
+        card_name = parts[1].strip()
+        if card_name.lower().startswith("sideboard "):
+            card_name = card_name[len("sideboard "):].strip()
+        return card_name or None
+
+    def on_textbox_click(self, event):
+        if event.widget is not self.textbox:
+            return
+        if self.current_mode != "builder":
+            return
+        if not self.card_manager:
+            if not self.card_data_loading:
+                self.ensure_card_data_loaded()
+            return
+        index = self.textbox.index(f"@{event.x},{event.y}")
+        line_number = index.split(".")[0]
+        line_text = self.textbox.get(f"{line_number}.0", f"{line_number}.end")
+        card_name = self.extract_card_name_from_line(line_text)
+        if not card_name:
+            return
+        card = self.card_manager.get_card(card_name)
+        if not card:
+            self.builder_status_var.set(f"No card data for '{card_name}'")
+            return
+        self.display_card_detail(card)
+        # Keep add buttons disabled unless a search selection exists
+        self.builder_add_main_button.config(state="disabled")
+        self.builder_add_side_button.config(state="disabled")
         logger.debug(self.currently_selected_deck)
+
+    def switch_to_browse_mode(self):
+        """Switch to MTGGoldfish browsing mode"""
+        self.current_mode = "browse"
+        self.set_mode_button_states("browse")
+        self.disable_builder_ui()
+        self.load_saved_into_builder_button.grid_remove()
+        self.close_saved_decks_dialog()
+        if getattr(self, "delete_deck_button", None):
+            self.delete_deck_button.grid_forget()
+            self.delete_deck_button = None
+        self.hide_deck_statistics()  # Hide stats when switching to browse mode
+        if hasattr(self, 'visualize_button'):
+            self.visualize_button.grid_remove()  # Hide visualize button in browse mode
+        self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
+        self.ui_reset_to_archetype_selection()
+
+    def switch_to_saved_mode(self):
+        """Switch to saved decks mode"""
+        self.current_mode = "saved"
+        self.set_mode_button_states("saved")
+        self.disable_builder_ui()
+        self.load_saved_into_builder_button.grid(column=6, row=0, sticky="nsew")
+        self.load_saved_into_builder_button.config(state="disabled")
+        self.close_saved_decks_dialog()
+        if getattr(self, "delete_deck_button", None):
+            self.delete_deck_button.grid_forget()
+            self.delete_deck_button = None
+
+        # Clean up browse mode UI elements
+        self.textbox.delete("1.0", tk.END)
+        if hasattr(self, "reset_button"):
+            self.reset_button.grid_forget()
+        if hasattr(self, "make_daily_average_deck_button"):
+            self.make_daily_average_deck_button.grid_forget()
+
+        # Unbind any browse mode listbox events
+        self.listbox_button.unbind("<<ListboxSelect>>")
+
+        self.load_saved_decks_list()
+
+    def load_saved_decks_list(self):
+        """Load saved decks from database"""
+        self.textbox.delete("1.0", tk.END)
+        self.listbox.delete(0, tk.END)
+        self.listbox.insert(0, "⏳ Loading saved decks...")
+        self.listbox_button.config(state="disabled")
+        self.saved_decks = []
+
+        # Remove any existing reset button
+        if hasattr(self, "reset_button"):
+            self.reset_button.grid_forget()
+        if getattr(self, "delete_deck_button", None):
+            self.delete_deck_button.grid_forget()
+            self.delete_deck_button = None
+
+        def load_in_background():
+            try:
+                # Get decks from database, filtered by format
+                decks = get_saved_decks(format_type=self.format.get())
+                self.root.after(0, lambda: self.on_saved_decks_loaded(decks))
+            except Exception as e:
+                logger.error(f"Failed to load saved decks: {e}", exc_info=True)
+                self.root.after(0, lambda: self.on_saved_decks_error(str(e)))
+
+        thread = threading.Thread(target=load_in_background, daemon=True)
+        thread.start()
+
+    def on_saved_decks_loaded(self, decks):
+        """Called when saved decks are loaded from database"""
+        self.saved_decks = decks
+        self.listbox.delete(0, tk.END)
+
+        if not decks:
+            self.listbox.insert(0, "No saved decks found")
+            self.listbox.insert(1, f"Format: {self.format.get()}")
+            self.listbox_button.config(text="Load Deck", command=self.load_selected_saved_deck, state="disabled")
+            self.load_saved_into_builder_button.config(state="disabled")
+            self.delete_deck_button = None
+            return
+
+        # Format deck names for display with more info
+        for deck in decks:
+            # Create a more detailed display
+            display_name = f"{deck['name']}"
+
+            # Add date if available
+            if deck.get('date_saved'):
+                date_str = deck['date_saved'].strftime('%m/%d')
+                display_name = f"[{date_str}] {display_name}"
+
+            self.listbox.insert(tk.END, display_name)
+
+        self.listbox_button.config(text="Load Deck", command=self.load_selected_saved_deck, state="normal")
+        self.listbox.bind("<<ListboxSelect>>", self.display_saved_deck)
+        self.load_saved_into_builder_button.config(state="normal")
+
+        # Add delete button
+        self.delete_deck_button = button(self.F_top_left, "❌ Delete Deck", self.delete_selected_saved_deck, color="red")
+        self.delete_deck_button.grid(column=0, row=0, sticky="nsew")
+
+        # Show visualize button in saved decks mode
+        if hasattr(self, 'visualize_button'):
+            self.visualize_button.grid()
+
+        logger.info(f"Loaded {len(decks)} saved decks")
+
+    def on_saved_decks_error(self, error_msg):
+        """Called if loading saved decks fails"""
+        self.listbox.delete(0, tk.END)
+        self.listbox.insert(0, f"❌ Error: {error_msg[:50]}")
+        self.listbox.insert(1, "Click 'Saved Decks' to retry")
+        self.listbox_button.config(state="normal")
+        self.load_saved_into_builder_button.config(state="disabled")
+        self.saved_decks = []
+        if getattr(self, "delete_deck_button", None):
+            self.delete_deck_button.grid_forget()
+            self.delete_deck_button = None
+
+    def display_saved_deck(self, event):
+        """Display selected saved deck in textbox"""
+        selected = self.listbox.curselection()
+        if not selected:
+            return
+        selected = selected[0]
+
+        deck_doc = self.saved_decks[selected]
+        deck_content = deck_doc.get('content', '')
+
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", deck_content)
+
+        # Show deck statistics
+        self.update_deck_statistics(deck_content, deck_doc)
+
+        # Show deck info in log
+        info_lines = []
+        if deck_doc.get('archetype'):
+            info_lines.append(f"Archetype: {deck_doc['archetype']}")
+        if deck_doc.get('player'):
+            info_lines.append(f"Player: {deck_doc['player']}")
+        if deck_doc.get('source'):
+            info_lines.append(f"Source: {deck_doc['source']}")
+        if deck_doc.get('date_saved'):
+            info_lines.append(f"Saved: {deck_doc['date_saved'].strftime('%Y-%m-%d %H:%M')}")
+
+        if info_lines:
+            logger.info(" | ".join(info_lines))
+
+        # Set up editing buttons
+        lines = self.textbox.get("1.0", tk.END).split("\n")
+        self.set_textbox_buttons(lines)
+
+    def update_deck_statistics(self, deck_content: str, deck_doc: dict = None):
+        """Update the statistics panel with deck metadata"""
+        try:
+            # Build statistics text - metadata only
+            stats_text = ""
+
+            # Deck metadata
+            if deck_doc:
+                if deck_doc.get('archetype'):
+                    stats_text += f"📦 Archetype: {deck_doc['archetype']}\n"
+                if deck_doc.get('player'):
+                    stats_text += f"👤 Player: {deck_doc['player']}\n"
+                if deck_doc.get('format'):
+                    stats_text += f"🎯 Format: {deck_doc['format']}\n"
+                if deck_doc.get('source'):
+                    stats_text += f"📍 Source: {deck_doc['source'].title()}\n"
+                if deck_doc.get('date_saved'):
+                    stats_text += f"💾 Saved: {deck_doc['date_saved'].strftime('%Y-%m-%d %H:%M')}\n"
+
+                # Add metadata if available
+                metadata = deck_doc.get('metadata', {})
+                if metadata.get('event'):
+                    stats_text += f"🏆 Event: {metadata['event']}\n"
+                if metadata.get('result'):
+                    stats_text += f"🎖️ Result: {metadata['result']}\n"
+
+            if stats_text:
+                self.stats_label.config(text=stats_text)
+                self.F_stats.grid()  # Show the stats panel
+            else:
+                self.F_stats.grid_remove()  # Hide if no metadata
+
+        except Exception as e:
+            logger.error(f"Failed to display deck metadata: {e}")
+            self.F_stats.grid_remove()  # Hide stats panel on error
+
+    def hide_deck_statistics(self):
+        """Hide the statistics panel"""
+        self.F_stats.grid_remove()
+        if hasattr(self, 'visualize_button'):
+            self.visualize_button.config(text="📊 Show Stats")
+
+    def toggle_statistics_panel(self):
+        """Toggle the visibility of the statistics panel"""
+        if self.F_stats.winfo_viewable():
+            self.F_stats.grid_remove()
+            self.visualize_button.config(text="📊 Show Stats")
+        else:
+            # Re-analyze current deck if available
+            deck_content = self.textbox.get("1.0", tk.END).strip()
+            if deck_content:
+                # Get current deck doc if in saved mode
+                deck_doc = None
+                if self.current_mode == "saved" and self.saved_decks:
+                    selected = self.listbox.curselection()
+                    if selected:
+                        deck_doc = self.saved_decks[selected[0]]
+
+                self.update_deck_statistics(deck_content, deck_doc)
+                self.visualize_button.config(text="📊 Hide Stats")
+            else:
+                messagebox.showinfo("No Deck", "Please select a deck to view statistics")
+
+    def load_selected_saved_deck(self):
+        """Load the selected saved deck (same as display, but explicit action)"""
+        selected = self.listbox.curselection()
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select a deck to load")
+            return
+
+        selected = selected[0]
+        deck_doc = self.saved_decks[selected]
+        logger.info(f"Loaded saved deck: {deck_doc['name']}")
+
+    def delete_selected_saved_deck(self):
+        """Delete the selected saved deck"""
+        selected = self.listbox.curselection()
+        if not selected:
+            messagebox.showwarning("No Selection", "Please select a deck to delete")
+            return
+
+        selected = selected[0]
+        deck_doc = self.saved_decks[selected]
+
+        # Confirm deletion
+        confirm = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete:\n{deck_doc['name']}?\n\nThis cannot be undone."
+        )
+
+        if not confirm:
+            return
+
+        try:
+            delete_saved_deck(deck_doc['_id'])
+            messagebox.showinfo("Deck Deleted", f"Deleted: {deck_doc['name']}")
+            # Reload the list
+            self.load_saved_decks_list()
+        except Exception as e:
+            logger.error(f"Failed to delete deck: {e}", exc_info=True)
+            messagebox.showerror("Delete Error", f"Failed to delete deck:\n{str(e)}")
 
     def save_config(self):
         config = {
             "format": self.format.get(),
             "screen_pos": (self.root.winfo_x(), self.root.winfo_y()),
         }
-        json.dump(config, open("deck_monitor_config.json", "w"), indent=4)
+        try:
+            with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
+                json.dump(config, fh, indent=4)
+        except OSError as exc:
+            logger.warning(f"Failed to write deck selector settings: {exc}")
 
 
 if __name__ == "__main__":

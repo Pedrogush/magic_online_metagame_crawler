@@ -1,9 +1,13 @@
+from pathlib import Path
+
 from pynput import mouse
 from loguru import logger
 from PIL import Image, ImageDraw
 import pyautogui
 import json
-import os
+from utils.paths import LEADERBOARD_POSITIONS_FILE
+
+LEGACY_LEADERBOARD_POSITIONS = Path("leaderboard_positions.json")
 
 
 def configure_box_positions():
@@ -36,10 +40,9 @@ def configure_box_positions():
         logger.debug(f"[bottom_right], [trophies], [bottorm ranks], player {i + 1}")
         cur += [wait_for_click()]
         br[i + 1] = cur
-    if os.path.exists("leaderboard_positions.json"):
-        logger.debug("leaderboard_positions.json already exists, will overwrite")
-        os.remove("leaderboard_positions.json")
-    with open("leaderboard_positions.json", "w") as f:
+    if LEADERBOARD_POSITIONS_FILE.exists():
+        logger.debug(f"{LEADERBOARD_POSITIONS_FILE} already exists, will overwrite")
+    with LEADERBOARD_POSITIONS_FILE.open("w", encoding="utf-8") as f:
         json.dump({"top": tr, "bottom": br}, f, indent=4)
 
 
@@ -47,13 +50,28 @@ def load_box_positions():
     """
     Loads OCR box position configuration for opponent tracking.
     """
-    if not os.path.exists("leaderboard_positions.json"):
+    if not LEADERBOARD_POSITIONS_FILE.exists():
         logger.debug(
-            "leaderboard_positions.json not found, please run configure_box_positions"
+            f"{LEADERBOARD_POSITIONS_FILE} not found, please run configure_box_positions"
         )
         configure_box_positions()
-    with open("leaderboard_positions.json", "r") as f:
-        data = json.load(f)
+    if LEADERBOARD_POSITIONS_FILE.exists():
+        with LEADERBOARD_POSITIONS_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    if LEGACY_LEADERBOARD_POSITIONS.exists():
+        logger.warning("Loaded legacy leaderboard_positions.json from project root; migrating to config/")
+        with LEGACY_LEADERBOARD_POSITIONS.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        try:
+            with LEADERBOARD_POSITIONS_FILE.open("w", encoding="utf-8") as target:
+                json.dump(data, target, indent=4)
+            try:
+                LEGACY_LEADERBOARD_POSITIONS.unlink()
+            except OSError as exc:
+                logger.debug(f"Unable to remove legacy leaderboard_positions.json: {exc}")
+        except OSError as exc:
+            logger.warning(f"Failed to migrate leaderboard positions file: {exc}")
     return data
 
 

@@ -1,12 +1,17 @@
 import time
 import tkinter as tk
 import json
-import os
+from pathlib import Path
 from pyautogui import pixelMatchesColor
 from navigators.mtgo import wait_for_click
 from utils.ocr import get_word_on_box
 from utils.metagame import get_latest_deck
 from loguru import logger
+from utils.paths import (
+    CONFIG_DIR,
+    DECK_MONITOR_CONFIG_FILE,
+    DECK_MONITOR_CACHE_FILE,
+)
 
 # TODO: make webdriver close upon trade completed
 # organize UI so that GUI buttons are divided properly per function
@@ -28,6 +33,9 @@ FORMAT_OPTIONS = [
     "Pauper",
     "Commander",
 ]
+LEGACY_DECK_MONITOR_CONFIG = Path("deck_monitor_config.json")
+LEGACY_DECK_MONITOR_CACHE = Path("deck_monitor_cache.json")
+LEGACY_DECK_MONITOR_CACHE_CONFIG = CONFIG_DIR / "deck_monitor_cache.json"
 
 
 def default_label(root, text=" ", color=CS[0]):
@@ -238,13 +246,22 @@ class MTGOpponentDeckSpy:
             "vertices": self.vertices,
             "screen_pos": (self.root.winfo_x(), self.root.winfo_y()),
         }
-        with open("deck_monitor_config.json", "w") as f:
-            json.dump(config, f, indent=4)
+        try:
+            with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as f:
+                json.dump(config, f, indent=4)
+        except OSError as exc:
+            logger.warning(f"Failed to write deck monitor config: {exc}")
 
     def load_config(self):
-        if os.path.exists("deck_monitor_config.json"):
+        source_file = DECK_MONITOR_CONFIG_FILE
+        legacy_source = False
+        if not source_file.exists() and LEGACY_DECK_MONITOR_CONFIG.exists():
+            source_file = LEGACY_DECK_MONITOR_CONFIG
+            legacy_source = True
+            logger.warning("Loaded legacy deck_monitor_config.json from project root; migrating to config/")
+        if source_file.exists():
             try:
-                with open("deck_monitor_config.json", "r") as f:
+                with source_file.open("r", encoding="utf-8") as f:
                     config = json.load(f)
                 self.box = config["box"]
                 self.vertices = config["vertices"]
@@ -252,6 +269,17 @@ class MTGOpponentDeckSpy:
                 logger.debug(config["screen_pos"])
                 self.root.geometry(f'+{config["screen_pos"][0]}+{config["screen_pos"][1]}')
                 self.root.update()
+                if legacy_source:
+                    try:
+                        with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as target:
+                            json.dump(config, target, indent=4)
+                        if source_file != DECK_MONITOR_CONFIG_FILE:
+                            try:
+                                source_file.unlink()
+                            except OSError as exc:
+                                logger.debug(f"Unable to remove legacy deck monitor config {source_file}: {exc}")
+                    except OSError as exc:
+                        logger.warning(f"Failed to migrate deck monitor config: {exc}")
                 return
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Invalid config JSON, using defaults: {e}")
@@ -260,14 +288,40 @@ class MTGOpponentDeckSpy:
         self.format = "Modern"
 
     def save_cache(self):
-        with open("deck_monitor_cache.json", "w") as f:
-            json.dump(self.cache, f, indent=4)
+        try:
+            DECK_MONITOR_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with DECK_MONITOR_CACHE_FILE.open("w", encoding="utf-8") as f:
+                json.dump(self.cache, f, indent=4)
+        except OSError as exc:
+            logger.warning(f"Failed to write deck monitor cache: {exc}")
 
     def load_cache(self):
-        if os.path.exists("deck_monitor_cache.json"):
+        source_file = DECK_MONITOR_CACHE_FILE
+        legacy_source = False
+        if not source_file.exists() and LEGACY_DECK_MONITOR_CACHE_CONFIG.exists():
+            source_file = LEGACY_DECK_MONITOR_CACHE_CONFIG
+            legacy_source = True
+            logger.warning("Loaded legacy deck_monitor_cache.json from config/; migrating to cache/")
+        if not source_file.exists() and LEGACY_DECK_MONITOR_CACHE.exists():
+            source_file = LEGACY_DECK_MONITOR_CACHE
+            legacy_source = True
+            logger.warning("Loaded legacy deck_monitor_cache.json from project root; migrating to cache/")
+        if source_file.exists():
             try:
-                with open("deck_monitor_cache.json", "r") as f:
+                with source_file.open("r", encoding="utf-8") as f:
                     self.cache = json.load(f)
+                if legacy_source:
+                    try:
+                        DECK_MONITOR_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                        with DECK_MONITOR_CACHE_FILE.open("w", encoding="utf-8") as target:
+                            json.dump(self.cache, target, indent=4)
+                        if source_file != DECK_MONITOR_CACHE_FILE:
+                            try:
+                                source_file.unlink()
+                            except OSError as exc:
+                                logger.debug(f"Unable to remove legacy cache file {source_file}: {exc}")
+                    except OSError as exc:
+                        logger.warning(f"Failed to migrate deck monitor cache: {exc}")
                 return
             except json.JSONDecodeError as e:
                 logger.warning(f"Invalid cache JSON, resetting: {e}")
