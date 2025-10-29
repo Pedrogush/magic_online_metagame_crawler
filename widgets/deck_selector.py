@@ -2,8 +2,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 import json
-import pyperclip
-from navigators.mtgo import login
+import threading
 from loguru import logger
 from utils.deck import deck_to_dictionary, add_dicts
 from navigators.mtggoldfish import (
@@ -11,16 +10,6 @@ from navigators.mtggoldfish import (
     get_archetype_stats,
     get_archetype_decks,
     download_deck,
-)
-from navigators.manatraders import (
-    Webdriver,
-    login as manatraders_login,
-    rent_deck,
-    receive_cards,
-    return_cards,
-)
-from navigators.mtgo import (
-    register_deck,
 )
 
 # TODO: add some deck managing stuff (save decks, access list of saved decks, auto-save, etc)
@@ -140,7 +129,13 @@ class MTGDeckSelectionWidget:
         self.currently_selected_deck = {}
         self.deck_buffer: dict = {}
         self.decks_added = 0
+        self.archetypes = []
+        self.archetype_stats = {}
+        self.loading = False
+        self.loading_daily_average = False  # Prevent simultaneous daily average loads
         self.ui_make_components()
+        # Load archetypes asynchronously after window is shown
+        self.root.after(100, self.lazy_load_archetypes)
 
     def ui_reset_to_archetype_selection(self):
         self.textbox.delete("1.0", tk.END)
@@ -153,15 +148,15 @@ class MTGDeckSelectionWidget:
             self.reset_button.grid_forget()
 
     def ui_make_components(self):
-        self.root.title("MTG Helper")
+        self.root.title("MTG Deck Research Browser")
         self.ui_create()
-        self.ui_populate_archetypes()
+        # Don't populate yet - will be done lazily
         self.ui_bind_components()
 
     def ui_create(self):
         self.F_top = frame(self.root, "", color="bisque4")
         self.F_top.grid(column=0, row=0, sticky="nsew")
-        self.F_top_left = frame(self.F_top, "Manatraders Card Rental Automation", color=CS[1])
+        self.F_top_left = frame(self.F_top, "Deck Browser", color=CS[1])
         self.F_top_left.rowconfigure(3, weight=1)
         self.F_top_left.grid(column=0, row=1, sticky="nsew")
         self.F_top_right = frame(self.F_top, "Decklist", color=CS[1])
@@ -180,12 +175,8 @@ class MTGDeckSelectionWidget:
         self.add_deck_to_buffer_button.grid(column=1, row=0, sticky="nsew")
         self.make_average_deck_button = button(self.F_top_right_top, "Mean of buffer", self.make_average_deck)
         self.make_average_deck_button.grid(column=2, row=0, sticky="nsew")
-        self.login_button = button(self.F_bottom, "MTGO Login", login)
-        self.login_button.grid(column=1, row=0, sticky="nsew")
         self.listbox_button = button(self.F_top_left, "Select archetype", self.select_archetype)
         self.listbox_button.grid(column=0, row=1, sticky="nsew")
-        self.return_cards_button = button(self.F_top_left, "Return cards", self.return_cards)
-        self.return_cards_button.grid(column=0, row=2, sticky="nsew")
         self.listbox = tk.Listbox(
             self.F_top_left,
             selectmode=tk.SINGLE,
@@ -216,16 +207,61 @@ class MTGDeckSelectionWidget:
         choose_format_button_config(self.choose_format_button)
 
     def choose_format_button_clicked(self):
-        self.ui_populate_archetypes()
+        self.lazy_load_archetypes()
         self.ui_reset_to_archetype_selection()
         self.save_config()
 
-    def ui_populate_archetypes(self):
-        mtg_format = self.format.get()
-        self.archetype_stats = get_archetype_stats(mtg_format)
-        self.archetypes = get_archetypes(mtg_format)
+    def lazy_load_archetypes(self):
+        """Load archetypes in background thread to avoid blocking UI"""
+        if self.loading:
+            logger.debug("Already loading archetypes, skipping")
+            return
+
+        self.loading = True
+        self.listbox.delete(0, tk.END)
+        self.listbox.insert(0, "⏳ Loading archetypes...")
+        self.listbox_button.config(state="disabled")
+
+        def load_in_background():
+            try:
+                mtg_format = self.format.get()
+                logger.info(f"Loading archetypes for {mtg_format}...")
+
+                # Fetch data (this is the slow part)
+                archetypes = get_archetypes(mtg_format)
+                archetype_stats = get_archetype_stats(mtg_format)
+
+                # Update UI on main thread
+                self.root.after(0, lambda: self.on_archetypes_loaded(archetypes, archetype_stats))
+            except Exception as e:
+                logger.error(f"Failed to load archetypes: {e}")
+                self.root.after(0, lambda: self.on_archetypes_error(str(e)))
+
+        # Start background thread
+        thread = threading.Thread(target=load_in_background, daemon=True)
+        thread.start()
+
+    def on_archetypes_loaded(self, archetypes, archetype_stats):
+        """Called on main thread when archetypes are loaded"""
+        self.archetypes = archetypes
+        self.archetype_stats = archetype_stats
+        self.loading = False
+
+        # Update listbox
+        self.listbox.delete(0, tk.END)
         for index, archetype in enumerate(self.archetypes):
             self.listbox.insert(index, archetype["name"])
+
+        self.listbox_button.config(state="normal")
+        logger.info(f"Loaded {len(self.archetypes)} archetypes")
+
+    def on_archetypes_error(self, error_msg):
+        """Called on main thread if loading fails"""
+        self.loading = False
+        self.listbox.delete(0, tk.END)
+        self.listbox.insert(0, f"❌ Error: {error_msg[:50]}")
+        self.listbox.insert(1, "Click 'Select archetype' to retry")
+        self.listbox_button.config(state="normal")
 
     def save_deck_as(self):
         logger.debug(self.currently_selected_deck)
@@ -269,31 +305,136 @@ class MTGDeckSelectionWidget:
         self.textbox.bind("<Key>", self.textbox_on_change)
 
     def select_archetype(self):
+        # If still loading or error, retry loading
+        if self.loading or not self.archetypes:
+            self.lazy_load_archetypes()
+            return
+
         selected = self.listbox.curselection()
         if not selected:
             return
         selected = selected[0]
         archetype = self.archetypes[selected]["href"]
-        self.decks = get_archetype_decks(archetype)
+
+        # Show loading message while fetching decks
+        self.listbox.delete(0, tk.END)
+        self.listbox.insert(0, "⏳ Loading decks...")
+        self.listbox_button.config(state="disabled")
+
+        def load_decks_in_background():
+            try:
+                decks = get_archetype_decks(archetype)
+                self.root.after(0, lambda: self.on_decks_loaded(decks))
+            except Exception as e:
+                logger.error(f"Failed to load decks: {e}")
+                self.root.after(0, lambda: self.on_decks_error(str(e)))
+
+        thread = threading.Thread(target=load_decks_in_background, daemon=True)
+        thread.start()
+
+    def on_decks_loaded(self, decks):
+        """Called when decks are loaded"""
+        self.decks = decks
         repopulate_listbox(self.listbox, [format_deck_name(deck) for deck in self.decks])
-        self.listbox_button.config(text="Select deck", command=self.select_deck)
+        self.listbox_button.config(text="Select deck", command=self.select_deck, state="normal")
         self.listbox.bind("<<ListboxSelect>>", self.set_textbox)
         self.reset_button = button(self.F_top_left, "Reset", self.ui_reset_to_archetype_selection)
         self.reset_button.grid(column=0, row=0, sticky="nsew")
         self.make_daily_average_deck_button = button(self.F_top_right_top, "Day's Average", self.set_daily_average_deck)
         self.make_daily_average_deck_button.grid(column=3, row=0, sticky="nsew")
+        logger.info(f"Loaded {len(decks)} decks")
+
+    def on_decks_error(self, error_msg):
+        """Called if deck loading fails"""
+        self.listbox.delete(0, tk.END)
+        self.listbox.insert(0, f"❌ Error loading decks: {error_msg[:40]}")
+        self.listbox_button.config(state="normal")
 
     def set_daily_average_deck(self):
+        # Prevent multiple simultaneous loads
+        if self.loading_daily_average:
+            logger.warning("Daily average already loading, ignoring click")
+            return
+
         today = time.strftime("%Y-%m-%d")
         decks_from_today = [d for d in self.decks if today.lower() in d["date"]]
-        self.deck_buffer = {}
-        self.decks_added = 0
-        for deck in decks_from_today:
-            download_deck(deck["number"])
-            deck_str = open("curr_deck.txt").read()
-            self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(deck_str))
-            self.decks_added += 1
-        self.make_average_deck()
+
+        if not decks_from_today:
+            logger.info("No decks from today found")
+            self.textbox.delete("1.0", tk.END)
+            self.textbox.insert("1.0", "No decks from today found in this archetype")
+            return
+
+        # Show loading in textbox
+        self.loading_daily_average = True
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", f"⏳ Loading {len(decks_from_today)} decks from today...\n")
+        self.make_daily_average_deck_button.config(state="disabled")
+        logger.info(f"Starting to load {len(decks_from_today)} decks for daily average")
+
+        def update_progress(current, total):
+            """Thread-safe progress update"""
+            def _update():
+                self.textbox.delete("1.0", tk.END)
+                self.textbox.insert("1.0", f"⏳ Loading deck {current}/{total}...\n")
+            self.root.after(0, _update)
+
+        def load_daily_average_in_background():
+            try:
+                deck_buffer = {}
+                decks_added = 0
+
+                for idx, deck in enumerate(decks_from_today, 1):
+                    logger.debug(f"Downloading deck {idx}/{len(decks_from_today)}: {deck['number']}")
+
+                    # Update progress before downloading
+                    update_progress(idx, len(decks_from_today))
+
+                    # Download deck
+                    download_deck(deck["number"])
+
+                    # Read deck content with proper file handling
+                    try:
+                        with open("curr_deck.txt", "r", encoding="utf-8") as f:
+                            deck_str = f.read()
+                    except Exception as file_error:
+                        logger.error(f"Failed to read deck file: {file_error}")
+                        raise
+
+                    # Parse and add to buffer
+                    deck_buffer = add_dicts(deck_buffer, deck_to_dictionary(deck_str))
+                    decks_added += 1
+                    logger.debug(f"Successfully processed deck {idx}/{len(decks_from_today)}")
+
+                logger.info(f"Completed loading {decks_added} decks")
+                self.root.after(0, lambda: self.on_daily_average_loaded(deck_buffer, decks_added))
+
+            except Exception as e:
+                logger.error(f"Failed to load daily average: {e}", exc_info=True)
+                def _error():
+                    self.textbox.delete("1.0", tk.END)
+                    self.textbox.insert("1.0", f"❌ Error loading decks:\n{str(e)}")
+                    self.make_daily_average_deck_button.config(state="normal")
+                    self.loading_daily_average = False
+                self.root.after(0, _error)
+
+        thread = threading.Thread(target=load_daily_average_in_background, daemon=True)
+        thread.start()
+
+    def on_daily_average_loaded(self, deck_buffer, decks_added):
+        """Called when daily average is computed"""
+        try:
+            self.deck_buffer = deck_buffer
+            self.decks_added = decks_added
+            self.make_average_deck()
+            logger.info("Daily average deck created successfully")
+        except Exception as e:
+            logger.error(f"Error creating average deck: {e}")
+            self.textbox.delete("1.0", tk.END)
+            self.textbox.insert("1.0", f"❌ Error creating average:\n{str(e)}")
+        finally:
+            self.make_daily_average_deck_button.config(state="normal")
+            self.loading_daily_average = False
 
     def set_textbox(self, event):
         selected = self.listbox.curselection()
@@ -302,11 +443,48 @@ class MTGDeckSelectionWidget:
         selected = selected[0]
         self.currently_selected_deck = self.decks[selected]
         deck = self.decks[selected]
+
+        # Show loading message
         self.textbox.delete("1.0", tk.END)
-        download_deck(deck["number"])
-        self.textbox.insert("1.0", open("curr_deck.txt").read())
-        lines = self.textbox.get("1.0", tk.END).split("\n")
-        self.set_textbox_buttons(lines)
+        self.textbox.insert("1.0", "⏳ Loading deck...")
+        logger.debug(f"Loading deck: {deck['number']}")
+
+        def load_deck_in_background():
+            try:
+                download_deck(deck["number"])
+
+                # Read with proper file handling
+                try:
+                    with open("curr_deck.txt", "r", encoding="utf-8") as f:
+                        deck_content = f.read()
+                except Exception as file_error:
+                    logger.error(f"Failed to read deck file: {file_error}")
+                    raise
+
+                logger.debug(f"Successfully loaded deck: {deck['number']}")
+                self.root.after(0, lambda: self.on_deck_content_loaded(deck_content))
+
+            except Exception as e:
+                logger.error(f"Failed to load deck: {e}", exc_info=True)
+                def _error():
+                    self.textbox.delete("1.0", tk.END)
+                    self.textbox.insert("1.0", f"❌ Error loading deck:\n{str(e)}")
+                self.root.after(0, _error)
+
+        thread = threading.Thread(target=load_deck_in_background, daemon=True)
+        thread.start()
+
+    def on_deck_content_loaded(self, deck_content):
+        """Called when deck content is downloaded"""
+        try:
+            self.textbox.delete("1.0", tk.END)
+            self.textbox.insert("1.0", deck_content)
+            lines = self.textbox.get("1.0", tk.END).split("\n")
+            self.set_textbox_buttons(lines)
+        except Exception as e:
+            logger.error(f"Error displaying deck: {e}")
+            self.textbox.delete("1.0", tk.END)
+            self.textbox.insert("1.0", f"❌ Error displaying deck:\n{str(e)}")
 
     def set_textbox_buttons(self, lines):
         self.q_btn_frames = []
@@ -397,6 +575,7 @@ class MTGDeckSelectionWidget:
         self.textbox.replace(f"{index + 1}.0", f"{index + 2}.0", '')
 
     def select_deck(self):
+        # Simply displays the selected deck without any automation
         selected = self.listbox.curselection()
         logger.debug(selected)
         if not selected:
@@ -405,47 +584,6 @@ class MTGDeckSelectionWidget:
         logger.debug(selected)
         self.currently_selected_deck = self.decks[selected]
         logger.debug(self.currently_selected_deck)
-        self.root.iconify()
-        webdriver = Webdriver()
-        webdriver.driver.maximize_window()
-        manatraders_login(webdriver.driver, webdriver.achains)
-        if self.user_has_edited_deck:
-            # if the user edits the decks cards, rent the version they edited
-            pyperclip.copy(self.textbox.get("1.0", tk.END))
-            rent_deck(webdriver.driver, webdriver.achains)
-        else:
-            rent_deck(
-                webdriver.driver,
-                webdriver.achains,
-                self.currently_selected_deck["number"],
-            )
-        time.sleep(5)
-        receive_cards(webdriver.driver)
-        time.sleep(10)
-        register_deck(self.currently_selected_deck["name"] + self.currently_selected_deck["number"])
-        self.root.deiconify()
-        webdriver.driver.quit()
-        repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])
-        self.listbox_button.config(text="Select archetype", command=self.select_archetype)
-        self.user_has_edited_deck = False
-        self.listbox.unbind("<<ListboxSelect>>")
-
-    def return_cards(self):
-        self.root.iconify()
-        webdriver = Webdriver()
-        webdriver.driver.maximize_window()
-        manatraders_login(webdriver.driver, webdriver.achains)
-        return_cards(webdriver.driver, webdriver.achains)
-        self.root.deiconify()
-        webdriver.driver.quit()
-
-    def hide_labels(self):
-        self.choose_format_button.grid_forget()
-        self.login_button.grid_forget()
-
-    def show_labels(self):
-        self.choose_format_button.grid(column=1, row=0, sticky="nsew")
-        self.login_button.grid(column=0, row=0, sticky="nsew")
 
     def save_config(self):
         config = {

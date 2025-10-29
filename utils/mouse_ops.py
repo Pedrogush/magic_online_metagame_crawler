@@ -1,11 +1,13 @@
 import pyautogui
 from loguru import logger
-from pyscreeze import ImageNotFoundException as e1
-from pyautogui import ImageNotFoundException as e2
 from PIL import Image
 
 
 def focus_magic_online(width=1200, height=800):
+    """
+    Read-only window management: focuses and resizes MTGO window.
+    Used by opponent tracking widget for proper OCR positioning.
+    """
     windows = pyautogui.getWindowsWithTitle("Magic: The Gathering Online")
     if not windows:
         logger.debug("Failed to find modo window")
@@ -28,6 +30,9 @@ def focus_magic_online(width=1200, height=800):
 
 
 def focus_game_window():
+    """
+    Read-only window management: focuses game window for screenshot capture.
+    """
     w = pyautogui.getWindowsWithTitle("Magic: The Gathering Online")
     if len(w) <= 1:
         logger.debug("No modo game window")
@@ -43,97 +48,17 @@ def focus_game_window():
 
 
 def game_screenshot() -> Image:
-    # Record the game
+    """
+    Read-only: captures screenshot of game window for analysis.
+    """
     ss = pyautogui.screenshot()
     return ss.crop((0, 0, 1240, 1000))
 
 
 def save_game_screenshot(fname):
+    """
+    Read-only: saves game screenshot to file.
+    """
     ss = game_screenshot()
     ss.save(fname)
     return ss
-
-
-def scroll_down_only_move(x, y):
-    original_pos = pyautogui.position()
-    pyautogui.moveTo(x, y)
-    pyautogui.scroll(clicks=-1)
-    pyautogui.moveTo(*original_pos)
-    return
-
-
-def scroll_up_only_move(x, y):
-    original_pos = pyautogui.position()
-    pyautogui.click(x, y)
-    pyautogui.scroll(clicks=1)
-    pyautogui.moveTo(*original_pos)
-    return
-
-
-def scroll_down(x, y):
-    pyautogui.click(x, y)
-    pyautogui.scroll(clicks=-1)
-    return
-
-
-def scroll_up(x, y):
-    pyautogui.click(x, y)
-    pyautogui.scroll(clicks=1)
-    return
-
-
-def click_and_return(x, y):
-    original_x, original_y = pyautogui.position()
-    pyautogui.click(x, y)
-    pyautogui.moveTo(original_x, original_y)
-    return
-
-
-def drag_and_drop(x1, y1, x2, y2):
-    x0, y0 = pyautogui.position()
-    pyautogui.moveTo(x1, y1)
-    pyautogui.mouseDown()
-    pyautogui.moveTo(x2, y2)
-    pyautogui.mouseUp()
-    pyautogui.moveTo(x0, y0)
-    return
-
-
-def drag_and_drop_all(x1, y1, x2, y2):
-    x0, y0 = pyautogui.position()
-    pyautogui.moveTo(x1, y1)
-    pyautogui.mouseDown()
-    pyautogui.keyDown("ctrl")
-    pyautogui.keyDown("a")
-    pyautogui.moveTo(x2, y2)
-    pyautogui.mouseUp()
-    pyautogui.moveTo(x0, y0)
-    pyautogui.keyUp("ctrl")
-    pyautogui.keyUp("a")
-    return
-
-
-def locate(image_path):
-    try:
-        pos = pyautogui.locateOnScreen(image_path)
-        return pos
-    except Exception as e:
-        if isinstance(e, e1) or isinstance(e, e2):
-            return None
-        logger.exception(e)
-        return None
-
-
-def locate_all(image_path):
-    try:
-        pos_list = list(pyautogui.locateAllOnScreen(image_path, confidence=0.9))
-        return pos_list
-    except Exception as e:
-        if isinstance(e, e1) or isinstance(e, e2):
-            return []
-        logger.exception(e)
-        return []
-
-
-def close_game_window():
-    click_and_return(1226, 11)

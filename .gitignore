@@ -11,3 +11,5 @@ filtered_only_white.png
 trade_request.png
 __pycache__/
 curr_deck.txt
+CLAUDE.md
+settings.local.json

@@ -3,6 +3,8 @@ import bs4
 import json
 import os
 import time
+import re
+from urllib.parse import unquote
 from datetime import datetime, timedelta
 from loguru import logger
 
@@ -104,6 +106,10 @@ def get_daily_decks(mtg_format: str):
 
 
 def download_deck(deck_num: str):
+    """
+    Downloads deck list by scraping the deck page (robots.txt compliant).
+    Previous implementation used /deck/download/ which is disallowed in robots.txt.
+    """
     if not os.path.exists("deck_cache.json"):
         deck_cache = {}
         json.dump(deck_cache, open("deck_cache.json", "w"))
@@ -112,20 +118,31 @@ def download_deck(deck_num: str):
         with open("curr_deck.txt", "w") as f:
             f.write(deck_cache[deck_num])
         return
-    file = requests.get(f"https://www.mtggoldfish.com/deck/download/{deck_num}")
-    with open("curr_deck.txt", "wb") as f:
-        f.write(file.content)
-    deck_cache[deck_num] = open("curr_deck.txt").read()
+
+    # Fetch the deck page instead of using /deck/download/ (robots.txt compliant)
+    page = requests.get(f"https://www.mtggoldfish.com/deck/{deck_num}", impersonate="chrome")
+
+    # Extract the deck list from JavaScript initialization
+    # The deck data is embedded in: initializeDeckComponents(..., ..., "encoded_deck", ...)
+    match = re.search(r'initializeDeckComponents\([^,]+,\s*[^,]+,\s*"([^"]+)"', page.text)
+
+    if not match:
+        logger.error(f"Could not find deck data for deck {deck_num}")
+        raise ValueError(f"Could not parse deck data for deck {deck_num}")
+
+    # URL-decode the deck list
+    encoded_deck = match.group(1)
+    deck_text = unquote(encoded_deck)
+
+    # Save to file and cache
+    with open("curr_deck.txt", "w", encoding="utf-8") as f:
+        f.write(deck_text)
+
+    deck_cache[deck_num] = deck_text
     json.dump(deck_cache, open("deck_cache.json", "w"), indent=4)
 
 
 if __name__ == "__main__":
     stats = get_archetype_stats("modern")
-    print(
-        [
-            (archetype, stats["modern"][archetype]["results"])
-            for archetype in stats["modern"]
-            if archetype != "timestamp"
-        ]
-    )
+    print(json.dumps({s:stats['modern'][s]['results'] for s in stats['modern'] if 'timestamp' not in s}, indent=8))
     print("done")

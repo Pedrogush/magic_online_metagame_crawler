@@ -3,7 +3,7 @@ import tkinter as tk
 import json
 import os
 from pyautogui import pixelMatchesColor
-from navigators.mtgo import wait_for_click, login
+from navigators.mtgo import wait_for_click
 from utils.ocr import get_word_on_box
 from utils.metagame import get_latest_deck
 from loguru import logger
@@ -127,7 +127,7 @@ class MTGOpponentDeckSpy:
         self.save_config()
 
     def ui_make_components(self):
-        self.root.title("Umezawa's Monitor")
+        self.root.title("Opponent Identifier")
         # frames
         self.frame_top, self.frame_title_top = default_frame(self.root, "Playing", color=CS[1])
         self.frame_bottom, self.frame_title_bottom = default_frame(self.root, "Configuration", color=CS[3])
@@ -166,13 +166,6 @@ class MTGOpponentDeckSpy:
             borderwidth=2,
             relief="solid",
         )
-        self.login_button = default_button(
-            self.frame_bottom,
-            "MTGO Login",
-            login,
-            color=CS[2],
-            font=("calibri", 10, "bold"),
-        )
         self.hide_widget_button = default_button(
             self.frame_bottom,
             "Hide",
@@ -184,7 +177,6 @@ class MTGOpponentDeckSpy:
 
     def ui_pack_components(self):
         self.opponent_deck_label.pack(anchor="center", expand=False, fill="both")
-        self.login_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=False)
         self.choose_format_button.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
         self.choose_format_frame.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
         self.configure_box_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=True)
@@ -246,29 +238,42 @@ class MTGOpponentDeckSpy:
             "vertices": self.vertices,
             "screen_pos": (self.root.winfo_x(), self.root.winfo_y()),
         }
-        json.dump(config, open("deck_monitor_config.json", "w"), indent=4)
+        with open("deck_monitor_config.json", "w") as f:
+            json.dump(config, f, indent=4)
 
     def load_config(self):
         if os.path.exists("deck_monitor_config.json"):
-            config = json.load(open("deck_monitor_config.json", "r"))
-            self.box = config["box"]
-            self.vertices = config["vertices"]
-            self.format = config["format"]
-            logger.debug(config["screen_pos"])
-            self.root.geometry(f'+{config["screen_pos"][0]}+{config["screen_pos"][1]}')
-            self.root.update()
-            return
+            try:
+                with open("deck_monitor_config.json", "r") as f:
+                    config = json.load(f)
+                self.box = config["box"]
+                self.vertices = config["vertices"]
+                self.format = config["format"]
+                logger.debug(config["screen_pos"])
+                self.root.geometry(f'+{config["screen_pos"][0]}+{config["screen_pos"][1]}')
+                self.root.update()
+                return
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Invalid config JSON, using defaults: {e}")
         self.box = (93, 320, 311, 358)  # any valid box works fine
         self.vertices = ((93, 320), (93, 358), (311, 320), (311, 358))
         self.format = "Modern"
 
     def save_cache(self):
-        json.dump(self.cache, open("deck_monitor_cache.json", "w"), indent=4)
+        with open("deck_monitor_cache.json", "w") as f:
+            json.dump(self.cache, f, indent=4)
 
     def load_cache(self):
         if os.path.exists("deck_monitor_cache.json"):
-            self.cache = json.load(open("deck_monitor_cache.json", "r"))
-            return
+            try:
+                with open("deck_monitor_cache.json", "r") as f:
+                    self.cache = json.load(f)
+                return
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid cache JSON, resetting: {e}")
+                self.cache = {}
+                self.save_cache()
+                return
         self.cache = {}
 
     def check_black_pixels_at_corners(self):

@@ -1,70 +1,17 @@
-import pyautogui
 from pynput import mouse
 from loguru import logger
-from utils.ocr import get_words_position_on_screen, get_trade_request_on_box
-from utils.mouse_ops import (
-    focus_magic_online,
-    click_and_return,
-    drag_and_drop_all,
-)
-import pyperclip
-import time
 from PIL import Image, ImageDraw
+import pyautogui
 import json
 import os
 
-CONFIG = json.load(open("config.json", "r"))
-# If you're on Windows, specify the path to the Tesseract executable
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-
-
-def login():
-    focus_magic_online()
-    click_and_return(*CONFIG["login_name_pos"])
-    time.sleep(0.01)
-    pyautogui.hotkey("ctrl", "a")
-    time.sleep(0.01)
-    pyautogui.write(CONFIG["login_name"])
-    time.sleep(0.01)
-    click_and_return(*CONFIG["login_pass_pos"])
-    time.sleep(0.01)
-    pyautogui.write(CONFIG["login_pass"])
-    time.sleep(0.01)
-    click_and_return(*CONFIG["login_button_pos"])
-
-
-def navigate_to(tab_name: str, left_hand_field: str = ""):
-    """navigate to the desired tab"""
-    """ tab_name in [home, collection, constructed, limited, store, trade, configuration]"""
-    focus_magic_online()
-    click_and_return(*CONFIG["tabs"][tab_name])
-    if tab_name == "constructed":
-        click_and_return(*CONFIG["left_hand_tabs_constructed"][left_hand_field])
-    if tab_name == "limited":
-        click_and_return(*CONFIG["left_hand_tabs_limited"][left_hand_field])
-
-
-def get_latest_challenge_pos():
-    word_positions = get_words_position_on_screen()
-    challenge_options = [
-        word_pos
-        for word_pos in word_positions
-        if word_pos["word"].lower() == "challenge"
-    ]
-    chal_y_min_coord = 9999
-    chosen_chal = None
-    for chal in challenge_options:
-        if chal["position"][1] < chal_y_min_coord:
-            chal_y_min_coord = chal["position"][1]
-            chosen_chal = chal
-    if not chosen_chal:
-        logger.debug("failed to find a challenge to click")
-        return False
-    return chosen_chal["position"]
-
 
 def configure_box_positions():
-    """this function is used to configure the box positions for the leaderboard"""
+    """
+    Configuration tool for opponent tracking widget.
+    Allows user to click on screen positions to define OCR regions
+    for reading opponent names and match records from MTGO leaderboard.
+    """
     tr = {}
     for i in range(5):
         cur = []
@@ -97,6 +44,9 @@ def configure_box_positions():
 
 
 def load_box_positions():
+    """
+    Loads OCR box position configuration for opponent tracking.
+    """
     if not os.path.exists("leaderboard_positions.json"):
         logger.debug(
             "leaderboard_positions.json not found, please run configure_box_positions"
@@ -108,6 +58,9 @@ def load_box_positions():
 
 
 def draw_lines(x, y):
+    """
+    Helper for configure_box_positions: shows visual feedback during configuration.
+    """
     screen_width, screen_height = pyautogui.size()
     img = Image.new("RGBA", (screen_width, screen_height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -116,6 +69,10 @@ def draw_lines(x, y):
 
 
 def wait_for_click() -> tuple:
+    """
+    Configuration helper: waits for user to click a screen position.
+    Used for defining OCR regions in opponent tracking setup.
+    """
     def on_click(x, y, button, pressed):
         draw_lines(x, y)
         if button == mouse.Button.left and pressed:
@@ -129,76 +86,6 @@ def wait_for_click() -> tuple:
     return (x, y)
 
 
-def accept_trade():
-    logger.debug("accepting trade")
-    focus_magic_online()
-    click_and_return(*CONFIG["trade_request"]["ok"])
-    logger.debug("trade accepted")
-    time.sleep(20)
-
-
-def submit_trade():
-    logger.debug("submitting trade")
-    click_and_return(*CONFIG["trade_request"]["submit"])
-    time.sleep(10)
-
-
-def wait_for_trade():
-    logger.debug("waiting for trade request")
-    start = time.time()
-    focus_magic_online()
-    word = get_trade_request_on_box(CONFIG["trade_request"]["trade_request_box"])
-    logger.debug(word)
-    while "traderequest" not in word.lower() and time.time() - start < 125:
-        word = get_trade_request_on_box(CONFIG["trade_request"]["trade_request_box"])
-        logger.debug(word)
-        time.sleep(1)
-    if time.time() - start >= 125:
-        logger.debug("trade request not found")
-        return False
-    return True
-
-
-def confirm_trade():
-    logger.debug("confirming trade")
-    click_and_return(*CONFIG["trade_request"]["confirm"])
-    time.sleep(15)
-    click_and_return(*CONFIG["trade_request"]["close_received_cards_window_btn"])
-
-
-def drag_and_drop_cards_from_trade():
-    logger.debug("dragging and dropping cards from trade")
-    drag_and_drop_all(
-        *CONFIG["trade_request"]["drag_from"], *CONFIG["trade_request"]["drag_to"]
-    )
-
-
-def register_deck(deck_name: str):
-    logger.debug("registering deck")
-    focus_magic_online()
-    click_and_return(*CONFIG["tabs"]["collection"])
-    time.sleep(1)
-    click_and_return(*CONFIG["collection"]["register_deck_btn"])
-    logger.debug("clicking register deck btn")
-    pyperclip.copy(open("curr_deck.txt").read())
-    time.sleep(1)
-    click_and_return(*CONFIG["collection"]["import_clipboard_btn"])
-    click_and_return(*CONFIG["collection"]["deck_name_box"])
-    pyautogui.hotkey("ctrl", "a")
-    pyautogui.write(deck_name)
-    click_and_return(*CONFIG["collection"]["import_ok_btn"])
-    logger.debug("register_deck returning")
-    return
-
-
 if __name__ == "__main__":
-    register_deck("_test2")
-    # focus_magic_online()
-    # configure_box_positions()
-    # login()
-    # logger.debug('clicking home/colletion/constructed/limited/store/trade in sequence')
-    # accept_trade()
-    # time.sleep(10)
-    # drag_and_drop_cards_from_trade()
-    # time.sleep(0.5)
-    # submit_trade()
+    # Configuration utility
+    configure_box_positions()
