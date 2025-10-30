@@ -125,8 +125,11 @@ def button(root, text, command, color=CS[0], font=("calibri", 13, "bold")):
     return tk.Button(root, text=text, font=font, background=color, command=command)
 
 
-def b_button(root, text, command, color=CS[0], font=("calibri", 13, "bold")):
-    return tk.Button(root, text=text, font=font, background=color, command=command, height=1)
+def b_button(root, text, command, color=CS[1], font=("calibri", 13, "bold"), width=0, height=1):
+    kwargs = {"text": text, "font": font, "background": color, "command": command, "height": height}
+    if width:
+        kwargs["width"] = width
+    return tk.Button(root, **kwargs)
 
 
 def listbox(root, color=CS[0], font=("calibri", 15, "bold")):
@@ -148,8 +151,8 @@ def frame(root, name, color=CS[3]):
     return frame
 
 
-def b_frame(root, color=CS[3]):
-    frame = tk.Frame(root, relief="solid", padx=3, pady=0, background=color, borderwidth=0, height=15)
+def b_frame(root, color=CS[1]):
+    frame = tk.Frame(root, relief="flat", padx=3, pady=0, background=color, borderwidth=0, height=15)
     return frame
 
 
@@ -194,6 +197,14 @@ class MTGDeckSelectionWidget:
     def __init__(self, root: tk.Tk):
         self.root: tk.Tk = root
         self.format = tk.StringVar(value="Modern")
+        self.window_settings = self._load_window_settings()
+        size_settings = self._normalize_window_size(self.window_settings.get("window_size"))
+        position_settings = self._normalize_window_position(self.window_settings.get("screen_pos"))
+        self.window_size = size_settings
+        self.window_position = position_settings
+        saved_format = self.window_settings.get("format")
+        if saved_format and saved_format in FORMAT_OPTIONS:
+            self.format.set(saved_format)
         self.last_looked_at_ts = time.time()
         self.last_seen_deck = ""
         self.updating = False
@@ -218,14 +229,17 @@ class MTGDeckSelectionWidget:
         self.saved_decks_popup_data = []
         self.deck_save_dir = DECK_SAVE_DIR
         self.ui_make_components()
+        self._apply_window_preferences()
+        self.root.bind("<Configure>", self.on_window_configure)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         # Load archetypes asynchronously after window is shown
         self.root.after(100, self.lazy_load_archetypes)
 
     def ui_reset_to_archetype_selection(self):
-        self.textbox.delete("1.0", tk.END)
+        self.clear_deck_textboxes()
         self.deck_buffer = {}
         self.decks_added = 0
-        self.listbox_button.unbind("<<ListboxSelect>>")
+        self.listbox.unbind("<<ListboxSelect>>")
         self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
 
         # Check if archetypes are loaded
@@ -247,18 +261,27 @@ class MTGDeckSelectionWidget:
 
     def ui_make_components(self):
         self.root.title("MTG Deck Research Browser")
+        self.root.resizable(True, True)
         self.ui_create()
         # Don't populate yet - will be done lazily
         self.ui_bind_components()
 
     def ui_create(self):
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(0, weight=1)
         self.F_top = frame(self.root, "", color="bisque4")
         self.F_top.grid(column=0, row=0, sticky="nsew")
+        self.F_top.grid_columnconfigure(0, weight=1)
+        self.F_top.grid_columnconfigure(1, weight=1)
+        self.F_top.grid_rowconfigure(1, weight=1)
         self.F_top_left = frame(self.F_top, "Deck Browser", color=CS[1])
+        self.F_top_left.columnconfigure(0, weight=1)
+        self.F_top_left.columnconfigure(1, weight=0)
         self.F_top_left.rowconfigure(5, weight=1)
         self.F_top_left.grid(column=0, row=1, sticky="nsew")
         self.F_top_right = frame(self.F_top, "Decklist", color=CS[1])
         self.F_top_right.grid(column=1, row=1, sticky="nsew")
+        self.F_top_right.grid_columnconfigure(0, weight=1)
         self.F_top_right.rowconfigure(3, weight=1)
         self.F_top_right_top = frame(self.F_top_right, "", color=CS[2])
         self.F_top_right_top.grid(column=0, row=1, sticky="nsew")
@@ -348,19 +371,33 @@ class MTGDeckSelectionWidget:
             background=CS[4],
             foreground="black",
             font=("calibri", 15, "bold"),
+            justify="left",
+            activestyle="none",
         )
         self.listbox.grid(column=0, row=5, sticky="nsew")
         self.listbox_scrollbar = tk.Scrollbar(self.F_top_left, orient="vertical")
         self.listbox_scrollbar.grid(column=1, row=5, sticky="nsew")
         self.listbox.config(yscrollcommand=self.listbox_scrollbar.set)
         self.listbox_scrollbar.config(command=self.listbox.yview)
-        self.textbox = tk.Text(
-            self.F_top_textbox,
-            font=("calibri", 15, "bold"),
-            background=CS[1],
-            foreground="black",
-        )
-        self.textbox.grid(column=0, row=0, sticky="nsew")
+
+        self.F_top_textbox.columnconfigure(0, weight=1)
+        self.F_top_textbox.rowconfigure(0, weight=1)
+        self.F_top_textbox.rowconfigure(1, weight=1)
+
+        self.main_deck_container = frame(self.F_top_textbox, "Mainboard", color=CS[2])
+        self.main_deck_container.grid(column=0, row=0, sticky="nsew", padx=4, pady=(4, 2))
+        self.main_deck_container.columnconfigure(0, weight=1)
+        self.main_deck_container.rowconfigure(1, weight=1)
+
+        self.side_deck_container = frame(self.F_top_textbox, "Sideboard", color=CS[2])
+        self.side_deck_container.grid(column=0, row=1, sticky="nsew", padx=4, pady=(2, 4))
+        self.side_deck_container.columnconfigure(0, weight=1)
+        self.side_deck_container.rowconfigure(1, weight=1)
+        self.zone_views = {}
+        self.zone_lines = {"main": [], "side": []}
+        self.q_btn_frames = {"main": [], "side": []}
+        self._init_zone_view(self.main_deck_container, "main")
+        self._init_zone_view(self.side_deck_container, "side")
         self.choose_format_button = tk.OptionMenu(
             self.F_bottom,
             self.format,
@@ -371,6 +408,40 @@ class MTGDeckSelectionWidget:
         self.choose_format_button.grid(column=0, row=0, sticky="nsew")
         choose_format_button_config(self.choose_format_button)
         self.set_mode_button_states("browse")
+
+    def _init_zone_view(self, container, zone):
+        canvas = tk.Canvas(
+            container,
+            background=CS[1],
+            highlightthickness=0,
+            bd=0,
+        )
+        canvas.grid(column=0, row=1, sticky="nsew")
+        scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollbar.grid(column=1, row=1, sticky="ns")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        inner = tk.Frame(canvas, background=CS[1])
+        inner.grid_columnconfigure(0, weight=1)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _sync_scrollregion(_event, c=canvas):
+            c.configure(scrollregion=c.bbox("all"))
+
+        def _sync_width(event, c=canvas, wid=window_id):
+            c.itemconfigure(wid, width=event.width)
+
+        inner.bind("<Configure>", _sync_scrollregion)
+        canvas.bind("<Configure>", _sync_width)
+
+        self.zone_lines.setdefault(zone, [])
+        self.q_btn_frames.setdefault(zone, [])
+        self.zone_views[zone] = {
+            "canvas": canvas,
+            "frame": inner,
+            "scrollbar": scrollbar,
+            "window_id": window_id,
+            "rows": [],
+        }
 
     def choose_format_button_clicked(self):
         self.lazy_load_archetypes()
@@ -440,7 +511,7 @@ class MTGDeckSelectionWidget:
         logger.debug(self.currently_selected_deck)
 
         # Get deck content
-        deck_content = self.textbox.get("1.0", tk.END).strip()
+        deck_content = self.get_deck_text().strip()
         if not deck_content:
             messagebox.showwarning("Empty Deck", "Cannot save an empty deck")
             return
@@ -504,7 +575,7 @@ class MTGDeckSelectionWidget:
             messagebox.showerror("Save Error", f"Failed to save deck:\n{str(e)}")
 
     def copy_deck_to_clipboard(self):
-        deck_content = self.textbox.get("1.0", tk.END).strip()
+        deck_content = self.get_deck_text().strip()
         if not deck_content:
             messagebox.showinfo("Copy Deck", "Deck is empty.")
             return
@@ -517,7 +588,7 @@ class MTGDeckSelectionWidget:
             messagebox.showerror("Copy Deck", f"Failed to copy deck:\n{exc}")
 
     def add_deck_to_buffer(self):
-        self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(self.textbox.get("1.0", tk.END)))
+        self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(self.get_deck_text()))
         self.decks_added += 1
 
     def make_average_deck(self):
@@ -533,24 +604,14 @@ class MTGDeckSelectionWidget:
                 deck_string += f"{int(card_average)} {card[0].replace('Sideboard ', '')}\n"
                 continue
             deck_string += f'{float(card[1])/self.decks_added:.2f} {card[0].replace("Sideboard ", "")}\n'
-        self.textbox.delete("1.0", tk.END)
-        self.textbox.insert("1.0", deck_string)
-        lines = self.textbox.get("1.0", tk.END).split("\n")
-        self.set_textbox_buttons(lines)
+        self.load_deck_text(deck_string)
         self.decks_added = 0
         self.deck_buffer = {}
         if self.current_mode == "builder":
-            self.builder_sync_from_text()
-
-    def textbox_on_change(self, event):
-        self.last_event = event
-        self.user_has_edited_deck = True
-        if self.current_mode == "builder":
-            self.root.after_idle(self.builder_sync_from_text)
+            self.builder_sync_from_text(deck_string)
 
     def ui_bind_components(self):
-        self.textbox.bind("<Key>", self.textbox_on_change)
-        self.textbox.bind("<ButtonRelease-1>", self.on_textbox_click)
+        return
 
     def select_archetype(self):
         # If still loading or error, retry loading
@@ -609,22 +670,19 @@ class MTGDeckSelectionWidget:
 
         if not decks_from_today:
             logger.info("No decks from today found")
-            self.textbox.delete("1.0", tk.END)
-            self.textbox.insert("1.0", "No decks from today found in this archetype")
+            self.display_deck_message("No decks from today found in this archetype")
             return
 
         # Show loading in textbox
         self.loading_daily_average = True
-        self.textbox.delete("1.0", tk.END)
-        self.textbox.insert("1.0", f"⏳ Loading {len(decks_from_today)} decks from today...\n")
+        self.display_deck_message(f"⏳ Loading {len(decks_from_today)} decks from today...\n")
         self.make_daily_average_deck_button.config(state="disabled")
         logger.info(f"Starting to load {len(decks_from_today)} decks for daily average")
 
         def update_progress(current, total):
             """Thread-safe progress update"""
             def _update():
-                self.textbox.delete("1.0", tk.END)
-                self.textbox.insert("1.0", f"⏳ Loading deck {current}/{total}...\n")
+                self.display_deck_message(f"⏳ Loading deck {current}/{total}...\n")
             self.root.after(0, _update)
 
         def load_daily_average_in_background():
@@ -659,8 +717,7 @@ class MTGDeckSelectionWidget:
             except Exception as e:
                 logger.error(f"Failed to load daily average: {e}", exc_info=True)
                 def _error():
-                    self.textbox.delete("1.0", tk.END)
-                    self.textbox.insert("1.0", f"❌ Error loading decks:\n{str(e)}")
+                    self.display_deck_message(f"❌ Error loading decks:\n{str(e)}")
                     self.make_daily_average_deck_button.config(state="normal")
                     self.loading_daily_average = False
                 self.root.after(0, _error)
@@ -677,8 +734,7 @@ class MTGDeckSelectionWidget:
             logger.info("Daily average deck created successfully")
         except Exception as e:
             logger.error(f"Error creating average deck: {e}")
-            self.textbox.delete("1.0", tk.END)
-            self.textbox.insert("1.0", f"❌ Error creating average:\n{str(e)}")
+            self.display_deck_message(f"❌ Error creating average:\n{str(e)}")
         finally:
             self.make_daily_average_deck_button.config(state="normal")
             self.loading_daily_average = False
@@ -692,8 +748,7 @@ class MTGDeckSelectionWidget:
         deck = self.decks[selected]
 
         # Show loading message
-        self.textbox.delete("1.0", tk.END)
-        self.textbox.insert("1.0", "⏳ Loading deck...")
+        self.display_deck_message("⏳ Loading deck...")
         logger.debug(f"Loading deck: {deck['number']}")
 
         def load_deck_in_background():
@@ -713,8 +768,7 @@ class MTGDeckSelectionWidget:
             except Exception as e:
                 logger.error(f"Failed to load deck: {e}", exc_info=True)
                 def _error():
-                    self.textbox.delete("1.0", tk.END)
-                    self.textbox.insert("1.0", f"❌ Error loading deck:\n{str(e)}")
+                    self.display_deck_message(f"❌ Error loading deck:\n{str(e)}")
                 self.root.after(0, _error)
 
         thread = threading.Thread(target=load_deck_in_background, daemon=True)
@@ -723,106 +777,227 @@ class MTGDeckSelectionWidget:
     def on_deck_content_loaded(self, deck_content):
         """Called when deck content is downloaded"""
         try:
-            self.textbox.delete("1.0", tk.END)
-            self.textbox.insert("1.0", deck_content)
-            lines = self.textbox.get("1.0", tk.END).split("\n")
-            self.set_textbox_buttons(lines)
+            self.load_deck_text(deck_content)
+            if self.current_mode == "builder":
+                self.builder_sync_from_text(deck_content)
         except Exception as e:
             logger.error(f"Error displaying deck: {e}")
-            self.textbox.delete("1.0", tk.END)
-            self.textbox.insert("1.0", f"❌ Error displaying deck:\n{str(e)}")
+            self.display_deck_message(f"❌ Error displaying deck:\n{str(e)}")
 
-    def set_textbox_buttons(self, lines):
-        self.q_btn_frames = []
-        sideboard_index = lines.index("") if "" in lines else len(lines)
-        is_sideboard = False
-        self.textbox.delete("1.0", tk.END)
-        for i, line in enumerate(lines):
-            FONT = ("verdana", 7)
-            if not line.strip():
-                empty_frame = b_frame(self.F_top_textbox, color=CS[2])
-                self.textbox.window_create(f'{i+1}.0', window=empty_frame)
-                self.textbox.insert(tk.END, "\n")
-                self.q_btn_frames.append(empty_frame)
+    def clear_deck_textboxes(self):
+        for zone in self.zone_views:
+            self._clear_zone_view(zone)
+            self.zone_lines[zone] = []
+            self.q_btn_frames.setdefault(zone, [])
+            self.q_btn_frames[zone] = []
+
+    def split_deck_text(self, deck_text):
+        main_lines = []
+        side_lines = []
+        is_side = False
+        for raw_line in deck_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                if main_lines or side_lines:
+                    is_side = True
                 continue
-            if i > sideboard_index:
-                is_sideboard = True
-            F_edit_deck = self.create_F_edit_deck(line, is_sideboard)
-            self.q_btn_frames.append(F_edit_deck)
-            self.textbox.insert(tk.END, line)
-            self.textbox.window_create(f'{i+1}.0', window=F_edit_deck)
-            self.textbox.insert(tk.END, "\n")
+            if line.lower().startswith("sideboard"):
+                is_side = True
+                continue
+            target = side_lines if is_side else main_lines
+            target.append(line)
+        return main_lines, side_lines
 
-    def set_textbox_scrollbar(self):
-        self.textbox_scrollbar = tk.Scrollbar(self.F_top_textbox, orient="vertical")
-        self.textbox_scrollbar.config(command=self.textbox.yview)
-
-    def increment_card(self, line, is_sideboard=False):
-        card = " ".join(line.split(" ")[1:])
-        lines = self.textbox.get("1.0", tk.END).split("\n")
-        logger.debug(lines)
-        num_occurrences = len([card_description for card_description in lines if card in card_description])
-        if num_occurrences == 0:
-            logger.debug(f"{card} not found in decklist")
+    def _clear_zone_view(self, zone):
+        view = self.zone_views.get(zone)
+        if not view:
             return
-        index = [lines.index(card_description) for card_description in lines if card in card_description][0]
-        if num_occurrences == 2:
-            index = [lines.index(lin) for lin in lines if card in lin][is_sideboard]
-        curr_line = lines[index]
-        amount = int(float(curr_line.split(" ")[0]))
-        amount += 1
-        line = f"{str(amount)} {''.join(card)}"
-        lines[index] = line
-        self.textbox.replace(f"{index + 1}.0", f"{index + 1}.end", line)
-        F_edit_deck = self.create_F_edit_deck(line, is_sideboard)
-        self.q_btn_frames.append(F_edit_deck)
-        self.textbox.window_create(f"{index + 1}.0", window=F_edit_deck)
-        if self.current_mode == "builder":
-            self.builder_sync_from_text()
+        for child in view["frame"].winfo_children():
+            child.destroy()
+        view["rows"] = []
+        view["canvas"].yview_moveto(0)
+        view["frame"].update_idletasks()
+        bbox = view["canvas"].bbox("all")
+        if bbox:
+            view["canvas"].configure(scrollregion=bbox)
+        else:
+            view["canvas"].configure(scrollregion=(0, 0, 0, 0))
 
-    def decrement_card(self, line, is_sideboard=False):
-        card = " ".join(line.split(" ")[1:])
-        lines = self.textbox.get("1.0", tk.END).split("\n")
-        logger.debug(lines)
-        num_occurrences = len([card_description for card_description in lines if card in card_description])
-        if num_occurrences == 0:
-            logger.debug(f"{card} not found in decklist")
+    def render_deck_zone(self, zone, lines):
+        view = self.zone_views.get(zone)
+        if not view:
             return
-        index = [lines.index(card_description) for card_description in lines if card in card_description][0]
-        if num_occurrences == 2:
-            index = [lines.index(lin) for lin in lines if card in lin][is_sideboard]
-        curr_line = lines[index]
-        amount = int(float(curr_line.split(" ")[0]))
-        amount -= 1
-        line = f"{str(amount)} {''.join(card)}"
-        lines[index] = line
-        self.textbox.replace(f"{index + 1}.0", f"{index + 1}.end", line)
-        F_edit_deck = self.create_F_edit_deck(line, is_sideboard)
-        self.q_btn_frames.append(F_edit_deck)
-        self.textbox.window_create(f"{index + 1}.0", window=F_edit_deck)
+        self._clear_zone_view(zone)
+        self.q_btn_frames.setdefault(zone, [])
+        self.q_btn_frames[zone] = []
+        self.zone_lines[zone] = list(lines)
+        if not lines:
+            placeholder = tk.Label(
+                view["frame"],
+                text="",
+                background=CS[1],
+            )
+            placeholder.grid(column=0, row=0, sticky="ew", padx=4, pady=2)
+            view["rows"].append(placeholder)
+            return
+        for index, line in enumerate(lines):
+            frame = self.create_F_edit_deck(view["frame"], line, zone)
+            frame.grid(column=0, row=index, sticky="ew", padx=2, pady=(0, 1))
+            self.q_btn_frames[zone].append(frame)
+            view["rows"].append(frame)
+        view["frame"].update_idletasks()
+        bbox = view["canvas"].bbox("all")
+        if bbox:
+            view["canvas"].configure(scrollregion=bbox)
 
-    def create_F_edit_deck(self, line, is_sideboard):
-        F_edit_deck = b_frame(self.F_top_textbox, color=CS[2])
-        self.q_btn_frames.append(F_edit_deck)
+    def get_zone_lines(self, zone):
+        return list(self.zone_lines.get(zone, []))
+
+    def get_deck_text(self):
+        main_lines = self.get_zone_lines("main")
+        side_lines = self.get_zone_lines("side")
+        parts = main_lines.copy()
+        if side_lines:
+            parts.append("")
+            parts.append("Sideboard")
+            parts.extend(side_lines)
+        return "\n".join(parts)
+
+    def load_deck_text(self, deck_text):
+        main_lines, side_lines = self.split_deck_text(deck_text)
+        self.render_deck_zone("main", main_lines)
+        self.render_deck_zone("side", side_lines)
+
+    def display_deck_message(self, message):
+        for zone in self.zone_views:
+            self._clear_zone_view(zone)
+            self.zone_lines[zone] = []
+            self.q_btn_frames.setdefault(zone, [])
+            self.q_btn_frames[zone] = []
+        view = self.zone_views.get("main")
+        if not view:
+            return
+        label = tk.Label(
+            view["frame"],
+            text=message,
+            font=("calibri", 14, "bold"),
+            background=CS[1],
+            anchor="nw",
+            justify="left",
+            wraplength=view["canvas"].winfo_width() or 400,
+        )
+        label.grid(column=0, row=0, sticky="ew", padx=6, pady=6)
+        view["rows"].append(label)
+        view["frame"].update_idletasks()
+        label.configure(wraplength=view["frame"].winfo_width() or 400)
+        bbox = view["canvas"].bbox("all")
+        if bbox:
+            view["canvas"].configure(scrollregion=bbox)
+        else:
+            view["canvas"].configure(scrollregion=(0, 0, 0, 0))
+
+    def _split_card_line(self, line):
+        parts = line.strip().split(" ", 1)
+        if len(parts) != 2:
+            return 0, ""
+        try:
+            count = int(float(parts[0]))
+        except ValueError:
+            count = 0
+        return count, parts[1].strip()
+
+    def _find_line_index(self, lines, target):
+        for idx, value in enumerate(lines):
+            if value.strip() == target.strip():
+                return idx
+        return None
+
+    def _is_descendant(self, widget, ancestor):
+        current = widget
+        while current:
+            if current is ancestor:
+                return True
+            current = getattr(current, "master", None)
+        return False
+
+    def _zone_for_widget(self, widget):
+        for zone, view in self.zone_views.items():
+            if widget is view["canvas"] or self._is_descendant(widget, view["frame"]):
+                return zone
+        return None
+
+    def _apply_zone_lines(self, zone, lines):
+        self.render_deck_zone(zone, lines)
+        deck_text = self.get_deck_text()
+        self.builder_sync_from_text(deck_text)
+
+
+    def increment_card(self, zone, line):
+        lines = self.get_zone_lines(zone)
+        idx = self._find_line_index(lines, line)
+        if idx is None:
+            logger.debug(f"{line} not found in {zone} decklist")
+            return
+        count, card_name = self._split_card_line(lines[idx])
+        count += 1
+        lines[idx] = f"{count} {card_name}"
+        self._apply_zone_lines(zone, lines)
+
+    def decrement_card(self, zone, line):
+        lines = self.get_zone_lines(zone)
+        idx = self._find_line_index(lines, line)
+        if idx is None:
+            logger.debug(f"{line} not found in {zone} decklist")
+            return
+        count, card_name = self._split_card_line(lines[idx])
+        if count <= 1:
+            lines.pop(idx)
+        else:
+            lines[idx] = f"{count - 1} {card_name}"
+        self._apply_zone_lines(zone, lines)
+
+    def create_F_edit_deck(self, parent, line, zone):
+        frame = b_frame(parent, color=CS[1])
+        frame.configure(borderwidth=0, highlightthickness=0)
+        frame.grid_columnconfigure(3, weight=1)
+        frame.bind("<Button-1>", lambda _event, z=zone, l=line: self.on_deck_row_click(z, l))
         FONT = ("verdana", 9, "bold")
-        plus_btn = b_button(F_edit_deck, "+", lambda line=line: self.increment_card(line, is_sideboard), font=FONT)
-        minus_btn = b_button(F_edit_deck, "-", lambda line=line: self.decrement_card(line, is_sideboard), font=FONT)
-        remove_btn = b_button(F_edit_deck, "X", lambda line=line: self.remove_card(line, is_sideboard), font=FONT)
-        plus_btn.grid(column=1, row=0)
-        minus_btn.grid(column=2, row=0)
-        remove_btn.grid(column=3, row=0)
-        return F_edit_deck
+        plus_btn = b_button(frame, "+", lambda l=line, z=zone: self.increment_card(z, l), font=FONT, color=CS[2], width=2)
+        minus_btn = b_button(frame, "-", lambda l=line, z=zone: self.decrement_card(z, l), font=FONT, color=CS[2], width=2)
+        remove_btn = b_button(frame, "X", lambda l=line, z=zone: self.remove_card(z, l), font=FONT, color=CS[2], width=2)
+        plus_btn.grid(column=0, row=0, padx=(0, 2), sticky="w")
+        minus_btn.grid(column=1, row=0, padx=(0, 2), sticky="w")
+        remove_btn.grid(column=2, row=0, padx=(0, 4), sticky="w")
+        label = tk.Label(frame, text=line, font=("calibri", 15, "bold"), background=CS[1], anchor="w")
+        label.grid(column=3, row=0, sticky="w")
+        label.bind("<Button-1>", lambda _event, z=zone, l=line: self.on_deck_row_click(z, l))
+        return frame
 
-    def remove_card(self, line, is_sideboard):
-        card = " ".join(line.split(" ")[1:])
-        lines = self.textbox.get("1.0", tk.END).split("\n")
-        num_occurrences = len([card_description for card_description in lines if card in card_description])
-        index = [lines.index(card_description) for card_description in lines if card in card_description][0]
-        if num_occurrences == 2:
-            index = [lines.index(lin) for lin in lines if card in lin][is_sideboard]
-        self.textbox.replace(f"{index + 1}.0", f"{index + 2}.0", '')
-        if self.current_mode == "builder":
-            self.builder_sync_from_text()
+    def on_deck_row_click(self, zone, line):
+        if self.current_mode != "builder":
+            return
+        if not self.card_manager:
+            if not self.card_data_loading:
+                self.ensure_card_data_loaded()
+            return
+        card_name = self.extract_card_name_from_line(line)
+        if not card_name:
+            return
+        card = self.card_manager.get_card(card_name)
+        if not card:
+            self.builder_status_var.set(f"No card data for '{card_name}'")
+            return
+        self.display_card_detail(card)
+        self.builder_add_main_button.config(state="disabled")
+        self.builder_add_side_button.config(state="disabled")
+
+    def remove_card(self, zone, line):
+        lines = self.get_zone_lines(zone)
+        idx = self._find_line_index(lines, line)
+        if idx is None:
+            return
+        lines.pop(idx)
+        self._apply_zone_lines(zone, lines)
 
     def select_deck(self):
         # Simply displays the selected deck without any automation
@@ -922,7 +1097,7 @@ class MTGDeckSelectionWidget:
         if hasattr(self, "make_daily_average_deck_button"):
             self.make_daily_average_deck_button.grid_forget()
 
-        existing = self.textbox.get("1.0", tk.END)
+        existing = self.get_deck_text()
         self.builder_sync_from_text(existing)
         self.builder_render_deck()
         self.card_search_results = []
@@ -1023,26 +1198,20 @@ class MTGDeckSelectionWidget:
         self.builder_render_deck()
 
     def builder_render_deck(self):
-        lines = []
-        for name in sorted(self.builder_deck["main"]):
-            count = self.builder_deck["main"][name]
-            lines.append(f"{count} {name}")
-        lines.append("")
-        for name in sorted(self.builder_deck["side"]):
-            count = self.builder_deck["side"][name]
-            lines.append(f"{count} {name}")
-        if not lines:
-            lines = [""]
-        self.set_textbox_buttons(lines)
+        main_lines = [f"{self.builder_deck['main'][name]} {name}" for name in sorted(self.builder_deck['main'])]
+        side_lines = [f"{self.builder_deck['side'][name]} {name}" for name in sorted(self.builder_deck['side'])]
+        self.render_deck_zone("main", main_lines)
+        self.render_deck_zone("side", side_lines)
         self.builder_update_status_counts()
 
     def builder_sync_from_text(self, content: str | None = None):
-        content = (content if content is not None else self.textbox.get("1.0", tk.END)).strip()
-        if not content:
+        deck_text = (content if content is not None else self.get_deck_text()).strip()
+        if not deck_text:
             self.builder_deck = {"main": {}, "side": {}}
+            self.builder_render_deck()
             self.builder_update_status_counts()
             return
-        deck_dict = deck_to_dictionary(content)
+        deck_dict = deck_to_dictionary(deck_text)
         main = {}
         side = {}
         for card_name, count in deck_dict.items():
@@ -1051,6 +1220,8 @@ class MTGDeckSelectionWidget:
             else:
                 main[card_name] = count
         self.builder_deck = {"main": main, "side": side}
+        if content is None:
+            self.builder_render_deck()
         self.builder_update_status_counts()
 
     def builder_update_status_counts(self):
@@ -1178,8 +1349,7 @@ class MTGDeckSelectionWidget:
         if not deck_content:
             messagebox.showwarning("Empty Deck", "Selected deck has no content.")
             return
-        self.textbox.delete("1.0", tk.END)
-        self.textbox.insert("1.0", deck_content)
+        self.load_deck_text(deck_content)
         if self.current_mode != "builder":
             self.switch_to_builder_mode()
         else:
@@ -1218,31 +1388,6 @@ class MTGDeckSelectionWidget:
             card_name = card_name[len("sideboard "):].strip()
         return card_name or None
 
-    def on_textbox_click(self, event):
-        if event.widget is not self.textbox:
-            return
-        if self.current_mode != "builder":
-            return
-        if not self.card_manager:
-            if not self.card_data_loading:
-                self.ensure_card_data_loaded()
-            return
-        index = self.textbox.index(f"@{event.x},{event.y}")
-        line_number = index.split(".")[0]
-        line_text = self.textbox.get(f"{line_number}.0", f"{line_number}.end")
-        card_name = self.extract_card_name_from_line(line_text)
-        if not card_name:
-            return
-        card = self.card_manager.get_card(card_name)
-        if not card:
-            self.builder_status_var.set(f"No card data for '{card_name}'")
-            return
-        self.display_card_detail(card)
-        # Keep add buttons disabled unless a search selection exists
-        self.builder_add_main_button.config(state="disabled")
-        self.builder_add_side_button.config(state="disabled")
-        logger.debug(self.currently_selected_deck)
-
     def switch_to_browse_mode(self):
         """Switch to MTGGoldfish browsing mode"""
         self.current_mode = "browse"
@@ -1272,20 +1417,21 @@ class MTGDeckSelectionWidget:
             self.delete_deck_button = None
 
         # Clean up browse mode UI elements
-        self.textbox.delete("1.0", tk.END)
+        self.clear_deck_textboxes()
+        self.display_deck_message("Select a saved deck from the list")
         if hasattr(self, "reset_button"):
             self.reset_button.grid_forget()
         if hasattr(self, "make_daily_average_deck_button"):
             self.make_daily_average_deck_button.grid_forget()
 
         # Unbind any browse mode listbox events
-        self.listbox_button.unbind("<<ListboxSelect>>")
+        self.listbox.unbind("<<ListboxSelect>>")
 
         self.load_saved_decks_list()
 
     def load_saved_decks_list(self):
         """Load saved decks from database"""
-        self.textbox.delete("1.0", tk.END)
+        self.clear_deck_textboxes()
         self.listbox.delete(0, tk.END)
         self.listbox.insert(0, "⏳ Loading saved decks...")
         self.listbox_button.config(state="disabled")
@@ -1321,6 +1467,7 @@ class MTGDeckSelectionWidget:
             self.listbox_button.config(text="Load Deck", command=self.load_selected_saved_deck, state="disabled")
             self.load_saved_into_builder_button.config(state="disabled")
             self.delete_deck_button = None
+            self.display_deck_message("No saved decks available")
             return
 
         # Format deck names for display with more info
@@ -1360,6 +1507,7 @@ class MTGDeckSelectionWidget:
         if getattr(self, "delete_deck_button", None):
             self.delete_deck_button.grid_forget()
             self.delete_deck_button = None
+        self.display_deck_message(f"❌ Error loading decks:\n{error_msg}")
 
     def display_saved_deck(self, event):
         """Display selected saved deck in textbox"""
@@ -1370,9 +1518,7 @@ class MTGDeckSelectionWidget:
 
         deck_doc = self.saved_decks[selected]
         deck_content = deck_doc.get('content', '')
-
-        self.textbox.delete("1.0", tk.END)
-        self.textbox.insert("1.0", deck_content)
+        self.load_deck_text(deck_content)
 
         # Show deck statistics
         self.update_deck_statistics(deck_content, deck_doc)
@@ -1390,10 +1536,6 @@ class MTGDeckSelectionWidget:
 
         if info_lines:
             logger.info(" | ".join(info_lines))
-
-        # Set up editing buttons
-        lines = self.textbox.get("1.0", tk.END).split("\n")
-        self.set_textbox_buttons(lines)
 
     def update_deck_statistics(self, deck_content: str, deck_doc: dict = None):
         """Update the statistics panel with deck metadata"""
@@ -1444,7 +1586,7 @@ class MTGDeckSelectionWidget:
             self.visualize_button.config(text="📊 Show Stats")
         else:
             # Re-analyze current deck if available
-            deck_content = self.textbox.get("1.0", tk.END).strip()
+            deck_content = self.get_deck_text().strip()
             if deck_content:
                 # Get current deck doc if in saved mode
                 deck_doc = None
@@ -1458,6 +1600,74 @@ class MTGDeckSelectionWidget:
             else:
                 messagebox.showinfo("No Deck", "Please select a deck to view statistics")
 
+    def _load_window_settings(self) -> dict:
+        if not DECK_SELECTOR_SETTINGS_FILE.exists():
+            return {}
+        try:
+            with DECK_SELECTOR_SETTINGS_FILE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                return data
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(f"Failed to read deck selector settings: {exc}")
+        return {}
+
+    def _normalize_window_size(self, size_data):
+        if isinstance(size_data, dict):
+            try:
+                width = int(size_data.get("width"))
+                height = int(size_data.get("height"))
+            except (TypeError, ValueError):
+                return None
+            if width > 0 and height > 0:
+                return {"width": width, "height": height}
+        return None
+
+    def _normalize_window_position(self, position_data):
+        if isinstance(position_data, (list, tuple)) and len(position_data) == 2:
+            try:
+                x = int(position_data[0])
+                y = int(position_data[1])
+            except (TypeError, ValueError):
+                return None
+            return (x, y)
+        return None
+
+    def _apply_window_preferences(self):
+        geometry = ""
+        if self.window_size:
+            width = self.window_size.get("width")
+            height = self.window_size.get("height")
+            if width and height:
+                geometry = f"{width}x{height}"
+        if self.window_position:
+            x, y = self.window_position
+            if geometry:
+                geometry = f"{geometry}+{x}+{y}"
+            else:
+                geometry = f"+{x}+{y}"
+        if geometry:
+            try:
+                self.root.geometry(geometry)
+            except tk.TclError as exc:
+                logger.debug(f"Unable to apply saved geometry '{geometry}': {exc}")
+
+    def on_window_configure(self, event):
+        if event.widget is not self.root:
+            return
+        if getattr(self.root, "state", lambda: "normal")() == "iconic":
+            return
+        if event.width <= 1 or event.height <= 1:
+            return
+        self.window_size = {"width": int(event.width), "height": int(event.height)}
+        self.window_position = (int(self.root.winfo_x()), int(self.root.winfo_y()))
+
+    def on_close(self):
+        try:
+            self.save_config()
+        finally:
+            self.root.destroy()
+
     def load_selected_saved_deck(self):
         """Load the selected saved deck (same as display, but explicit action)"""
         selected = self.listbox.curselection()
@@ -1467,7 +1677,23 @@ class MTGDeckSelectionWidget:
 
         selected = selected[0]
         deck_doc = self.saved_decks[selected]
-        logger.info(f"Loaded saved deck: {deck_doc['name']}")
+        deck_content = deck_doc.get("content", "")
+        if not deck_content:
+            messagebox.showwarning("Empty Deck", "Selected deck has no content.")
+            self.display_deck_message("Selected saved deck is empty.")
+            return
+
+        self.currently_selected_deck = deck_doc
+        self.load_deck_text(deck_content)
+        self.update_deck_statistics(deck_content, deck_doc)
+
+        if self.current_mode == "builder":
+            self.builder_sync_from_text(deck_content)
+            self.builder_render_deck()
+            deck_name = deck_doc.get("name", "Saved Deck")
+            self.builder_status_var.set(f"Loaded saved deck: {deck_name}")
+
+        logger.info(f"Loaded saved deck: {deck_doc.get('name', 'Unnamed Deck')}")
 
     def delete_selected_saved_deck(self):
         """Delete the selected saved deck"""
@@ -1498,13 +1724,31 @@ class MTGDeckSelectionWidget:
             messagebox.showerror("Delete Error", f"Failed to delete deck:\n{str(e)}")
 
     def save_config(self):
-        config = {
-            "format": self.format.get(),
-            "screen_pos": (self.root.winfo_x(), self.root.winfo_y()),
+        current_settings = dict(self.window_settings)
+        position = self.window_position or (self.root.winfo_x(), self.root.winfo_y())
+        size = self.window_size or {
+            "width": max(int(self.root.winfo_width()), 1),
+            "height": max(int(self.root.winfo_height()), 1),
         }
         try:
+            screen_pos = [int(position[0]), int(position[1])]
+        except Exception:
+            screen_pos = [self.root.winfo_x(), self.root.winfo_y()]
+        normalized_size = {
+            "width": max(int(size.get("width", self.root.winfo_width())), 1),
+            "height": max(int(size.get("height", self.root.winfo_height())), 1),
+        }
+        current_settings.update(
+            {
+                "format": self.format.get(),
+                "screen_pos": screen_pos,
+                "window_size": normalized_size,
+            }
+        )
+        try:
             with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
-                json.dump(config, fh, indent=4)
+                json.dump(current_settings, fh, indent=4)
+            self.window_settings = current_settings
         except OSError as exc:
             logger.warning(f"Failed to write deck selector settings: {exc}")
 
