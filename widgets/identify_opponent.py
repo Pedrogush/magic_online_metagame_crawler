@@ -1,21 +1,19 @@
+import json
 import time
 import tkinter as tk
-import json
 from pathlib import Path
-from pyautogui import pixelMatchesColor
-from navigators.mtgo import wait_for_click
-from utils.ocr import get_word_on_box
-from utils.metagame import get_latest_deck
+from typing import Any, Dict
+
 from loguru import logger
+
+from utils.metagame import get_latest_deck
+from utils.mtgo_bridge import accept_pending_trades, get_game_state
 from utils.paths import (
     CONFIG_DIR,
-    DECK_MONITOR_CONFIG_FILE,
     DECK_MONITOR_CACHE_FILE,
+    DECK_MONITOR_CONFIG_FILE,
 )
 
-# TODO: make webdriver close upon trade completed
-# organize UI so that GUI buttons are divided properly per function
-# hide/show buttons for rent functions when appropriate
 COLOR_SCHEME = "bisque"
 CS = [
     COLOR_SCHEME + "1",
@@ -24,6 +22,7 @@ CS = [
     COLOR_SCHEME + "4",
     COLOR_SCHEME,
 ]
+
 FORMAT_OPTIONS = [
     "Modern",
     "Standard",
@@ -33,6 +32,7 @@ FORMAT_OPTIONS = [
     "Pauper",
     "Commander",
 ]
+
 LEGACY_DECK_MONITOR_CONFIG = Path("deck_monitor_config.json")
 LEGACY_DECK_MONITOR_CACHE = Path("deck_monitor_cache.json")
 LEGACY_DECK_MONITOR_CACHE_CONFIG = CONFIG_DIR / "deck_monitor_cache.json"
@@ -42,25 +42,29 @@ def default_label(root, text=" ", color=CS[0]):
     return tk.Label(
         root,
         text=text,
-        font=("calibri", 7, "bold"),
+        font=("calibri", 9, "bold"),
         background=color,
         foreground="black",
         borderwidth=2,
         justify="left",
         relief="solid",
+        wraplength=240,
+        anchor="w",
+        padx=6,
+        pady=4,
     )
 
 
-def default_button(root, text, command, color=CS[0], font=("calibri", 7, "bold")):
-    return tk.Button(root, text=text, font=font, background=color, command=command)
+def default_button(root, text, command, color=CS[0], font=("calibri", 9, "bold")):
+    return tk.Button(root, text=text, font=font, background=color, command=command, relief="solid", borderwidth=2)
 
 
 def default_frame(root, name, color=CS[3]):
     frame = tk.Frame(
         root,
         relief="solid",
-        padx=3,
-        pady=3,
+        padx=4,
+        pady=4,
         background=color,
         borderwidth=2,
         highlightbackground=color,
@@ -71,7 +75,7 @@ def default_frame(root, name, color=CS[3]):
         frame_title = tk.Label(
             frame,
             text=name,
-            font=("calibri", 7, "bold"),
+            font=("calibri", 9, "bold"),
             background=CS[2],
             foreground="black",
             relief="solid",
@@ -81,172 +85,299 @@ def default_frame(root, name, color=CS[3]):
 
 
 class MTGOpponentDeckSpy:
-    def __init__(self):
-        self.root = tk.Tk()
+    POLL_INTERVAL_MS = 15_000
+    TRADE_INTERVAL_MS = 7_500
+    CACHE_TTL = 60 * 30  # 30 minutes
+
+    def __init__(self, master: tk.Misc | None = None):
+        if master is None:
+            self.root = tk.Tk()
+        else:
+            self.root = tk.Toplevel(master)
+            self.root.transient(master)
+
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.config(
             background=CS[3],
             relief="solid",
-            bg=CS[2],
             highlightbackground=CS[3],
             highlightthickness=1,
-            width=200,
-            height=100,
+            width=280,
+            height=160,
         )
         self.root.overrideredirect(True)
-        self.root.attributes("-topmost", "true")
+        self.root.attributes("-topmost", True)
+
+        self.username_var = tk.StringVar()
+        self.bridge_path_var = tk.StringVar()
+        self.auto_accept_var = tk.BooleanVar(value=False)
+        self.format = tk.StringVar(value=FORMAT_OPTIONS[0])
+
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.last_state: dict[str, Any] | None = None
+        self.player_name = ""
+        self.last_seen_deck = ""
+        self.last_event_description = ""
+        self.updating = False
+
         self.ui_make_components()
         self.load_cache()
-        self.label = tk.Label(self.frame_bottom, text="Click here to move", bg="bisque3")
-        self.exit_button = tk.Button(self.frame_bottom, text="Exit", command=self.root.quit, bg="bisque4")
-        self.exit_button.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
-        self.label.pack(side="right", fill="both", expand=True)
-        self.label.bind("<ButtonPress-1>", self.start_move)
-        self.label.bind("<ButtonRelease-1>", self.stop_move)
-        self.label.bind("<B1-Motion>", self.do_move)
-        self.root.bind("<Enter>", self.show_bottom_frame)
-        self.last_looked_at_ts = time.time()
         self.load_config()
-        self.player_name: str = get_word_on_box((self.box), "black")
-        self.last_seen_deck = ""
-        self.updating = False
-        self.update_deck()
 
+        self.update_deck()
+        self.schedule_trade_poll()
+
+    # ------------------------------------------------------------------ UI helpers
+    def ui_make_components(self):
+        self.frame_top, _ = default_frame(self.root, "Current Opponent", color=CS[1])
+        self.frame_bottom, _ = default_frame(self.root, "Settings", color=CS[3])
+
+        self.event_label = default_label(self.frame_top, "No event detected", color=CS[0])
+        self.opponent_deck_label = default_label(self.frame_top, "No opponent detected", color=CS[0])
+        self.status_label = default_label(self.frame_top, "Waiting for MTGO bridge…", color=CS[0])
+
+        # username + format row
+        row_user = tk.Frame(self.frame_bottom, background=CS[2])
+        tk.Label(row_user, text="Your MTGO name:", font=("calibri", 9, "bold"), background=CS[2]).pack(
+            anchor="w", side=tk.LEFT
+        )
+        username_entry = tk.Entry(row_user, textvariable=self.username_var, font=("calibri", 9))
+        username_entry.bind("<FocusOut>", lambda *_: self.save_config())
+        username_entry.pack(anchor="e", side=tk.RIGHT, fill="x", expand=True)
+
+        row_bridge = tk.Frame(self.frame_bottom, background=CS[2])
+        tk.Label(row_bridge, text="Bridge path:", font=("calibri", 9, "bold"), background=CS[2]).pack(
+            anchor="w", side=tk.LEFT
+        )
+        bridge_entry = tk.Entry(row_bridge, textvariable=self.bridge_path_var, font=("calibri", 9))
+        bridge_entry.bind("<FocusOut>", lambda *_: self.save_config())
+        bridge_entry.pack(anchor="e", side=tk.RIGHT, fill="x", expand=True)
+
+        row_format = tk.Frame(self.frame_bottom, background=CS[2])
+        tk.Label(row_format, text="Format:", font=("calibri", 9, "bold"), background=CS[2]).pack(
+            anchor="w", side=tk.LEFT
+        )
+        format_menu = tk.OptionMenu(row_format, self.format, *FORMAT_OPTIONS)
+        format_menu.config(
+            font=("calibri", 9, "bold"),
+            background=CS[2],
+            relief="solid",
+            borderwidth=2,
+            fg="black",
+            activebackground=CS[3],
+            activeforeground="black",
+            highlightbackground=CS[3],
+        )
+        format_menu["menu"].config(font=("calibri", 9, "bold"), background=CS[2], activebackground=CS[3])
+
+        controls_row = tk.Frame(self.frame_bottom, background=CS[2])
+        self.auto_accept_checkbox = tk.Checkbutton(
+            controls_row,
+            text="Auto-accept trades",
+            variable=self.auto_accept_var,
+            font=("calibri", 9, "bold"),
+            background=CS[2],
+            command=self.save_config,
+            selectcolor=CS[1],
+        )
+        self.refresh_button = default_button(
+            controls_row,
+            "Refresh now",
+            lambda: self.update_deck(force=True),
+            color=CS[2],
+        )
+        self.hide_widget_button = default_button(
+            controls_row,
+            "Hide",
+            self.hide_bottom_frame,
+            color=CS[2],
+        )
+
+        self.drag_handle = tk.Label(
+            self.frame_bottom,
+            text="Click and drag to move • Right-click to close",
+            font=("calibri", 8, "bold"),
+            background=CS[2],
+            foreground="black",
+            borderwidth=1,
+            relief="solid",
+        )
+
+        # Layout
+        self.event_label.pack(anchor="center", fill="both", expand=True, padx=2, pady=2)
+        self.opponent_deck_label.pack(anchor="center", fill="both", expand=True, padx=2, pady=2)
+        self.status_label.pack(anchor="center", fill="both", expand=True, padx=2, pady=2)
+
+        row_user.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
+        row_bridge.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
+        row_format.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
+
+        controls_row.pack(anchor="center", fill="x", expand=True, padx=2, pady=4)
+        self.auto_accept_checkbox.pack(anchor="w", side=tk.LEFT)
+        self.refresh_button.pack(anchor="center", side=tk.RIGHT, padx=2)
+        self.hide_widget_button.pack(anchor="center", side=tk.RIGHT, padx=2)
+
+        self.drag_handle.pack(anchor="center", fill="x", expand=False, padx=2, pady=2)
+
+        self.frame_top.pack(anchor="center", fill="both", side=tk.TOP, expand=True)
+        self.frame_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
+
+        self.drag_handle.bind("<ButtonPress-1>", self.start_move)
+        self.drag_handle.bind("<ButtonRelease-1>", self.stop_move)
+        self.drag_handle.bind("<B1-Motion>", self.do_move)
+        self.drag_handle.bind("<ButtonPress-3>", lambda _: self.close())
+        self.root.bind("<Enter>", self.show_bottom_frame)
+
+    # ------------------------------------------------------------------ Window controls
     def hide_bottom_frame(self):
         self.frame_bottom.forget()
 
-    def show_bottom_frame(self, event):
+    def show_bottom_frame(self, _):
         self.frame_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
 
     def start_move(self, event):
-        self.frame_bottom.forget()
+        self.hide_bottom_frame()
         self.root.x = event.x
         self.root.y = event.y
 
-    def stop_move(self, event):
+    def stop_move(self, _):
         self.root.x = None
         self.root.y = None
+        self.save_config()
 
     def do_move(self, event):
+        if getattr(self.root, "x", None) is None:
+            return
         deltax = event.x - self.root.x
         deltay = event.y - self.root.y
         x = self.root.winfo_x() + deltax
         y = self.root.winfo_y() + deltay
         self.root.geometry(f"+{x}+{y}")
-        self.save_config()
 
-    def ui_make_components(self):
-        self.root.title("Opponent Identifier")
-        # frames
-        self.frame_top, self.frame_title_top = default_frame(self.root, "Playing", color=CS[1])
-        self.frame_bottom, self.frame_title_bottom = default_frame(self.root, "Configuration", color=CS[3])
-        # labels
-        self.opponent_deck_label = default_label(self.frame_top)
-        self.deck_monitor_instructions_label = default_label(self.frame_top)
-        self.configure_box_button = default_button(self.frame_bottom, "Configure box", self.update_box)
-        self.format = tk.StringVar(value=FORMAT_OPTIONS[0])
-        self.choose_format_frame = tk.Frame(self.frame_bottom, background=CS[2])
-        self.choose_format_button = tk.OptionMenu(
-            self.choose_format_frame,
-            self.format,
-            FORMAT_OPTIONS[0],
-            *FORMAT_OPTIONS[1:],
-            command=lambda x: self.save_config(),
-        )
-        self.choose_format_button.config(
-            font=("calibri", 10, "bold"),
-            background=CS[2],
-            relief="solid",
-            borderwidth=2,
-            fg="black",
-            disabledforeground=CS[3],
-            activebackground=CS[3],
-            activeforeground="black",
-            highlightbackground=CS[3],
-        )
-        self.choose_format_button["menu"].config(
-            font=("calibri", 10, "bold"),
-            background=CS[2],
-            activebackground=CS[2],
-            disabledforeground=CS[3],
-            foreground="black",
-            activeforeground="black",
-            selectcolor="black",
-            borderwidth=2,
-            relief="solid",
-        )
-        self.hide_widget_button = default_button(
-            self.frame_bottom,
-            "Hide",
-            self.hide_bottom_frame,
-            color=CS[2],
-            font=("calibri", 10, "bold"),
-        )
-        self.ui_pack_components()
+    # ------------------------------------------------------------------ Bridge polling
+    def update_deck(self, force: bool = False):
+        if self.updating and not force:
+            self.root.after(self.POLL_INTERVAL_MS, self.update_deck)
+            return
 
-    def ui_pack_components(self):
-        self.opponent_deck_label.pack(anchor="center", expand=False, fill="both")
-        self.choose_format_button.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
-        self.choose_format_frame.pack(anchor="center", fill="both", side=tk.RIGHT, expand=True)
-        self.configure_box_button.pack(anchor="center", fill="both", side=tk.LEFT, expand=True)
-        self.hide_widget_button.pack(anchor="center", fill="both", side=tk.BOTTOM, expand=True)
-        self.frame_top.pack(anchor="center", fill="both", side=tk.TOP, expand=True)
-        self.frame_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
-
-    def update_box(self):
-        self.deck_monitor_instructions_label.pack(anchor="center", expand=True, fill="both", side=tk.TOP)
         self.updating = True
-        logger.debug("Updating box")
-        self.deck_monitor_instructions_label.config(text="Click on the top left corner of the box")
-        self.deck_monitor_instructions_label.update()
-        v1 = wait_for_click()
-        self.deck_monitor_instructions_label.config(text="Click on the bottom right corner of the box")
-        self.deck_monitor_instructions_label.update()
-        v2 = wait_for_click()
-        self.box = (v1[0], v1[1], v2[0], v2[1])
-        self.vertices = ((v1[0], v1[1]), (v1[0], v2[1]), (v2[0], v1[1]), (v2[0], v2[1]))
-        self.deck_monitor_instructions_label.config(text="Box updated, vertices are {}".format(self.vertices))
-        self.deck_monitor_instructions_label.update()
-        self.save_config()
-        time.sleep(1.5)
-        self.deck_monitor_instructions_label.pack_forget()
-        self.updating = False
+        bridge_override = self.bridge_path_var.get().strip() or None
+        username = self.username_var.get().strip() or None
+        try:
+            state = get_game_state(username, bridge_override)
+            self.last_state = state
+            self.handle_bridge_state(state, username)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to query MTGO bridge: {}", exc)
+            self.status_label.config(text=f"Bridge error: {exc}")
+        finally:
+            self.save_config()
+            self.updating = False
+            self.root.after(self.POLL_INTERVAL_MS, self.update_deck)
 
-    def update_deck(self):
-        self.save_config()  # doing this to save the current position of the helper
-        if self.updating:
-            self.root.after(10000, self.update_deck)
-            return
-        if not self.check_black_pixels_at_corners():
-            self.root.after(10000, self.update_deck)
-            self.player_name = "No player detected"
+    def handle_bridge_state(self, state: dict[str, Any], username: str | None) -> None:
+        event_info = state.get("eventInfo") or {}
+        match_info = state.get("match") or {}
+        players = state.get("players") or []
+
+        description = (
+            event_info.get("description")
+            or match_info.get("challengeText")
+            or (match_info.get("id") and f"Match #{match_info['id']}")
+            or "No active matches detected"
+        )
+        self.last_event_description = description
+        self.event_label.config(text=description)
+
+        if not players:
+            self.player_name = ""
             self.last_seen_deck = ""
+            self.status_label.config(text="Waiting for MTGO game to start…")
             self.refresh_labels()
             return
-        self.player_name = get_word_on_box(self.box, "black")
-        if self.player_name in self.cache and time.time() - self.cache[self.player_name]["ts"] < 1800:
-            self.last_seen_deck = self.cache[self.player_name]["deck"]
-            self.root.after(10000, self.update_deck)
+
+        self_player = next((p for p in players if p.get("isSelf")), None)
+        if not self_player and username:
+            self_player = next(
+                (p for p in players if p.get("name", "").lower() == username.lower()),
+                None,
+            )
+        if not self_player and len(players) >= 1 and not username:
+            self_player = players[0]
+            self.username_var.set(self_player.get("name", ""))
+
+        opponents = [p for p in players if p is not self_player]
+        opponent = opponents[0] if opponents else None
+
+        if opponent is None:
+            self.player_name = ""
+            self.last_seen_deck = ""
+            self.status_label.config(text="No opponent detected yet.")
             self.refresh_labels()
             return
-        self.last_seen_deck = get_latest_deck(self.player_name, self.format)
-        self.cache[self.player_name] = {"deck": self.last_seen_deck, "ts": time.time()}
-        self.save_cache()
-        self.root.after(10000, self.update_deck)
-        self.deck_monitor_instructions_label.pack_forget()
+
+        self.player_name = opponent.get("name", "Unknown opponent")
+        deck = self._lookup_deck(self.player_name)
+        self.last_seen_deck = deck
+
+        self.status_label.config(
+            text=f"{self.player_name} • Clock: {self._describe_clock(opponent)}"
+        )
         self.refresh_labels()
 
+    def _lookup_deck(self, opponent_name: str) -> str:
+        cached = self.cache.get(opponent_name)
+        now = time.time()
+        if cached and now - cached.get("ts", 0) < self.CACHE_TTL:
+            return cached.get("deck", "")
+
+        deck = get_latest_deck(opponent_name, self.format)
+        self.cache[opponent_name] = {"deck": deck, "ts": now}
+        self.save_cache()
+        return deck
+
+    def _describe_clock(self, player: dict[str, Any]) -> str:
+        seconds = int(player.get("clockSeconds") or 0)
+        minutes, secs = divmod(max(0, seconds), 60)
+        return f"{minutes:02d}:{secs:02d}"
+
     def refresh_labels(self):
-        self.opponent_deck_label.config(text=f"{self.last_seen_deck}", border=2)
+        if self.player_name and self.last_seen_deck:
+            self.opponent_deck_label.config(text=f"{self.player_name}: {self.last_seen_deck}")
+        elif self.player_name:
+            self.opponent_deck_label.config(text=f"{self.player_name}: deck not found")
+        else:
+            self.opponent_deck_label.config(text="Opponent not detected")
         self.opponent_deck_label.update()
 
+    # ------------------------------------------------------------------ Trade automation
+    def schedule_trade_poll(self):
+        self.root.after(self.TRADE_INTERVAL_MS, self.poll_trades)
+
+    def poll_trades(self):
+        if self.auto_accept_var.get():
+            bridge_override = self.bridge_path_var.get().strip() or None
+            try:
+                result = accept_pending_trades(bridge_override)
+                if result.get("accepted"):
+                    partner = result.get("partner") or "Unknown"
+                    logger.info("Accepted pending trade from {}", partner)
+                    self.status_label.config(text=f"Accepted trade from {partner}")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Auto-accept trade failed: {}", exc)
+        self.schedule_trade_poll()
+
+    # ------------------------------------------------------------------ Persistence
     def save_config(self):
         config = {
-            "box": self.box,
-            "format": self.choose_format_button.cget("text"),
-            "vertices": self.vertices,
+            "format": self.format.get(),
             "screen_pos": (self.root.winfo_x(), self.root.winfo_y()),
+            "mtgo_username": self.username_var.get().strip(),
+            "bridge_path": self.bridge_path_var.get().strip(),
+            "auto_accept_trades": self.auto_accept_var.get(),
         }
         try:
+            DECK_MONITOR_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as f:
                 json.dump(config, f, indent=4)
         except OSError as exc:
@@ -258,34 +389,35 @@ class MTGOpponentDeckSpy:
         if not source_file.exists() and LEGACY_DECK_MONITOR_CONFIG.exists():
             source_file = LEGACY_DECK_MONITOR_CONFIG
             legacy_source = True
-            logger.warning("Loaded legacy deck_monitor_config.json from project root; migrating to config/")
+            logger.warning("Loaded legacy deck_monitor_config.json; migrating to config/")
+
         if source_file.exists():
             try:
                 with source_file.open("r", encoding="utf-8") as f:
                     config = json.load(f)
-                self.box = config["box"]
-                self.vertices = config["vertices"]
-                self.format = config["format"]
-                logger.debug(config["screen_pos"])
-                self.root.geometry(f'+{config["screen_pos"][0]}+{config["screen_pos"][1]}')
+                fmt = config.get("format")
+                if fmt in FORMAT_OPTIONS:
+                    self.format.set(fmt)
+                self.username_var.set(config.get("mtgo_username", ""))
+                self.bridge_path_var.set(config.get("bridge_path", ""))
+                self.auto_accept_var.set(config.get("auto_accept_trades", False))
+
+                screen_pos = config.get("screen_pos")
+                if screen_pos:
+                    self.root.geometry(f"+{screen_pos[0]}+{screen_pos[1]}")
                 self.root.update()
+
                 if legacy_source:
                     try:
                         with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as target:
                             json.dump(config, target, indent=4)
                         if source_file != DECK_MONITOR_CONFIG_FILE:
-                            try:
-                                source_file.unlink()
-                            except OSError as exc:
-                                logger.debug(f"Unable to remove legacy deck monitor config {source_file}: {exc}")
+                            source_file.unlink(missing_ok=True)
                     except OSError as exc:
                         logger.warning(f"Failed to migrate deck monitor config: {exc}")
                 return
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Invalid config JSON, using defaults: {e}")
-        self.box = (93, 320, 311, 358)  # any valid box works fine
-        self.vertices = ((93, 320), (93, 358), (311, 320), (311, 358))
-        self.format = "Modern"
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning(f"Invalid config JSON, using defaults: {exc}")
 
     def save_cache(self):
         try:
@@ -306,6 +438,7 @@ class MTGOpponentDeckSpy:
             source_file = LEGACY_DECK_MONITOR_CACHE
             legacy_source = True
             logger.warning("Loaded legacy deck_monitor_cache.json from project root; migrating to cache/")
+
         if source_file.exists():
             try:
                 with source_file.open("r", encoding="utf-8") as f:
@@ -316,22 +449,18 @@ class MTGOpponentDeckSpy:
                         with DECK_MONITOR_CACHE_FILE.open("w", encoding="utf-8") as target:
                             json.dump(self.cache, target, indent=4)
                         if source_file != DECK_MONITOR_CACHE_FILE:
-                            try:
-                                source_file.unlink()
-                            except OSError as exc:
-                                logger.debug(f"Unable to remove legacy cache file {source_file}: {exc}")
+                            source_file.unlink(missing_ok=True)
                     except OSError as exc:
                         logger.warning(f"Failed to migrate deck monitor cache: {exc}")
                 return
-            except json.JSONDecodeError as e:
-                logger.warning(f"Invalid cache JSON, resetting: {e}")
-                self.cache = {}
-                self.save_cache()
-                return
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning(f"Invalid cache JSON, resetting: {exc}")
         self.cache = {}
 
-    def check_black_pixels_at_corners(self):
-        return all([pixelMatchesColor(v[0], v[1], (0, 0, 0)) for v in self.vertices])
+    # ------------------------------------------------------------------ teardown
+    def close(self):
+        if self.root:
+            self.root.destroy()
 
 
 if __name__ == "__main__":

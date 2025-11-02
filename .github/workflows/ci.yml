@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Run pytest
+        run: pytest
+
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install pyinstaller
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Publish MTGO bridge
+        run: dotnet publish dotnet/MTGOBridge/MTGOBridge.csproj -c Release -r win-x64 --self-contained false
+      - name: Build PyInstaller bundle
+        run: pyinstaller packaging/magic_online_metagame_crawler.spec --noconfirm --clean
+      - name: Compress artifact
+        run: |
+          Compress-Archive -Path dist\magic_online_metagame_crawler\* -DestinationPath magic_online_metagame_crawler_windows.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic-online-metagame-crawler-windows
+          path: magic_online_metagame_crawler_windows.zip
+
+  build-linux:
+    name: Build Linux Bundle
+    runs-on: ubuntu-latest
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install pyinstaller
+      - name: Build PyInstaller bundle
+        run: pyinstaller packaging/magic_online_metagame_crawler.spec --noconfirm --clean
+      - name: Archive bundle
+        run: tar -czf magic_online_metagame_crawler_linux.tar.gz -C dist magic_online_metagame_crawler
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magic-online-metagame-crawler-linux
+          path: magic_online_metagame_crawler_linux.tar.gz

@@ -1,5 +1,6 @@
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, messagebox, simpledialog
 import json
 import threading
@@ -9,7 +10,6 @@ from utils.deck import deck_to_dictionary, add_dicts, analyze_deck
 from utils.dbq import (
     save_deck_to_db,
     get_saved_decks,
-    load_deck_from_db,
     delete_saved_deck,
 )
 from navigators.mtggoldfish import (
@@ -18,12 +18,19 @@ from navigators.mtggoldfish import (
     get_archetype_decks,
     download_deck,
 )
+from widgets.identify_opponent import MTGOpponentDeckSpy
+from widgets.metagame_view import MetagameStatsView
+from widgets.timer_alert import TimerAlertWindow
 from utils.paths import (
     CONFIG_FILE,
     DECK_SELECTOR_SETTINGS_FILE,
     CURR_DECK_FILE,
     DECKS_DIR,
 )
+
+CARD_SEARCH_PANEL_WIDTH = 420
+CARD_SEARCH_LISTBOX_WIDTH = 34
+DECK_GRID_COLUMNS = 4
 
 FORMAT_OPTIONS = [
     "Modern",
@@ -228,6 +235,8 @@ class MTGDeckSelectionWidget:
         self.saved_decks_popup_status = None
         self.saved_decks_popup_data = []
         self.deck_save_dir = DECK_SAVE_DIR
+        self.opponent_tracker_window = None
+        self.timer_alert_window = None
         self.ui_make_components()
         self._apply_window_preferences()
         self.root.bind("<Configure>", self.on_window_configure)
@@ -271,7 +280,7 @@ class MTGDeckSelectionWidget:
         self.root.grid_rowconfigure(0, weight=1)
         self.F_top = frame(self.root, "", color="bisque4")
         self.F_top.grid(column=0, row=0, sticky="nsew")
-        self.F_top.grid_columnconfigure(0, weight=1)
+        self.F_top.grid_columnconfigure(0, weight=0)
         self.F_top.grid_columnconfigure(1, weight=1)
         self.F_top.grid_rowconfigure(1, weight=1)
         self.F_top_left = frame(self.F_top, "Deck Browser", color=CS[1])
@@ -309,11 +318,26 @@ class MTGDeckSelectionWidget:
         self.builder_add_side_button = tk.Button(self.card_add_buttons, text="Add to Sideboard", command=lambda: self.builder_add_card("side"), state="disabled")
         self.builder_add_side_button.pack(side="left", expand=True, fill="x", padx=(4, 0))
 
-        self.F_top_textbox = frame(self.F_top_right, "", color=CS[2])
-        self.F_top_textbox.grid(column=0, row=3, sticky="nsew")
+        self.F_tab = ttk.Notebook(self.F_top_right)
+        self.F_tab.grid(column=0, row=3, sticky="nsew")
+        deck_tab = tk.Frame(self.F_tab, background=CS[2])
+        deck_tab.grid_columnconfigure(0, weight=1)
+        deck_tab.grid_rowconfigure(0, weight=1)
+        self.F_tab.add(deck_tab, text="Deck Builder")
+        self.metagame_view = MetagameStatsView(self.F_tab)
+        self.F_tab.add(self.metagame_view, text="Metagame")
+
+        self.F_top_textbox = frame(deck_tab, "", color=CS[2])
+        self.F_top_textbox.grid(column=0, row=0, sticky="nsew")
         self.F_top_textbox.rowconfigure(0, weight=1)
-        self.F_bottom = frame(self.root, "Configuration", color=CS[3])
-        self.F_bottom.grid(column=0, row=2, sticky="nsew")
+        self.F_top_textbox.rowconfigure(1, weight=1)
+
+        self.bottom_toolbar = tk.Frame(self.root, background=CS[3], padx=8, pady=6, relief="solid", borderwidth=1)
+        self.bottom_toolbar.grid(column=0, row=2, sticky="ew")
+        self.bottom_toolbar.columnconfigure(0, weight=0)
+        self.bottom_toolbar.columnconfigure(1, weight=1)
+        self.bottom_toolbar.columnconfigure(2, weight=0)
+        self.bottom_toolbar.columnconfigure(3, weight=0)
 
         self.save_deck_button = button(self.F_top_right_top, "Save deck", self.save_deck_as)
         self.save_deck_button.grid(column=0, row=0, sticky="nsew")
@@ -380,6 +404,11 @@ class MTGDeckSelectionWidget:
         self.listbox.config(yscrollcommand=self.listbox_scrollbar.set)
         self.listbox_scrollbar.config(command=self.listbox.yview)
 
+        self.listbox_font = tkfont.Font(root=self.root, font=self.listbox.cget("font"))
+        self.deck_row_font = tkfont.Font(root=self.root, family="calibri", size=15, weight="bold")
+        self._search_width_set = False
+        self.row_button_width = self._compute_row_button_width()
+
         self.F_top_textbox.columnconfigure(0, weight=1)
         self.F_top_textbox.rowconfigure(0, weight=1)
         self.F_top_textbox.rowconfigure(1, weight=1)
@@ -398,15 +427,38 @@ class MTGDeckSelectionWidget:
         self.q_btn_frames = {"main": [], "side": []}
         self._init_zone_view(self.main_deck_container, "main")
         self._init_zone_view(self.side_deck_container, "side")
+
+        tk.Label(
+            self.bottom_toolbar,
+            text="Format:",
+            background=CS[3],
+            font=("calibri", 12, "bold"),
+        ).grid(column=0, row=0, sticky="w")
         self.choose_format_button = tk.OptionMenu(
-            self.F_bottom,
+            self.bottom_toolbar,
             self.format,
             FORMAT_OPTIONS[0],
             *FORMAT_OPTIONS[1:],
             command=lambda x: self.choose_format_button_clicked(),
         )
-        self.choose_format_button.grid(column=0, row=0, sticky="nsew")
+        self.choose_format_button.grid(column=1, row=0, sticky="w")
         choose_format_button_config(self.choose_format_button)
+
+        opp_btn = tk.Button(
+            self.bottom_toolbar,
+            text="Launch Opponent Tracker",
+            command=self.launch_opponent_tracker,
+            background=CS[2],
+        )
+        opp_btn.grid(column=2, row=0, sticky="ew", padx=(12, 6))
+
+        timer_btn = tk.Button(
+            self.bottom_toolbar,
+            text="Open Timer Alert",
+            command=self.open_timer_alert,
+            background=CS[2],
+        )
+        timer_btn.grid(column=3, row=0, sticky="ew")
         self.set_mode_button_states("browse")
 
     def _init_zone_view(self, container, zone):
@@ -427,8 +479,9 @@ class MTGDeckSelectionWidget:
         def _sync_scrollregion(_event, c=canvas):
             c.configure(scrollregion=c.bbox("all"))
 
-        def _sync_width(event, c=canvas, wid=window_id):
+        def _sync_width(event, c=canvas, wid=window_id, z=zone):
             c.itemconfigure(wid, width=event.width)
+            self._request_zone_relayout(z)
 
         inner.bind("<Configure>", _sync_scrollregion)
         canvas.bind("<Configure>", _sync_width)
@@ -441,7 +494,26 @@ class MTGDeckSelectionWidget:
             "scrollbar": scrollbar,
             "window_id": window_id,
             "rows": [],
+            "columns": 0,
+            "pending_layout": False,
         }
+
+    def _compute_row_button_width(self):
+        temp = tk.Frame(self.root)
+        widths = []
+        sample_buttons = []
+        for symbol in ("+", "-", "X"):
+            btn = b_button(temp, symbol, lambda: None, color=CS[2], font=("verdana", 9, "bold"), width=2)
+            btn.pack(side="left", padx=1)
+            sample_buttons.append(btn)
+        temp.update_idletasks()
+        for btn in sample_buttons:
+            widths.append(btn.winfo_reqwidth())
+            btn.destroy()
+        temp.destroy()
+        button_spacing = 6  # approximate total horizontal padding between buttons
+        label_padding = 12  # left/right padding before label text
+        return sum(widths) + button_spacing + label_padding
 
     def choose_format_button_clicked(self):
         self.lazy_load_archetypes()
@@ -460,19 +532,30 @@ class MTGDeckSelectionWidget:
         self.listbox_button.config(state="disabled")
 
         def load_in_background():
-            try:
-                mtg_format = self.format.get()
-                logger.info(f"Loading archetypes for {mtg_format}...")
+            mtg_format = self.format.get()
+            attempts = 3
+            delay = 2
+            last_error_message = ""
 
-                # Fetch data (this is the slow part)
-                archetypes = get_archetypes(mtg_format)
-                archetype_stats = get_archetype_stats(mtg_format)
+            for attempt in range(1, attempts + 1):
+                try:
+                    logger.info(f"Loading archetypes for {mtg_format} (attempt {attempt}/{attempts})...")
+                    archetypes = get_archetypes(mtg_format)
+                    archetype_stats = get_archetype_stats(mtg_format)
+                    self.root.after(0, lambda data=archetypes, stats=archetype_stats: self.on_archetypes_loaded(data, stats))
+                    return
+                except Exception as exc:  # Retry on all exceptions
+                    last_error_message = str(exc)
+                    logger.error(f"Failed to load archetypes (attempt {attempt}/{attempts}): {exc}")
+                    if attempt < attempts:
+                        retry_msg = f"Network error, retrying ({attempt}/{attempts})..."
+                        self.root.after(0, lambda msg=retry_msg: self._update_archetype_retry_status(msg))
+                        time.sleep(delay)
+                        delay = min(delay * 2, 10)
+                    else:
+                        break
 
-                # Update UI on main thread
-                self.root.after(0, lambda: self.on_archetypes_loaded(archetypes, archetype_stats))
-            except Exception as e:
-                logger.error(f"Failed to load archetypes: {e}")
-                self.root.after(0, lambda: self.on_archetypes_error(str(e)))
+            self.root.after(0, lambda msg=last_error_message: self.on_archetypes_error(msg))
 
         # Start background thread
         thread = threading.Thread(target=load_in_background, daemon=True)
@@ -505,6 +588,15 @@ class MTGDeckSelectionWidget:
             self.listbox.insert(0, f"❌ Error: {error_msg[:50]}")
             self.listbox.insert(1, "Click 'Select archetype' to retry")
             self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
+
+        self.builder_status_var.set("Failed to load archetypes. Check your connection and retry.")
+
+    def _update_archetype_retry_status(self, message):
+        if self.current_mode != "browse":
+            return
+        self.listbox.delete(0, tk.END)
+        self.listbox.insert(0, message)
+        self.listbox.insert(1, "")
 
     def save_deck_as(self):
         """Save deck to both database and file"""
@@ -822,33 +914,172 @@ class MTGDeckSelectionWidget:
             view["canvas"].configure(scrollregion=bbox)
         else:
             view["canvas"].configure(scrollregion=(0, 0, 0, 0))
+        for col in range(view.get("columns", 0)):
+            view["frame"].grid_columnconfigure(col, weight=0, minsize=0)
+        view["columns"] = 0
+        view["pending_layout"] = False
+
+    def _layout_zone_rows(self, zone, frames=None):
+        view = self.zone_views.get(zone)
+        if not view:
+            return
+        frames = frames if frames is not None else view.get("rows", [])
+        if not frames:
+            return
+
+        for col in range(view.get("columns", 0)):
+            view["frame"].grid_columnconfigure(col, weight=0, minsize=0)
+        view["columns"] = 0
+
+        if view.get("rows"):
+            for frame in frames:
+                if hasattr(frame, "grid_forget"):
+                    frame.grid_forget()
+
+        if not frames:
+            return
+
+        if self.zone_lines.get(zone):
+            columns = min(DECK_GRID_COLUMNS, len(frames))
+            if columns <= 0:
+                columns = 1
+        else:
+            columns = 1
+
+        for col in range(columns):
+            view["frame"].grid_columnconfigure(col, weight=1, uniform=f"{zone}_cols")
+
+        view["columns"] = columns
+
+        for index, frame in enumerate(frames):
+            column = index % columns
+            row = index // columns
+            frame.grid(column=column, row=row, sticky="ew", padx=2, pady=(0, 1))
+
+        view["frame"].update_idletasks()
+        bbox = view["canvas"].bbox("all")
+        if bbox:
+            view["canvas"].configure(scrollregion=bbox)
+        else:
+            view["canvas"].configure(scrollregion=(0, 0, 0, 0))
+
+        per_column_width = max(120, (view["frame"].winfo_width() // max(1, columns)) - self.row_button_width)
+        for frame in frames:
+            if isinstance(frame, tk.Label):
+                frame.configure(wraplength=per_column_width + self.row_button_width)
+            else:
+                label = getattr(frame, "card_label", None)
+                if label:
+                    label.configure(wraplength=per_column_width)
+
+    def _request_zone_relayout(self, zone):
+        view = self.zone_views.get(zone)
+        if not view or not view.get("rows"):
+            return
+        if view.get("pending_layout"):
+            return
+        view["pending_layout"] = True
+
+        def _do_relayout(z=zone):
+            self._relayout_zone(z)
+
+        self.root.after_idle(_do_relayout)
+
+    def _relayout_zone(self, zone):
+        view = self.zone_views.get(zone)
+        if not view:
+            return
+        view["pending_layout"] = False
+        if not view.get("rows"):
+            return
+        self._layout_zone_rows(zone)
+
+    def _configure_card_search_panel(self, manager):
+        if getattr(self, "_search_width_set", False):
+            return
+        cards = getattr(manager, "_cards", None)
+        if not cards:
+            return
+
+        width_chars = CARD_SEARCH_LISTBOX_WIDTH
+        self.listbox.config(width=width_chars)
+
+        self.builder_controls_frame.update_idletasks()
+        controls_width = self.builder_controls_frame.winfo_reqwidth()
+        screen_width = self.root.winfo_screenwidth() or 1920
+        panel_width = max(controls_width + 20, min(CARD_SEARCH_PANEL_WIDTH, int(screen_width * 0.35)))
+
+        self.F_top_left.grid_propagate(False)
+        self.F_top_left.configure(width=panel_width)
+        self.F_top_left.update_idletasks()
+        self.F_top.grid_columnconfigure(0, minsize=panel_width)
+        self._search_width_set = True
+
+    @staticmethod
+    def _widget_exists(widget):
+        try:
+            return bool(widget) and widget.winfo_exists()
+        except Exception:
+            return False
+
+    def launch_opponent_tracker(self):
+        existing = getattr(self.opponent_tracker_window, "root", None) if self.opponent_tracker_window else None
+        if self._widget_exists(existing):
+            existing.deiconify()
+            existing.lift()
+            return
+        try:
+            self.opponent_tracker_window = MTGOpponentDeckSpy(master=self.root)
+            self.opponent_tracker_window.root.bind("<Destroy>", self._on_tracker_closed)
+        except Exception as exc:
+            logger.error(f"Failed to launch opponent tracker: {exc}")
+            messagebox.showerror("Opponent Tracker", f"Unable to launch opponent tracker:\n{exc}")
+
+    def open_timer_alert(self):
+        window = getattr(self.timer_alert_window, "window", None) if self.timer_alert_window else None
+        if self._widget_exists(window):
+            window.deiconify()
+            window.lift()
+            return
+        try:
+            self.timer_alert_window = TimerAlertWindow(self.root)
+            self.timer_alert_window.window.bind("<Destroy>", self._on_timer_closed)
+        except Exception as exc:
+            logger.error(f"Failed to open timer alert: {exc}")
+            messagebox.showerror("Timer Alert", f"Unable to open timer alert:\n{exc}")
+
+    def _on_tracker_closed(self, _event=None):
+        self.opponent_tracker_window = None
+
+    def _on_timer_closed(self, _event=None):
+        self.timer_alert_window = None
 
     def render_deck_zone(self, zone, lines):
         view = self.zone_views.get(zone)
         if not view:
             return
+
         self._clear_zone_view(zone)
         self.q_btn_frames.setdefault(zone, [])
         self.q_btn_frames[zone] = []
         self.zone_lines[zone] = list(lines)
+
         if not lines:
-            placeholder = tk.Label(
-                view["frame"],
-                text="",
-                background=CS[1],
-            )
-            placeholder.grid(column=0, row=0, sticky="ew", padx=4, pady=2)
-            view["rows"].append(placeholder)
+            placeholder = tk.Label(view["frame"], text="", background=CS[1])
+            placeholder.card_line = ""
+            view["rows"] = [placeholder]
+            self._layout_zone_rows(zone, view["rows"])
             return
-        for index, line in enumerate(lines):
+
+        frames = []
+        for line in lines:
             frame = self.create_F_edit_deck(view["frame"], line, zone)
-            frame.grid(column=0, row=index, sticky="ew", padx=2, pady=(0, 1))
+            frames.append(frame)
             self.q_btn_frames[zone].append(frame)
-            view["rows"].append(frame)
-        view["frame"].update_idletasks()
-        bbox = view["canvas"].bbox("all")
-        if bbox:
-            view["canvas"].configure(scrollregion=bbox)
+
+        view["rows"] = frames
+        self._layout_zone_rows(zone, frames)
+        self._request_zone_relayout(zone)
 
     def get_zone_lines(self, zone):
         return list(self.zone_lines.get(zone, []))
@@ -880,21 +1111,15 @@ class MTGDeckSelectionWidget:
         label = tk.Label(
             view["frame"],
             text=message,
-            font=("calibri", 14, "bold"),
+            font=self.deck_row_font,
             background=CS[1],
             anchor="nw",
             justify="left",
             wraplength=view["canvas"].winfo_width() or 400,
         )
-        label.grid(column=0, row=0, sticky="ew", padx=6, pady=6)
-        view["rows"].append(label)
-        view["frame"].update_idletasks()
-        label.configure(wraplength=view["frame"].winfo_width() or 400)
-        bbox = view["canvas"].bbox("all")
-        if bbox:
-            view["canvas"].configure(scrollregion=bbox)
-        else:
-            view["canvas"].configure(scrollregion=(0, 0, 0, 0))
+        label.card_line = message or ""
+        view["rows"] = [label]
+        self._layout_zone_rows("main", view["rows"])
 
     def _split_card_line(self, line):
         parts = line.strip().split(" ", 1)
@@ -968,9 +1193,11 @@ class MTGDeckSelectionWidget:
         plus_btn.grid(column=0, row=0, padx=(0, 2), sticky="w")
         minus_btn.grid(column=1, row=0, padx=(0, 2), sticky="w")
         remove_btn.grid(column=2, row=0, padx=(0, 4), sticky="w")
-        label = tk.Label(frame, text=line, font=("calibri", 15, "bold"), background=CS[1], anchor="w")
-        label.grid(column=3, row=0, sticky="w")
+        label = tk.Label(frame, text=line, font=self.deck_row_font, background=CS[1], anchor="w")
+        label.grid(column=3, row=0, sticky="w", padx=(4, 0))
         label.bind("<Button-1>", lambda _event, z=zone, l=line: self.on_deck_row_click(z, l))
+        frame.card_line = line
+        frame.card_label = label
         return frame
 
     def on_deck_row_click(self, zone, line):
@@ -1069,6 +1296,7 @@ class MTGDeckSelectionWidget:
         self.card_search_entry.config(state="normal")
         self.open_saved_decks_button.config(state="normal")
         self.builder_status_var.set("Card data ready. Type to search.")
+        self._configure_card_search_panel(manager)
 
     def on_card_data_failed(self, error):
         self.card_data_loading = False
@@ -1664,6 +1892,19 @@ class MTGDeckSelectionWidget:
 
     def on_close(self):
         try:
+            if self.timer_alert_window:
+                window = getattr(self.timer_alert_window, "window", None)
+                if self._widget_exists(window):
+                    try:
+                        self.timer_alert_window.close()
+                    except Exception:
+                        window.destroy()
+                self.timer_alert_window = None
+            if self.opponent_tracker_window:
+                tracker_root = getattr(self.opponent_tracker_window, "root", None)
+                if self._widget_exists(tracker_root):
+                    tracker_root.destroy()
+                self.opponent_tracker_window = None
             self.save_config()
         finally:
             self.root.destroy()

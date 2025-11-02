@@ -3,6 +3,7 @@ magic_online_metagame_crawler.egg-info/
 config/
 cache/
 decks/
+dotnet/MTGOBridge/
 box.png
 filtered_only_white.png
 trade_request.png
@@ -10,3 +11,6 @@ __pycache__/
 *.md
 settings.local.json
 data/
+vendor/
+*.txt
+*.sln

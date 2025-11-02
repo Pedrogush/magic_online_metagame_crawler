@@ -11,6 +11,7 @@ from loguru import logger
 from utils.paths import (
     CONFIG_DIR,
     ARCHETYPE_CACHE_FILE,
+    ARCHETYPE_LIST_CACHE_FILE,
     DECK_CACHE_FILE,
     CURR_DECK_FILE,
 )
@@ -23,21 +24,73 @@ LEGACY_CURR_DECK_CACHE_FILE = Path("cache") / "curr_deck.txt"
 LEGACY_CURR_DECK_ROOT_FILE = Path("curr_deck.txt")
 
 
-def get_archetypes(mtg_format: str):
-    logger.debug(f"Searching for archetypes in {mtg_format}")
+def _load_cached_archetypes(mtg_format: str, max_age: int = 60 * 60):
+    if not ARCHETYPE_LIST_CACHE_FILE.exists():
+        return None
+    try:
+        with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Cached archetype list invalid: {exc}")
+        return None
+    entry = data.get(mtg_format)
+    if not entry:
+        return None
+    if time.time() - entry.get("timestamp", 0) > max_age:
+        return None
+    return entry.get("items")
+
+
+def _save_cached_archetypes(mtg_format: str, items: list[dict]):
+    try:
+        if ARCHETYPE_LIST_CACHE_FILE.exists():
+            with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        else:
+            data = {}
+    except json.JSONDecodeError:
+        data = {}
+    data[mtg_format] = {"timestamp": time.time(), "items": items}
+    ARCHETYPE_LIST_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHETYPE_LIST_CACHE_FILE.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
+
+def get_archetypes(mtg_format: str, cache_ttl: int = 60 * 60, allow_stale: bool = True):
     mtg_format = mtg_format.lower()
-    page = requests.get(f"https://www.mtggoldfish.com/metagame/{mtg_format}/full", impersonate="chrome")
+    cached = _load_cached_archetypes(mtg_format, cache_ttl)
+    if cached is not None:
+        logger.debug(f"Using cached archetypes for {mtg_format}")
+        return cached
+
+    logger.debug(f"Fetching archetypes for {mtg_format} from MTGGoldfish")
+    try:
+        page = requests.get(f"https://www.mtggoldfish.com/metagame/{mtg_format}/full", impersonate="chrome", timeout=30)
+        page.raise_for_status()
+    except Exception as exc:
+        logger.error(f"Failed to fetch archetype page: {exc}")
+        if allow_stale:
+            stale = _load_cached_archetypes(mtg_format, max_age=60 * 60 * 24 * 7)
+            if stale is not None:
+                logger.warning(f"Using stale archetype cache for {mtg_format}")
+                return stale
+        raise
+
     soup = bs4.BeautifulSoup(page.text, "html.parser")
     metagame_decks = soup.select_one("#metagame-decks-container")
+    if not metagame_decks:
+        raise RuntimeError("Failed to locate metagame deck container")
     archetypes: list[bs4.Tag] = metagame_decks.find_all("span", attrs={"class": "deck-price-paper"})
     archetypes = [tag for tag in archetypes if tag.find("a") and not tag.find("div")]
-    return [
+    items = [
         {
             "name": tag.text.strip(),
             "href": tag.find("a")["href"].replace("/archetype/", "").replace("#paper", ""),
         }
         for tag in archetypes
     ]
+    _save_cached_archetypes(mtg_format, items)
+    return items
 
 
 def get_archetype_decks(archetype: str):
@@ -142,11 +195,7 @@ def get_daily_decks(mtg_format: str):
     return decks
 
 
-def download_deck(deck_num: str):
-    """
-    Downloads deck list by scraping the deck page (robots.txt compliant).
-    Previous implementation used /deck/download/ which is disallowed in robots.txt.
-    """
+def _resolve_deck_cache_path() -> tuple[Path, str | None]:
     cache_path = DECK_CACHE_FILE
     legacy_source = None
     if not cache_path.exists() and LEGACY_DECK_CACHE_CONFIG_FILE.exists():
@@ -157,46 +206,64 @@ def download_deck(deck_num: str):
         cache_path = LEGACY_DECK_CACHE_FILE
         legacy_source = "root"
         logger.warning("Loaded legacy deck_cache.json from project root; migrating to cache/")
+    return cache_path, legacy_source
+
+
+def _load_deck_cache() -> tuple[dict[str, str], Path, str | None]:
+    cache_path, legacy_source = _resolve_deck_cache_path()
+    deck_cache: dict[str, str] = {}
     if cache_path.exists():
-        with cache_path.open("r", encoding="utf-8") as fh:
-            deck_cache = json.load(fh)
-    else:
-        deck_cache = {}
-    if deck_num in deck_cache:
-        CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with CURR_DECK_FILE.open("w", encoding="utf-8") as f:
-            f.write(deck_cache[deck_num])
-        return
+        try:
+            with cache_path.open("r", encoding="utf-8") as fh:
+                deck_cache = json.load(fh)
+        except json.JSONDecodeError as exc:
+            logger.warning(f"Unable to parse deck cache {cache_path}: {exc}")
+            deck_cache = {}
+    return deck_cache, cache_path, legacy_source
 
-    # Fetch the deck page instead of using /deck/download/ (robots.txt compliant)
-    page = requests.get(f"https://www.mtggoldfish.com/deck/{deck_num}", impersonate="chrome")
 
-    # Extract the deck list from JavaScript initialization
-    # The deck data is embedded in: initializeDeckComponents(..., ..., "encoded_deck", ...)
-    match = re.search(r'initializeDeckComponents\([^,]+,\s*[^,]+,\s*"([^"]+)"', page.text)
-
-    if not match:
-        logger.error(f"Could not find deck data for deck {deck_num}")
-        raise ValueError(f"Could not parse deck data for deck {deck_num}")
-
-    # URL-decode the deck list
-    encoded_deck = match.group(1)
-    deck_text = unquote(encoded_deck)
-
-    # Save to file and cache
-    CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with CURR_DECK_FILE.open("w", encoding="utf-8") as f:
-        f.write(deck_text)
-
-    deck_cache[deck_num] = deck_text
+def _persist_deck_cache(deck_cache: dict[str, str], cache_path: Path, legacy_source: str | None) -> None:
     DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
         json.dump(deck_cache, fh, indent=4)
-    if legacy_source and cache_path != DECK_CACHE_FILE:
+    if legacy_source and cache_path != DECK_CACHE_FILE and cache_path.exists():
         try:
             cache_path.unlink()
         except OSError as exc:
             logger.debug(f"Unable to remove legacy deck cache {cache_path}: {exc}")
+
+
+def fetch_deck_text(deck_num: str) -> str:
+    """
+    Return a deck list as text, using the local cache when available.
+    """
+    deck_cache, cache_path, legacy_source = _load_deck_cache()
+    if deck_num in deck_cache:
+        return deck_cache[deck_num]
+
+    page = requests.get(f"https://www.mtggoldfish.com/deck/{deck_num}", impersonate="chrome")
+    match = re.search(r'initializeDeckComponents\([^,]+,\s*[^,]+,\s*"([^"]+)"', page.text)
+    if not match:
+        logger.error(f"Could not find deck data for deck {deck_num}")
+        raise ValueError(f"Could not parse deck data for deck {deck_num}")
+    encoded_deck = match.group(1)
+    deck_text = unquote(encoded_deck)
+
+    deck_cache[deck_num] = deck_text
+    _persist_deck_cache(deck_cache, cache_path, legacy_source)
+    return deck_text
+
+
+def download_deck(deck_num: str):
+    """
+    Downloads a deck list and writes it to CURR_DECK_FILE while maintaining cache compatibility.
+    """
+    deck_text = fetch_deck_text(deck_num)
+
+    CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with CURR_DECK_FILE.open("w", encoding="utf-8") as f:
+        f.write(deck_text)
+
     for legacy_curr in (LEGACY_CURR_DECK_CACHE_FILE, LEGACY_CURR_DECK_ROOT_FILE):
         if legacy_curr.exists() and legacy_curr != CURR_DECK_FILE:
             try:
