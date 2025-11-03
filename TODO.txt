@@ -1,0 +1,11 @@
+SDK adjacent features to implement:
+
+1. get statistics from match history: win rate total and win rate vs player_name
+2. auto take all cards and accept trade with manatraders bot
+3. wait for bot to take all cards and accept trade with manatraders bot
+4. test opponent id
+5. test challenge alarm 
+
+Not SDK adjacent (can delegate to agent):
+1. add outboard section to deckbuilder, idea is to add a sideboard guide builder, where we can make a table that says what we take out and what we board in each matchup
+2. cross check deckbuilder with exported collection (can just make it check the latest json so it doesnt touch the export anymore)
