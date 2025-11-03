@@ -109,7 +109,6 @@ class MTGOpponentDeckSpy:
         self.root.attributes("-topmost", True)
 
         self.username_var = tk.StringVar()
-        self.bridge_path_var = tk.StringVar()
         self.auto_accept_var = tk.BooleanVar(value=False)
         self.format = tk.StringVar(value=FORMAT_OPTIONS[0])
 
@@ -134,7 +133,7 @@ class MTGOpponentDeckSpy:
 
         self.event_label = default_label(self.frame_top, "No event detected", color=CS[0])
         self.opponent_deck_label = default_label(self.frame_top, "No opponent detected", color=CS[0])
-        self.status_label = default_label(self.frame_top, "Waiting for MTGO bridge…", color=CS[0])
+        self.status_label = default_label(self.frame_top, "Waiting for MTGO data…", color=CS[0])
 
         # username + format row
         row_user = tk.Frame(self.frame_bottom, background=CS[2])
@@ -144,14 +143,6 @@ class MTGOpponentDeckSpy:
         username_entry = tk.Entry(row_user, textvariable=self.username_var, font=("calibri", 9))
         username_entry.bind("<FocusOut>", lambda *_: self.save_config())
         username_entry.pack(anchor="e", side=tk.RIGHT, fill="x", expand=True)
-
-        row_bridge = tk.Frame(self.frame_bottom, background=CS[2])
-        tk.Label(row_bridge, text="Bridge path:", font=("calibri", 9, "bold"), background=CS[2]).pack(
-            anchor="w", side=tk.LEFT
-        )
-        bridge_entry = tk.Entry(row_bridge, textvariable=self.bridge_path_var, font=("calibri", 9))
-        bridge_entry.bind("<FocusOut>", lambda *_: self.save_config())
-        bridge_entry.pack(anchor="e", side=tk.RIGHT, fill="x", expand=True)
 
         row_format = tk.Frame(self.frame_bottom, background=CS[2])
         tk.Label(row_format, text="Format:", font=("calibri", 9, "bold"), background=CS[2]).pack(
@@ -209,7 +200,6 @@ class MTGOpponentDeckSpy:
         self.status_label.pack(anchor="center", fill="both", expand=True, padx=2, pady=2)
 
         row_user.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
-        row_bridge.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
         row_format.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
 
         controls_row.pack(anchor="center", fill="x", expand=True, padx=2, pady=4)
@@ -261,15 +251,14 @@ class MTGOpponentDeckSpy:
             return
 
         self.updating = True
-        bridge_override = self.bridge_path_var.get().strip() or None
         username = self.username_var.get().strip() or None
         try:
-            state = get_game_state(username, bridge_override)
+            state = get_game_state(username)
             self.last_state = state
             self.handle_bridge_state(state, username)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to query MTGO bridge: {}", exc)
-            self.status_label.config(text=f"Bridge error: {exc}")
+            logger.warning("Failed to query MTGOSDK runtime: {}", exc)
+            self.status_label.config(text=f"Runtime error: {exc}")
         finally:
             self.save_config()
             self.updating = False
@@ -356,9 +345,8 @@ class MTGOpponentDeckSpy:
 
     def poll_trades(self):
         if self.auto_accept_var.get():
-            bridge_override = self.bridge_path_var.get().strip() or None
             try:
-                result = accept_pending_trades(bridge_override)
+                result = accept_pending_trades()
                 if result.get("accepted"):
                     partner = result.get("partner") or "Unknown"
                     logger.info("Accepted pending trade from {}", partner)
@@ -373,7 +361,6 @@ class MTGOpponentDeckSpy:
             "format": self.format.get(),
             "screen_pos": (self.root.winfo_x(), self.root.winfo_y()),
             "mtgo_username": self.username_var.get().strip(),
-            "bridge_path": self.bridge_path_var.get().strip(),
             "auto_accept_trades": self.auto_accept_var.get(),
         }
         try:
@@ -399,7 +386,6 @@ class MTGOpponentDeckSpy:
                 if fmt in FORMAT_OPTIONS:
                     self.format.set(fmt)
                 self.username_var.set(config.get("mtgo_username", ""))
-                self.bridge_path_var.set(config.get("bridge_path", ""))
                 self.auto_accept_var.set(config.get("auto_accept_trades", False))
 
                 screen_pos = config.get("screen_pos")

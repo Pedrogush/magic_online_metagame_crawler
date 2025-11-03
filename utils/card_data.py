@@ -1,6 +1,7 @@
 import io
 import json
 import zipfile
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -41,10 +42,13 @@ class CardDataManager:
 
         remote_meta = self._fetch_remote_meta()
         local_meta = self._load_json(self.meta_path) or {}
-        remote_sha = remote_meta.get("sha512") if remote_meta else None
-        local_sha = local_meta.get("sha512")
         missing_index = not self.index_path.exists()
-        needs_refresh = force or missing_index or (remote_sha and remote_sha != local_sha)
+        needs_refresh = force or missing_index
+        if not needs_refresh and remote_meta:
+            for key, value in remote_meta.items():
+                if local_meta.get(key) != value:
+                    needs_refresh = True
+                    break
 
         if needs_refresh:
             if requests is None:
@@ -59,8 +63,8 @@ class CardDataManager:
                     if remote_meta:
                         logger.info("Refreshing MTGJSON AtomicCards dataset")
                     else:
-                        logger.info("Fetching MTGJSON AtomicCards dataset (meta unavailable)")
-                    self._download_and_rebuild(remote_meta or {})
+                        logger.info("Fetching MTGJSON AtomicCards dataset (using headers for metadata)")
+                    self._download_and_rebuild(remote_meta)
                 except Exception as exc:
                     if missing_index:
                         raise RuntimeError("Card data download failed and no cache is available") from exc
@@ -127,24 +131,45 @@ class CardDataManager:
             raise RuntimeError("Card data not loaded; call ensure_latest first")
 
     def _fetch_remote_meta(self) -> Optional[Dict[str, Any]]:
-        try:
-            resp = requests.get(ATOMIC_META_URL, impersonate="chrome", timeout=60)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as exc:
-            logger.warning(f"Failed to fetch MTGJSON meta: {exc}")
-            return None
+        return self._fetch_dataset_headers()
 
-    def _download_and_rebuild(self, remote_meta: Dict[str, Any]) -> None:
+    def _fetch_dataset_headers(self) -> Optional[Dict[str, Any]]:
+        try:
+            resp = requests.head(ATOMIC_DATA_URL, impersonate="chrome", timeout=60)
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.warning(f"Failed to fetch MTGJSON dataset headers: {exc}")
+            return None
+        meta: Dict[str, Any] = {}
+        headers = {k.lower(): v for k, v in resp.headers.items()}  # type: ignore[arg-type]
+        if "etag" in headers:
+            meta["etag"] = headers["etag"].strip('"')
+        if "last-modified" in headers:
+            meta["last_modified"] = headers["last-modified"]
+        if "content-length" in headers:
+            meta["content_length"] = headers["content-length"]
+        return meta or None
+
+    def _download_and_rebuild(self, remote_meta: Optional[Dict[str, Any]]) -> None:
         resp = requests.get(ATOMIC_DATA_URL, impersonate="chrome", timeout=300)
         resp.raise_for_status()
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        content = resp.content
+        digest = hashlib.sha512(content).hexdigest()
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
             with zf.open("AtomicCards.json") as source:
                 raw = json.load(source)
         index = self._build_index(raw.get("data", {}))
         self.index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
-        if remote_meta:
-            self.meta_path.write_text(json.dumps(remote_meta, ensure_ascii=False), encoding="utf-8")
+        meta_to_store: Dict[str, Any] = remote_meta.copy() if remote_meta else {}
+        meta_to_store.setdefault("sha512", digest)
+        headers = {k.lower(): v for k, v in resp.headers.items()}  # type: ignore[arg-type]
+        if "etag" in headers:
+            meta_to_store.setdefault("etag", headers["etag"].strip('"'))
+        if "last-modified" in headers:
+            meta_to_store.setdefault("last_modified", headers["last-modified"])
+        if "content-length" in headers:
+            meta_to_store.setdefault("content_length", headers["content-length"])
+        self.meta_path.write_text(json.dumps(meta_to_store, ensure_ascii=False), encoding="utf-8")
         self._cards = index["cards"]
         self._cards_by_name = index["cards_by_name"]
 

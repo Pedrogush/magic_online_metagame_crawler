@@ -12,6 +12,7 @@ from utils.dbq import (
     get_saved_decks,
     delete_saved_deck,
 )
+from utils import mtgo_bridge
 from navigators.mtggoldfish import (
     get_archetypes,
     get_archetype_stats,
@@ -21,6 +22,7 @@ from navigators.mtggoldfish import (
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.metagame_view import MetagameStatsView
 from widgets.timer_alert import TimerAlertWindow
+from widgets.match_history import MatchHistoryWindow
 from utils.paths import (
     CONFIG_FILE,
     DECK_SELECTOR_SETTINGS_FILE,
@@ -237,12 +239,15 @@ class MTGDeckSelectionWidget:
         self.deck_save_dir = DECK_SAVE_DIR
         self.opponent_tracker_window = None
         self.timer_alert_window = None
+        self.match_history_window = None
+        self.sdk_status_var = tk.StringVar(value="MTGOSDK: checking…")
         self.ui_make_components()
         self._apply_window_preferences()
         self.root.bind("<Configure>", self.on_window_configure)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         # Load archetypes asynchronously after window is shown
         self.root.after(100, self.lazy_load_archetypes)
+        self._schedule_runtime_status_check(initial=True)
 
     def ui_reset_to_archetype_selection(self):
         self.clear_deck_textboxes()
@@ -338,6 +343,10 @@ class MTGDeckSelectionWidget:
         self.bottom_toolbar.columnconfigure(1, weight=1)
         self.bottom_toolbar.columnconfigure(2, weight=0)
         self.bottom_toolbar.columnconfigure(3, weight=0)
+        self.bottom_toolbar.columnconfigure(4, weight=0)
+        self.bottom_toolbar.columnconfigure(5, weight=0)
+        self.bottom_toolbar.columnconfigure(6, weight=0)
+        self.bottom_toolbar.columnconfigure(4, weight=0)
 
         self.save_deck_button = button(self.F_top_right_top, "Save deck", self.save_deck_as)
         self.save_deck_button.grid(column=0, row=0, sticky="nsew")
@@ -459,7 +468,48 @@ class MTGDeckSelectionWidget:
             background=CS[2],
         )
         timer_btn.grid(column=3, row=0, sticky="ew")
+
+        match_btn = tk.Button(
+            self.bottom_toolbar,
+            text="Match History",
+            command=self.open_match_history,
+            background=CS[2],
+        )
+        match_btn.grid(column=4, row=0, sticky="ew", padx=(6, 0))
+
+        collection_btn = tk.Button(
+            self.bottom_toolbar,
+            text="Export Collection",
+            command=self.export_collection_snapshot,
+            background=CS[2],
+        )
+        collection_btn.grid(column=5, row=0, sticky="ew", padx=(6, 0))
+
+        status_label = tk.Label(self.bottom_toolbar, textvariable=self.sdk_status_var, background=CS[3], font=("calibri", 9, "italic"))
+        status_label.grid(column=6, row=0, sticky="e", padx=(10, 0))
         self.set_mode_button_states("browse")
+
+    def _schedule_runtime_status_check(self, initial: bool = False):
+        def worker():
+            if initial:
+                ready, error = mtgo_bridge.ensure_runtime_ready()
+            else:
+                ready, error = mtgo_bridge.runtime_status()
+
+            def update():
+                if ready:
+                    self.sdk_status_var.set("MTGOSDK: ready")
+                else:
+                    message = error or "loading"
+                    self.sdk_status_var.set(f"MTGOSDK: {message}")
+                interval = 60000 if ready else 5000
+                self.root.after(interval, lambda: self._schedule_runtime_status_check(initial=False))
+
+            self.root.after(0, update)
+
+        threading.Thread(target=worker, daemon=True).start()
+        if initial:
+            threading.Thread(target=lambda: mtgo_bridge.ensure_runtime_ready(), daemon=True).start()
 
     def _init_zone_view(self, container, zone):
         canvas = tk.Canvas(
@@ -1053,6 +1103,70 @@ class MTGDeckSelectionWidget:
 
     def _on_timer_closed(self, _event=None):
         self.timer_alert_window = None
+
+    def export_collection_snapshot(self):
+        logger.debug("Collection export requested")
+        ready, error = mtgo_bridge.runtime_status()
+        if not ready:
+            logger.debug("MTGOSDK runtime not ready: %s", error)
+            messagebox.showwarning("Collection Export", f"MTGOSDK runtime unavailable: {error or 'still loading'}")
+            return
+
+        def worker():
+            logger.debug("Collection export worker started")
+            self.root.after(0, lambda: self.sdk_status_var.set("MTGOSDK: exporting collection…"))
+            ready, error = mtgo_bridge.ensure_runtime_ready()
+            if not ready:
+                logger.debug("Runtime became unavailable during export: %s", error)
+                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: unavailable"), messagebox.showerror("Collection Export", f"MTGOSDK runtime unavailable: {error or 'see logs'}")))
+                return
+            try:
+                logger.debug("Fetching Full Trade List binder from MTGOSDK")
+                binder = mtgo_bridge.get_binder_by_name("Full Trade List")
+            except Exception as exc:
+                logger.exception("Failed to fetch collection binder", exc_info=True)
+                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showerror("Collection Export", f"Failed to fetch collection: {exc}")))
+                return
+            if not binder:
+                logger.debug("Full Trade List Binder not found in snapshot")
+                names = mtgo_bridge.get_available_binder_names()
+                message = "Full Trade List binder not found. Available: {}".format(', '.join(filter(None, names)) or '<none>')
+                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showinfo("Collection Export", message)))
+                return
+            export_data = {
+                "name": binder.get("name"),
+                "itemCount": binder.get("itemCount"),
+                "exportedAt": __import__('datetime').datetime.now().isoformat(),
+                "cards": binder.get("cards", []),
+            }
+            export_dir = self.deck_save_dir
+            export_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
+            export_path = export_dir / f"collection_full_trade_{timestamp}.json"
+            try:
+                export_path.write_text(json.dumps(export_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                logger.debug("Collection written to %s", export_path)
+            except OSError as exc:
+                logger.exception("Failed to write collection export", exc_info=True)
+                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showerror("Collection Export", f"Failed to write file: {exc}")))
+                return
+            self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showinfo("Collection Export", f"Collection saved to {export_path}")))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def open_match_history(self):
+        window = getattr(self.match_history_window, "window", None) if self.match_history_window else None
+        if window is not None and window.winfo_exists():
+            window.lift()
+            return
+        try:
+            self.match_history_window = MatchHistoryWindow(self.root)
+            self.match_history_window.window.bind("<Destroy>", self._on_match_history_closed)
+        except Exception as exc:
+            logger.error("Failed to open match history: {}", exc)
+            messagebox.showerror("Match History", f"Unable to open match history:\n{exc}")
+
+    def _on_match_history_closed(self, _event=None):
+        self.match_history_window = None
 
     def render_deck_zone(self, zone, lines):
         view = self.zone_views.get(zone)
@@ -1900,6 +2014,14 @@ class MTGDeckSelectionWidget:
                     except Exception:
                         window.destroy()
                 self.timer_alert_window = None
+            if self.match_history_window:
+                window = getattr(self.match_history_window, "window", None)
+                if self._widget_exists(window):
+                    try:
+                        self.match_history_window.close()
+                    except Exception:
+                        window.destroy()
+                self.match_history_window = None
             if self.opponent_tracker_window:
                 tracker_root = getattr(self.opponent_tracker_window, "root", None)
                 if self._widget_exists(tracker_root):

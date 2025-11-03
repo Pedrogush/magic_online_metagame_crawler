@@ -18,5 +18,6 @@ setuptools.setup(
         "curl_cffi",
         "beautifulsoup4",  # Web scraping MTGGoldfish
         "pymongo",  # Database for caching scraped data
+        "pythonnet",  # MTGOSDK bridge integration
     ],
 )
