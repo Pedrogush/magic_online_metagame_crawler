@@ -151,7 +151,7 @@ class TimerAlertWindow:
                 return
             matches = mtgo_bridge.list_active_matches()
         except Exception as exc:
-            logger.error("Timer alert failed to query MTGO state: {}", exc)
+            logger.error(f"Timer alert failed to query MTGO state: {exc}")
             self.status_var.set(f"Failed to query MTGO state: {exc}")
             return
 
@@ -238,7 +238,7 @@ class TimerAlertWindow:
         self.last_seconds = current_seconds
 
     def _trigger_alert(self, message: str) -> None:
-        logger.debug("Timer alert: {}", message)
+        logger.debug(f"Timer alert: {message}")
         _beep(self.frequency_var.get(), self.duration_var.get())
 
     def _parse_thresholds(self) -> list[int]:
@@ -251,7 +251,7 @@ class TimerAlertWindow:
             try:
                 thresholds.append(int(chunk))
             except ValueError:
-                logger.warning("Skipping invalid threshold value: {}", chunk)
+                logger.warning(f"Skipping invalid threshold value: {chunk}")
         thresholds.sort(reverse=True)
         return thresholds
 
@@ -295,4 +295,3 @@ class TimerAlertWindow:
         if match_id:
             return f"{event_desc} ({match_id})"
         return str(event_desc)
-

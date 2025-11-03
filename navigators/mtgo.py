@@ -56,9 +56,12 @@ def load_box_positions():
         )
         configure_box_positions()
     if LEADERBOARD_POSITIONS_FILE.exists():
-        with LEADERBOARD_POSITIONS_FILE.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data
+        try:
+            with LEADERBOARD_POSITIONS_FILE.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error(f"Failed to load leaderboard positions: {exc}")
+            return {"top": {}, "bottom": {}}
     if LEGACY_LEADERBOARD_POSITIONS.exists():
         logger.warning("Loaded legacy leaderboard_positions.json from project root; migrating to config/")
         with LEGACY_LEADERBOARD_POSITIONS.open("r", encoding="utf-8") as f:
@@ -72,7 +75,8 @@ def load_box_positions():
                 logger.debug(f"Unable to remove legacy leaderboard_positions.json: {exc}")
         except OSError as exc:
             logger.warning(f"Failed to migrate leaderboard positions file: {exc}")
-    return data
+        return data
+    return {"top": {}, "bottom": {}}
 
 
 def draw_lines(x, y):

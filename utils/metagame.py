@@ -4,7 +4,7 @@ import bs4
 
 CHALLENGE_LOOKUP_OPTIONS = (
     "Modern",
-    "Pionneer",
+    "Pioneer",
     "Legacy",
     "Duel Commander",
     "Vintage",
@@ -23,17 +23,28 @@ def get_latest_deck(player: str, option: str):
         return "No player name"
     logger.debug(player)
     player = player.strip()
-    res = requests.get(GOLDFISH + player, impersonate="chrome")
+    try:
+        res = requests.get(GOLDFISH + player, impersonate="chrome", timeout=30)
+        res.raise_for_status()
+    except Exception as exc:
+        logger.error(f"Failed to fetch player page for {player}: {exc}")
+        return "Unknown"
     soup = bs4.BeautifulSoup(res.text, "html.parser")
     table = soup.find("table")
     if not table and player[0] == "0":
         logger.debug("ocr possibly mistook the letter O for a zero")
         player = "O" + player[1:]
         logger.debug(player)
-        res = requests.get(GOLDFISH + player)
+        try:
+            res = requests.get(GOLDFISH + player, impersonate="chrome", timeout=30)
+            res.raise_for_status()
+        except Exception as exc:
+            logger.error(f"Failed retry fetch for player {player}: {exc}")
+            return "Unknown"
         soup = bs4.BeautifulSoup(res.text, "html.parser")
         table = soup.find("table")
     if not table:
+        logger.debug(f"No results table found for player {player}")
         return "Unknown"
     entries = table.find_all("tr")
     for entry in entries:

@@ -1,3 +1,4 @@
+import atexit
 import pymongo
 from dataclasses import asdict
 from utils.common import Card
@@ -5,9 +6,19 @@ from datetime import datetime
 from loguru import logger
 
 
+_CLIENT = None
+
+
+def _get_client() -> pymongo.MongoClient:
+    global _CLIENT
+    if _CLIENT is None:
+        _CLIENT = pymongo.MongoClient("mongodb://localhost:27017/")
+        atexit.register(lambda: _CLIENT.close())
+    return _CLIENT
+
+
 def get_db():
-    client = pymongo.MongoClient("mongodb://localhost:27017/")
-    return client.get_database("lm_scraper")
+    return _get_client().get_database("lm_scraper")
 
 
 def update_scrape_records(card: Card):

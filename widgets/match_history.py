@@ -7,7 +7,18 @@ from tkinter import ttk, messagebox
 
 from loguru import logger
 
+import threading
+
 from utils import mtgo_bridge
+
+
+def _widget_alive(widget: tk.Misc | None) -> bool:
+    if widget is None:
+        return False
+    try:
+        return bool(widget.winfo_exists())
+    except tk.TclError:
+        return False
 
 
 class MatchHistoryWindow:
@@ -57,29 +68,53 @@ class MatchHistoryWindow:
         status.pack(fill="x", pady=(6, 0))
 
     def refresh_history(self) -> None:
-        if not self.tree:
+        if not _widget_alive(self.tree) or not _widget_alive(self.window):
             return
 
+        if _widget_alive(self.refresh_button):
+            self.refresh_button.config(state="disabled")
+        self.status_var.set("Loading…")
         try:
-            self.status_var.set("Loading…")
             self.window.update_idletasks()
-            ready, error = mtgo_bridge.ensure_runtime_ready()
-            if not ready:
-                self.status_var.set("MTGOSDK runtime unavailable")
-                messagebox.showerror("Match History", f"MTGOSDK runtime unavailable: {error or 'see logs'}")
-                return
-            history = mtgo_bridge.get_match_history()
-            logger.debug(f"Match history entries received: {len(history)}")
-        except Exception as exc:
-            logger.error("Failed to load match history: {}", exc, exc_info=True)
-            self.status_var.set("Failed to load match history")
-            messagebox.showerror("Match History", f"Unable to load match history:\n{exc}")
+        except tk.TclError:
             return
 
+        def worker():
+            try:
+                ready, error = mtgo_bridge.ensure_runtime_ready()
+                if not ready:
+                    raise RuntimeError(f"MTGOSDK runtime unavailable: {error or 'see logs'}")
+                history = mtgo_bridge.get_match_history()
+                logger.debug(f"Match history entries received: {len(history)}")
+            except Exception as exc:
+                logger.exception("Failed to load match history")
+                error_text = str(exc)
+                if _widget_alive(self.window):
+                    self.window.after(0, lambda: self._handle_history_error(error_text))
+                return
+
+            if _widget_alive(self.window):
+                self.window.after(0, lambda: self._populate_history(history))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _handle_history_error(self, message: str) -> None:
+        if not _widget_alive(self.window):
+            return
+        self.status_var.set("Failed to load match history")
+        if _widget_alive(self.refresh_button):
+            self.refresh_button.config(state="normal")
+        messagebox.showerror("Match History", f"Unable to load match history:\n{message}")
+
+    def _populate_history(self, history: list[dict]) -> None:
+        if not _widget_alive(self.tree):
+            return
         self.tree.delete(*self.tree.get_children())
 
         if not history:
             self.status_var.set("No match data available. Join an event or start a match.")
+            if _widget_alive(self.refresh_button):
+                self.refresh_button.config(state="normal")
             return
 
         for event in history:
@@ -106,10 +141,11 @@ class MatchHistoryWindow:
         for child in self.tree.get_children():
             self.tree.item(child, open=True)
         self.status_var.set("Loaded match history")
+        if _widget_alive(self.refresh_button):
+            self.refresh_button.config(state="normal")
 
     def close(self) -> None:
         try:
             self.window.destroy()
         except Exception:
             pass
-

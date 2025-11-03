@@ -94,9 +94,22 @@ def get_archetypes(mtg_format: str, cache_ttl: int = 60 * 60, allow_stale: bool 
 
 
 def get_archetype_decks(archetype: str):
-    page = requests.get(f"https://www.mtggoldfish.com/archetype/{archetype}/decks")
+    try:
+        page = requests.get(
+            f"https://www.mtggoldfish.com/archetype/{archetype}/decks",
+            impersonate="chrome",
+            timeout=30,
+        )
+        page.raise_for_status()
+    except Exception as exc:
+        logger.error(f"Failed to fetch decks for archetype {archetype}: {exc}")
+        return []
+
     soup = bs4.BeautifulSoup(page.text, "html.parser")
     table = soup.select_one("table.table-striped")
+    if not table:
+        logger.warning(f"Deck table missing for archetype {archetype}")
+        return []
     trs: list[bs4.Tag] = table.find_all("tr")
     trs = trs[1:]
     decks = []
@@ -126,23 +139,28 @@ def get_archetype_stats(mtg_format: str):
         cache_path = LEGACY_ARCHETYPE_CACHE_FILE
         legacy_source = True
         logger.warning("Loaded legacy archetype_cache.json from project root; migrating to cache/")
+    stats = {}
     if cache_path.exists():
-        with cache_path.open("r", encoding="utf-8") as f:
-            stats = json.load(f)
-            if mtg_format in stats and time.time() - stats[mtg_format]["timestamp"] < 60 * 60 * 24:
-                if legacy_source:
-                    try:
-                        ARCHETYPE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-                        with ARCHETYPE_CACHE_FILE.open("w", encoding="utf-8") as target:
-                            json.dump(stats, target, indent=4)
-                        if cache_path != ARCHETYPE_CACHE_FILE:
-                            try:
-                                cache_path.unlink()
-                            except OSError as exc:
-                                logger.debug(f"Unable to remove legacy archetype cache {cache_path}: {exc}")
-                    except OSError as exc:
-                        logger.warning(f"Failed to migrate archetype cache: {exc}")
-                return stats
+        try:
+            with cache_path.open("r", encoding="utf-8") as f:
+                stats = json.load(f)
+        except json.JSONDecodeError as exc:
+            logger.warning(f"Invalid archetype cache at {cache_path}: {exc}")
+            stats = {}
+        if mtg_format in stats and time.time() - stats[mtg_format].get("timestamp", 0) < 60 * 60 * 24:
+            if legacy_source:
+                try:
+                    ARCHETYPE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    with ARCHETYPE_CACHE_FILE.open("w", encoding="utf-8") as target:
+                        json.dump(stats, target, indent=4)
+                    if cache_path != ARCHETYPE_CACHE_FILE:
+                        try:
+                            cache_path.unlink()
+                        except OSError as exc:
+                            logger.debug(f"Unable to remove legacy archetype cache {cache_path}: {exc}")
+                except OSError as exc:
+                    logger.warning(f"Failed to migrate archetype cache: {exc}")
+            return stats
     archetypes = get_archetypes(mtg_format)
     stats = {mtg_format: {"timestamp": time.time()}}
     for archetype in archetypes:
@@ -161,9 +179,22 @@ def get_archetype_stats(mtg_format: str):
 
 
 def get_daily_decks(mtg_format: str):
-    page = requests.get(f"https://www.mtggoldfish.com/metagame/{mtg_format}")
+    try:
+        page = requests.get(
+            f"https://www.mtggoldfish.com/metagame/{mtg_format}",
+            impersonate="chrome",
+            timeout=30,
+        )
+        page.raise_for_status()
+    except Exception as exc:
+        logger.error(f"Failed to fetch daily decks for {mtg_format}: {exc}")
+        return {}
+
     soup = bs4.BeautifulSoup(page.text, "html.parser")
     table_container = soup.select_one("div.similar-events-container")
+    if not table_container:
+        logger.warning(f"Daily decks container missing for format {mtg_format}")
+        return {}
     h4s: list[bs4.Tag] = table_container.find_all("h4")
     decks = {}
     for h4 in h4s:

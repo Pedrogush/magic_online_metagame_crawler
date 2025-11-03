@@ -144,4 +144,43 @@ def iter_deck_events(entries: Iterable[Dict[str, Any]]) -> Iterable[Dict[str, An
         yield entry, payload
 
 
-__all__ = ["fetch_decklist_index", "fetch_deck_event", "iter_deck_events"]
+__all__ = ["fetch_decklist_index", "fetch_deck_event", "iter_deck_events", "fetch_recent_event_history"]
+
+
+def fetch_recent_event_history(limit: int = 10) -> List[Dict[str, Any]]:
+    """Return recent MTGO event results in the history format expected by the UI."""
+    now = datetime.utcnow()
+    entries = fetch_decklist_index(now.year, now.month)
+    history: List[Dict[str, Any]] = []
+    for entry, payload in iter_deck_events(entries):
+        matches: List[Dict[str, Any]] = []
+        for deck in payload.get("decklists", []):
+            player = deck.get("player") or deck.get("pilot")
+            standing = deck.get("standing") or deck.get("finish") or deck.get("result")
+            record = deck.get("record") or deck.get("points")
+            match_id = deck.get("mtgoId") or deck.get("identifier") or deck.get("deckId") or player
+            matches.append(
+                {
+                    "id": str(match_id),
+                    "players": [{"name": player, "result": standing}],
+                    "state": "Completed",
+                    "isComplete": True,
+                    "result": standing or record,
+                    "lastUpdated": deck.get("eventDate") or deck.get("updatedAt") or entry.get("publish_date"),
+                }
+            )
+        history.append(
+            {
+                "eventId": entry.get("url"),
+                "description": entry.get("title"),
+                "format": entry.get("format"),
+                "eventType": entry.get("event_type"),
+                "isCompleted": True,
+                "state": "Completed",
+                "lastUpdated": entry.get("publish_date"),
+                "matches": matches,
+            }
+        )
+        if len(history) >= limit:
+            break
+    return history

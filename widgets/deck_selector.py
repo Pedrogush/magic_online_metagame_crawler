@@ -1122,29 +1122,17 @@ class MTGDeckSelectionWidget:
                 return
             try:
                 logger.debug("Fetching Full Trade List binder from MTGOSDK")
-                binder = mtgo_bridge.get_binder_by_name("Full Trade List")
+                cards = mtgo_bridge.get_full_collection()
             except Exception as exc:
                 logger.exception("Failed to fetch collection binder", exc_info=True)
                 self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showerror("Collection Export", f"Failed to fetch collection: {exc}")))
                 return
-            if not binder:
-                logger.debug("Full Trade List Binder not found in snapshot")
-                names = mtgo_bridge.get_available_binder_names()
-                message = "Full Trade List binder not found. Available: {}".format(', '.join(filter(None, names)) or '<none>')
-                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showinfo("Collection Export", message)))
-                return
-            export_data = {
-                "name": binder.get("name"),
-                "itemCount": binder.get("itemCount"),
-                "exportedAt": __import__('datetime').datetime.now().isoformat(),
-                "cards": binder.get("cards", []),
-            }
             export_dir = self.deck_save_dir
             export_dir.mkdir(parents=True, exist_ok=True)
             timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
             export_path = export_dir / f"collection_full_trade_{timestamp}.json"
             try:
-                export_path.write_text(json.dumps(export_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                export_path.write_text(json.dumps(cards, indent=2, ensure_ascii=False), encoding="utf-8")
                 logger.debug("Collection written to %s", export_path)
             except OSError as exc:
                 logger.exception("Failed to write collection export", exc_info=True)

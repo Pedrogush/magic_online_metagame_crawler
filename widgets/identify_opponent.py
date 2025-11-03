@@ -257,7 +257,7 @@ class MTGOpponentDeckSpy:
             self.last_state = state
             self.handle_bridge_state(state, username)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to query MTGOSDK runtime: {}", exc)
+            logger.warning(f"Failed to query MTGOSDK runtime: {exc}")
             self.status_label.config(text=f"Runtime error: {exc}")
         finally:
             self.save_config()
@@ -349,10 +349,10 @@ class MTGOpponentDeckSpy:
                 result = accept_pending_trades()
                 if result.get("accepted"):
                     partner = result.get("partner") or "Unknown"
-                    logger.info("Accepted pending trade from {}", partner)
+                    logger.info(f"Accepted pending trade from {partner}")
                     self.status_label.config(text=f"Accepted trade from {partner}")
             except Exception as exc:  # noqa: BLE001
-                logger.debug("Auto-accept trade failed: {}", exc)
+                logger.debug(f"Auto-accept trade failed: {exc}")
         self.schedule_trade_poll()
 
     # ------------------------------------------------------------------ Persistence

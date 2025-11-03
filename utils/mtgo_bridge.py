@@ -11,6 +11,7 @@ from typing import Any, Tuple
 from loguru import logger
 
 from utils import mtgosdk_runtime
+from navigators import mtgo_decklists
 
 _RUNTIME_WARNED = False
 _LAST_RUNTIME_ERROR: str | None = None
@@ -28,7 +29,7 @@ CLI_CANDIDATES = [
 
 
 def _ensure_runtime() -> bool:
-    global _RUNTIME_WARNED
+    global _RUNTIME_WARNED, _LAST_RUNTIME_ERROR
     available = mtgosdk_runtime.initialize()
     if available:
         _RUNTIME_WARNED = False
@@ -38,7 +39,7 @@ def _ensure_runtime() -> bool:
         error = mtgosdk_runtime.availability_error()
         if error:
             message = str(error)
-            logger.error("MTGOSDK runtime unavailable: {}", message)
+            logger.error(f"MTGOSDK runtime unavailable: {message}")
             if "pythonnet" in message.lower():
                 logger.error("Install pythonnet in your environment (pip install pythonnet) and ensure MTGOSDK DLLs are published.")
             _LAST_RUNTIME_ERROR = message
@@ -91,51 +92,25 @@ def get_collection_snapshot(bridge_path: str | None = None) -> list[dict[str, An
     return mtgosdk_runtime.get_collection_snapshot()
 
 
-def fetch_binder(name: str, timeout: float | None = None) -> dict[str, Any] | None:
-    cli_path = _resolve_cli_path()
-    if cli_path is None:
-        logger.warning("mtgo_bridge CLI not found; cannot export binder")
-        return None
-    try:
-        kwargs = {
-            "args": [str(cli_path), "collection"],
-            "capture_output": True,
-            "text": True,
-            "check": False,
-        }
-        if timeout:
-            kwargs["timeout"] = timeout
-        proc = subprocess.run(
-            **kwargs
-        )
-    except Exception as exc:  # pragma: no cover
-        logger.exception("Failed to invoke mtgo_bridge CLI")
-        return None
-
-    if proc.returncode != 0:
-        logger.warning(f"mtgo_bridge CLI failed: {proc.stderr.strip()}")
-        return None
-
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        logger.warning(f"mtgo_bridge CLI returned invalid JSON: {exc}")
-        return None
-
-    target = name.strip().lower()
-    for binder in payload:
-        binder_name = (binder.get("name") or "").strip().lower()
-        if binder_name == target:
-            logger.debug(f"CLI returned binder {binder.get('name')}")
-            return binder
-    logger.debug(f"Binder {name!r} not present in CLI response")
-    return None
+def fetch_collection() -> list[dict[str, Any]] | None:
+    cards: dict[str, Any] 
+    if _ensure_runtime():
+        try:
+            cards = mtgosdk_runtime.get_full_collection()
+        except Exception as exc:  # pragma: no cover
+            logger.warning(f"MTGOSDK runtime binder lookup failed: {exc}")
+    return cards
 
 
 def get_match_history(limit: int = 50, bridge_path: str | None = None) -> list[dict[str, Any]]:
     if not _ensure_runtime():
-        return []
-    return mtgosdk_runtime.get_match_history(limit=limit)
+        history = []
+    else:
+        history = mtgosdk_runtime.get_match_history(limit=limit)
+    if history:
+        return history
+    logger.info("MTGOSDK returned no match history; falling back to MTGO decklists scrape")
+    return mtgo_decklists.fetch_recent_event_history(limit=limit)
 
 
 def list_active_matches(bridge_path: str | None = None) -> list[dict[str, Any]]:
@@ -165,25 +140,9 @@ def _normalize_state(state: Any) -> dict[str, Any]:
     return state
 
 
-def get_binder_by_name(name: str) -> dict[str, Any] | None:
-    return fetch_binder(name)
-
-
-def get_available_binder_names() -> list[str]:
-    cli_path = _resolve_cli_path()
-    if cli_path is None:
-        return []
+def get_full_collection() -> dict[str, Any] | None:
     try:
-        proc = subprocess.run(
-            [str(cli_path), "collection"],
-            capture_output=True,
-            text=True,
-            timeout=30.0,
-            check=False,
-        )
-        if proc.returncode != 0:
-            return []
-        payload = json.loads(proc.stdout)
-    except Exception:
-        return []
-    return [binder.get("name", "") for binder in payload]
+        return fetch_collection()
+    except RuntimeError as exc:
+        logger.warning(str(exc))
+        return None

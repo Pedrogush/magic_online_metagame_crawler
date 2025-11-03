@@ -257,40 +257,18 @@ def get_collection_snapshot() -> list[dict[str, Any]]:
     return binders_payload
 
 
-def get_binder_by_name(name: str) -> dict[str, Any] | None:
+def get_full_collection() -> list[dict[str, Any]] | None:
     sdk = _require_sdk()
-    CollectionManager = sdk.API.Collection.CollectionManager  # type: ignore[attr-defined]
-    target = name.strip().lower()
-    for binder in CollectionManager.Binders:
-        binder_name = getattr(binder, "Name", "") or ""
-        display_name = binder_name.strip().lower()
-        if display_name != target:
+    CollectionManager = sdk.API.Collection.CollectionManager.Collection  # type: ignore[attr-defined]
+    frozen = list(CollectionManager.GetFrozenCollection)
+    cards = {}
+    for card_pair in frozen:
+        if card_pair.Name in cards:
+            cards[card_pair.Name] += int(card_pair.Quantity)
             continue
-        logger.debug(f"Found binder {binder_name}")
-        cards = []
-        try:
-            items = list(binder.Items)
-        except TypeError:
-            items = binder.Items
-        for card in items:
-            cards.append(
-                {
-                    "name": getattr(card, "Name", ""),
-                    "quantity": int(getattr(card, "Quantity", 0)),
-                    "cardId": str(getattr(card, "Id", "")),
-                    "set": getattr(card, "Set", None),
-                }
-            )
-        logger.debug(f"Binder {binder_name} export contains {len(cards)} cards")
-        return {
-            "name": binder_name,
-            "itemCount": int(getattr(binder, "ItemCount", len(cards))),
-            "cards": cards,
-        }
-    logger.debug(f"Binder {name} not found")
-    available = [getattr(b, "Name", "") for b in CollectionManager.Binders]
-    logger.debug(f"Available binders: {available}")
-    return None
+        cards[card_pair.Name] = int(card_pair.Quantity)
+    logger.debug(f"Found {len(frozen)} entries in the full trade list")
+    return [{'name': name, 'quantity': cards[name]} for name in cards]
 
 
 def _try_invoke(target: Any, method_name: str, *args: Any) -> bool:
