@@ -1,15 +1,15 @@
-"""Match history viewer leveraging MTGOSDK runtime."""
+"""Match history viewer leveraging the CLI bridge."""
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
 from loguru import logger
 
-import threading
-
 from utils import mtgo_bridge
+from utils.mtgo_bridge_client import BridgeCommandError
 
 
 def _widget_alive(widget: tk.Misc | None) -> bool:
@@ -81,20 +81,17 @@ class MatchHistoryWindow:
 
         def worker():
             try:
-                ready, error = mtgo_bridge.ensure_runtime_ready()
-                if not ready:
-                    raise RuntimeError(f"MTGOSDK runtime unavailable: {error or 'see logs'}")
-                history = mtgo_bridge.get_match_history()
-                logger.debug(f"Match history entries received: {len(history)}")
-            except Exception as exc:
-                logger.exception("Failed to load match history")
+                history_payload = mtgo_bridge.get_match_history()
+                logger.debug("History payload keys: {}", list(history_payload.keys()))
+            except (BridgeCommandError, Exception) as exc:  # noqa: BLE001
+                logger.exception("Failed to load match history from bridge")
                 error_text = str(exc)
                 if _widget_alive(self.window):
                     self.window.after(0, lambda: self._handle_history_error(error_text))
                 return
 
             if _widget_alive(self.window):
-                self.window.after(0, lambda: self._populate_history(history))
+                self.window.after(0, lambda: self._populate_history(history_payload))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -111,32 +108,42 @@ class MatchHistoryWindow:
             return
         self.tree.delete(*self.tree.get_children())
 
-        if not history:
+        items = history.get("items") if isinstance(history, dict) else None
+        if not items:
             self.status_var.set("No match data available. Join an event or start a match.")
             if _widget_alive(self.refresh_button):
                 self.refresh_button.config(state="normal")
             return
 
-        for event in history:
-            event_text = event.get("description") or event.get("type") or event.get("eventId")
-            fmt = event.get("format") or "—"
-            state = event.get("state") or ("Completed" if event.get("isCompleted") else "Active")
-            updated = event.get("lastUpdated") or "—"
-            parent_id = self.tree.insert("", "end", text=event_text, values=(fmt, state, "", updated))
-
-            matches = event.get("matches") or []
-            if not matches:
-                continue
-
-            for match in matches:
-                opponent = ", ".join(player.get("name") or "Unknown" for player in match.get("players", []) if player.get("name"))
-                match_text = opponent or match.get("id") or "Match"
-                if match.get("round"):
-                    match_text = f"Round {match['round']}: {match_text}"
-                state = match.get("state") or ("Completed" if match.get("isComplete") else "Active")
-                result = match.get("result") or "—"
-                updated = match.get("lastUpdated") or "—"
-                self.tree.insert(parent_id, "end", text=match_text, values=("", state, result, updated))
+        for entry in items:
+            kind = entry.get("kind")
+            identifier = entry.get("id")
+            start_time = entry.get("startTime") or "—"
+            if kind == "tournament":
+                header = f"Tournament #{identifier}"
+                result = f"{entry.get('matchWins', 0)}-{entry.get('matchLosses', 0)}"
+                parent_id = self.tree.insert(
+                    "", "end", text=header, values=("Tournament", "Completed", result, start_time)
+                )
+                for summary in entry.get("matches") or []:
+                    opp = ", ".join(summary.get("opponents") or []) or "Unknown opponent"
+                    round_text = f"Match #{summary.get('id')}"
+                    clock = f"{summary.get('gameWins', 0)}-{summary.get('gameLosses', 0)}"
+                    self.tree.insert(
+                        parent_id,
+                        "end",
+                        text=f"{round_text}: {opp}",
+                        values=("", "Completed", clock, summary.get("startTime", "—")),
+                    )
+            else:
+                opponents = ", ".join(entry.get("opponents") or []) or "Unknown opponent"
+                record = f"{entry.get('gameWins', 0)}-{entry.get('gameLosses', 0)}"
+                self.tree.insert(
+                    "",
+                    "end",
+                    text=f"Match #{identifier}: {opponents}",
+                    values=("Match", "Completed", record, start_time),
+                )
 
         for child in self.tree.get_children():
             self.tree.item(child, open=True)

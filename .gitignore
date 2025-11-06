@@ -3,6 +3,7 @@ magic_online_metagame_crawler.egg-info/
 config/
 cache/
 decks/
+/stubs/
 dotnet/MTGOBridge/*
 !dotnet/MTGOBridge/Program.cs
 !dotnet/MTGOBridge/MTGOBridge.csproj
@@ -20,3 +21,4 @@ agent*.txt
 command*.txt
 *.sln
 requirements*.txt
+collection.json

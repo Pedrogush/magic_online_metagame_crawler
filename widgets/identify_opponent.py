@@ -7,7 +7,8 @@ from typing import Any, Dict
 from loguru import logger
 
 from utils.metagame import get_latest_deck
-from utils.mtgo_bridge import accept_pending_trades, get_game_state
+from utils.mtgo_bridge import accept_pending_trades, start_watch
+from utils.mtgo_bridge_client import BridgeWatcher
 from utils.paths import (
     CONFIG_DIR,
     DECK_MONITOR_CACHE_FILE,
@@ -85,7 +86,6 @@ def default_frame(root, name, color=CS[3]):
 
 
 class MTGOpponentDeckSpy:
-    POLL_INTERVAL_MS = 15_000
     TRADE_INTERVAL_MS = 7_500
     CACHE_TTL = 60 * 30  # 30 minutes
 
@@ -113,17 +113,18 @@ class MTGOpponentDeckSpy:
         self.format = tk.StringVar(value=FORMAT_OPTIONS[0])
 
         self.cache: Dict[str, Dict[str, Any]] = {}
-        self.last_state: dict[str, Any] | None = None
         self.player_name = ""
         self.last_seen_deck = ""
         self.last_event_description = ""
-        self.updating = False
+        self.last_snapshot: dict[str, Any] | None = None
+        self._watcher: BridgeWatcher | None = None
+        self.watch_poll_interval_ms = 750
 
         self.ui_make_components()
         self.load_cache()
         self.load_config()
 
-        self.update_deck()
+        self._start_watch_loop()
         self.schedule_trade_poll()
 
     # ------------------------------------------------------------------ UI helpers
@@ -174,7 +175,7 @@ class MTGOpponentDeckSpy:
         self.refresh_button = default_button(
             controls_row,
             "Refresh now",
-            lambda: self.update_deck(force=True),
+            self.manual_refresh,
             color=CS[2],
         )
         self.hide_widget_button = default_button(
@@ -245,39 +246,65 @@ class MTGOpponentDeckSpy:
         self.root.geometry(f"+{x}+{y}")
 
     # ------------------------------------------------------------------ Bridge polling
-    def update_deck(self, force: bool = False):
-        if self.updating and not force:
-            self.root.after(self.POLL_INTERVAL_MS, self.update_deck)
+    def _start_watch_loop(self) -> None:
+        try:
+            self._watcher = start_watch(interval_ms=self.watch_poll_interval_ms)
+            self.status_label.config(text="Watching MTGO state…")
+        except FileNotFoundError as exc:
+            logger.error("Bridge executable not found: %s", exc)
+            self.status_label.config(text="Bridge missing. Build the MTGO bridge executable.")
+            self.root.after(5000, self._start_watch_loop)
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to start bridge watcher")
+            self.status_label.config(text=f"Bridge error: {exc}")
+            self.root.after(5000, self._start_watch_loop)
             return
 
-        self.updating = True
-        username = self.username_var.get().strip() or None
-        try:
-            state = get_game_state(username)
-            self.last_state = state
-            self.handle_bridge_state(state, username)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to query MTGOSDK runtime: {exc}")
-            self.status_label.config(text=f"Runtime error: {exc}")
-        finally:
-            self.save_config()
-            self.updating = False
-            self.root.after(self.POLL_INTERVAL_MS, self.update_deck)
+        self._poll_watch_queue()
 
-    def handle_bridge_state(self, state: dict[str, Any], username: str | None) -> None:
-        event_info = state.get("eventInfo") or {}
-        match_info = state.get("match") or {}
-        players = state.get("players") or []
+    def _poll_watch_queue(self) -> None:
+        if not self.root or not self.root.winfo_exists():
+            return
+        if self._watcher:
+            payload = self._watcher.latest()
+            if payload:
+                self.handle_watch_snapshot(payload)
+        self.root.after(self.watch_poll_interval_ms, self._poll_watch_queue)
 
-        description = (
-            event_info.get("description")
-            or match_info.get("challengeText")
-            or (match_info.get("id") and f"Match #{match_info['id']}")
-            or "No active matches detected"
-        )
-        self.last_event_description = description
-        self.event_label.config(text=description)
+    def manual_refresh(self) -> None:
+        if self.player_name:
+            self.cache.pop(self.player_name, None)
+        if self.last_snapshot:
+            self.handle_watch_snapshot(self.last_snapshot, force=True)
 
+    def handle_watch_snapshot(self, snapshot: dict[str, Any], force: bool = False) -> None:
+        self.last_snapshot = snapshot
+
+        error = snapshot.get("error")
+        if error:
+            self.status_label.config(text=f"Bridge error: {error}")
+            self.event_label.config(text="No active matches detected")
+            self.player_name = ""
+            self.last_seen_deck = ""
+            self.refresh_labels()
+            return
+
+        challenge_text = "No active matches detected"
+        timers = snapshot.get("challengeTimers") or []
+        if timers:
+            timer = timers[0]
+            desc = timer.get("description") or timer.get("format") or timer.get("eventId")
+            remaining = timer.get("remainingSeconds")
+            if desc and remaining is not None:
+                challenge_text = f"{desc} • {int(remaining)}s remaining"
+            elif desc:
+                challenge_text = desc
+        self.last_event_description = challenge_text
+        self.event_label.config(text=challenge_text)
+
+        active = snapshot.get("activeMatch") or {}
+        players = active.get("players") or []
         if not players:
             self.player_name = ""
             self.last_seen_deck = ""
@@ -285,13 +312,15 @@ class MTGOpponentDeckSpy:
             self.refresh_labels()
             return
 
+        username = self.username_var.get().strip() or None
         self_player = next((p for p in players if p.get("isSelf")), None)
         if not self_player and username:
+            lower = username.lower()
             self_player = next(
-                (p for p in players if p.get("name", "").lower() == username.lower()),
+                (p for p in players if (p.get("name") or "").lower() == lower),
                 None,
             )
-        if not self_player and len(players) >= 1 and not username:
+        if not self_player and players:
             self_player = players[0]
             self.username_var.set(self_player.get("name", ""))
 
@@ -306,18 +335,17 @@ class MTGOpponentDeckSpy:
             return
 
         self.player_name = opponent.get("name", "Unknown opponent")
-        deck = self._lookup_deck(self.player_name)
+        deck = self._lookup_deck(self.player_name, force=force)
         self.last_seen_deck = deck
 
-        self.status_label.config(
-            text=f"{self.player_name} • Clock: {self._describe_clock(opponent)}"
-        )
+        clock_desc = self._describe_clock(opponent)
+        self.status_label.config(text=f"{self.player_name} • Clock: {clock_desc}")
         self.refresh_labels()
 
-    def _lookup_deck(self, opponent_name: str) -> str:
+    def _lookup_deck(self, opponent_name: str, force: bool = False) -> str:
         cached = self.cache.get(opponent_name)
         now = time.time()
-        if cached and now - cached.get("ts", 0) < self.CACHE_TTL:
+        if not force and cached and now - cached.get("ts", 0) < self.CACHE_TTL:
             return cached.get("deck", "")
 
         deck = get_latest_deck(opponent_name, self.format)
@@ -445,6 +473,12 @@ class MTGOpponentDeckSpy:
 
     # ------------------------------------------------------------------ teardown
     def close(self):
+        if self._watcher:
+            try:
+                self._watcher.stop()
+            except Exception:
+                logger.debug("Failed to stop bridge watcher cleanly", exc_info=True)
+            self._watcher = None
         if self.root:
             self.root.destroy()
 

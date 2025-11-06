@@ -49,8 +49,12 @@ class TimerAlertWindow:
         self.last_seconds: int | None = None
         self.triggered_thresholds: set[int] = set()
         self.start_alert_sent = False
+        self._watcher = None
+        self._last_snapshot: dict | None = None
+        self._watch_poll_ms = 750
 
         self._build_ui()
+        self._start_watch_loop()
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
         frame = tk.Frame(self.window, padx=12, pady=10)
@@ -98,6 +102,76 @@ class TimerAlertWindow:
             row=9, column=0, columnspan=2, sticky="ew", pady=(10, 0)
         )
 
+    def _start_watch_loop(self) -> None:
+        if self._watcher is not None:
+            return
+        try:
+            self._watcher = mtgo_bridge.start_watch(interval_ms=self._watch_poll_ms)
+            if self.monitor_job is None:
+                self.status_var.set("Bridge ready. Set options and click Start to begin monitoring.")
+        except FileNotFoundError as exc:
+            logger.error("Bridge executable not found: %s", exc)
+            self.status_var.set("Bridge missing. Build the MTGO bridge executable.")
+            self.window.after(5000, self._start_watch_loop)
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unable to start bridge watcher")
+            self.status_var.set(f"Bridge error: {exc}")
+            self.window.after(5000, self._start_watch_loop)
+            return
+
+        self._poll_watch_loop()
+
+    def _poll_watch_loop(self) -> None:
+        try:
+            exists = bool(self.window and self.window.winfo_exists())
+        except tk.TclError:
+            return
+        if not exists:
+            return
+        if self._watcher:
+            payload = self._watcher.latest()
+            if payload:
+                self._process_watch_snapshot(payload)
+        self.window.after(self._watch_poll_ms, self._poll_watch_loop)
+
+    def _process_watch_snapshot(self, snapshot: dict) -> None:
+        self._last_snapshot = snapshot
+        matches = self._snapshot_to_matches(snapshot)
+        self._update_available_matches(matches)
+        if self.monitor_job is None:
+            if snapshot.get("error"):
+                self.status_var.set(f"Bridge error: {snapshot['error']}")
+            elif not matches:
+                self.status_var.set("No active matches detected. Join a match to monitor clocks.")
+
+    def _extract_event_description(self, snapshot: dict) -> str:
+        timers = snapshot.get("challengeTimers") or []
+        if timers:
+            timer = timers[0]
+            return (
+                timer.get("description")
+                or timer.get("format")
+                or timer.get("eventId")
+                or "Match"
+            )
+        return "Match"
+
+    def _snapshot_to_matches(self, snapshot: dict | None) -> list[dict]:
+        if not snapshot or snapshot.get("error"):
+            return []
+        active = snapshot.get("activeMatch") or {}
+        players = active.get("players") or []
+        if not players:
+            return []
+        return [
+            {
+                "id": active.get("matchId") or active.get("id"),
+                "players": players,
+                "eventDescription": self._extract_event_description(snapshot),
+            }
+        ]
+
     # ----------------------------------------------------------------- logic
     def start_monitoring(self) -> None:
         if self.monitor_job is not None:
@@ -137,6 +211,12 @@ class TimerAlertWindow:
 
     def close(self) -> None:
         self.stop_monitoring()
+        if self._watcher is not None:
+            try:
+                self._watcher.stop()
+            except Exception:
+                logger.debug("Failed to stop bridge watcher", exc_info=True)
+            self._watcher = None
         try:
             self.window.destroy()
         except Exception:
@@ -144,17 +224,16 @@ class TimerAlertWindow:
 
     # ----------------------------------------------------------------- internals
     def _monitor_timer(self, thresholds: list[int]) -> None:
-        try:
-            ready, error = mtgo_bridge.ensure_runtime_ready()
-            if not ready:
-                self.status_var.set(f"MTGOSDK runtime unavailable: {error or 'see logs'}")
-                return
-            matches = mtgo_bridge.list_active_matches()
-        except Exception as exc:
-            logger.error(f"Timer alert failed to query MTGO state: {exc}")
-            self.status_var.set(f"Failed to query MTGO state: {exc}")
+        snapshot = self._last_snapshot
+        if snapshot is None:
+            self.status_var.set("Waiting for MTGO data…")
             return
 
+        if snapshot.get("error"):
+            self.status_var.set(f"Bridge error: {snapshot['error']}")
+            return
+
+        matches = self._snapshot_to_matches(snapshot)
         self._update_available_matches(matches)
 
         if not matches:

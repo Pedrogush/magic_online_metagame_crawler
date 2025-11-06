@@ -1,92 +1,104 @@
-"""Stub MTGOSDK bridge helpers maintained while the integration is rebuilt."""
+"""Compatibility helpers bridging the CLI-based MTGO bridge into Python."""
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Tuple
+from typing import Any, Mapping, Tuple
 
 from loguru import logger
 
-from . import mtgosdk_runtime
-
-CLI_CANDIDATES: list[Path] = []
+from . import mtgo_bridge_client
 
 
-def _ensure_runtime() -> bool:
-    return mtgosdk_runtime.initialize()
+def _bridge_available(bridge_path: str | None = None) -> Tuple[bool, str | None]:
+    try:
+        path = mtgo_bridge_client._require_bridge_path(bridge_path)  # type: ignore[attr-defined]
+    except FileNotFoundError as exc:
+        return False, str(exc)
+    return True, str(path)
 
 
-def _resolve_bridge_path(explicit: str | None = None) -> Path | None:
-    if explicit:
-        candidate = Path(explicit)
-        if candidate.exists():
-            return candidate
-    for candidate in CLI_CANDIDATES:
-        if candidate.exists():
-            return candidate
-    return None
+def ensure_runtime_ready(bridge_path: str | None = None) -> Tuple[bool, str | None]:
+    """Return True if the CLI bridge executable exists."""
+    return runtime_status(bridge_path)
 
 
-def get_game_state(self_name: str | None, bridge_path: str | None = None) -> dict[str, Any]:
-    if not _ensure_runtime():
-        logger.debug("mtgosdk runtime stubbed; returning empty game state")
+def runtime_status(bridge_path: str | None = None) -> Tuple[bool, str | None]:
+    ready, message = _bridge_available(bridge_path)
+    return ready, None if ready else message
+
+
+def get_collection_snapshot(
+    bridge_path: str | None = None,
+    timeout: float | None = None,
+) -> Mapping[str, Any]:
+    """Return the collection snapshot payload from the bridge."""
+    payload = mtgo_bridge_client.run_bridge_command(
+        "collection", bridge_path=bridge_path, timeout=timeout
+    )
+    collection = payload.get("collection") if isinstance(payload, dict) else None
+    if not isinstance(collection, dict):
+        logger.debug("Collection payload missing or malformed; returning empty dict")
         return {}
-    return mtgosdk_runtime.get_game_state(self_name)
+    return collection
 
 
-def accept_pending_trades(bridge_path: str | None = None) -> dict[str, Any]:
-    if not _ensure_runtime():
-        return {"accepted": False, "reason": "runtime unavailable"}
-    return mtgosdk_runtime.accept_pending_trades()
-
-
-def list_decks(bridge_path: str | None = None) -> list[dict[str, Any]]:
-    if not _ensure_runtime():
-        return []
-    return mtgosdk_runtime.list_decks_grouped()
-
-
-def get_collection_snapshot(bridge_path: str | None = None) -> list[dict[str, Any]]:
-    if not _ensure_runtime():
-        return []
-    return mtgosdk_runtime.get_collection_snapshot()
-
-
-def fetch_collection() -> dict[str, Any]:
-    if not _ensure_runtime():
+def get_match_history(
+    bridge_path: str | None = None,
+    timeout: float | None = None,
+) -> Mapping[str, Any]:
+    """Return the match history payload from the bridge."""
+    payload = mtgo_bridge_client.run_bridge_command(
+        "history", bridge_path=bridge_path, timeout=timeout
+    )
+    history = payload.get("history") if isinstance(payload, dict) else None
+    if not isinstance(history, dict):
+        logger.debug("History payload missing or malformed; returning empty dict")
         return {}
-    return mtgosdk_runtime.get_full_collection()
+    return history
 
 
-def get_full_collection() -> dict[str, Any]:
-    return fetch_collection()
+def fetch_collection_async(
+    *,
+    bridge_path: str | None = None,
+    context = None,
+):
+    return mtgo_bridge_client.fetch_collection_snapshot_async(
+        bridge_path=bridge_path, context=context
+    )
 
 
-def get_match_history(limit: int = 50, bridge_path: str | None = None) -> list[dict[str, Any]]:
-    if not _ensure_runtime():
-        return []
-    return mtgosdk_runtime.get_match_history(limit=limit)
+def fetch_history_async(
+    *,
+    bridge_path: str | None = None,
+    context = None,
+):
+    return mtgo_bridge_client.fetch_match_history_async(
+        bridge_path=bridge_path, context=context
+    )
 
 
-def list_active_matches(bridge_path: str | None = None) -> list[dict[str, Any]]:
-    if not _ensure_runtime():
-        return []
-    return mtgosdk_runtime.list_active_matches()
+def start_watch(
+    *,
+    bridge_path: str | None = None,
+    interval_ms: int = 500,
+    context = None,
+):
+    return mtgo_bridge_client.start_watch(
+        bridge_path=bridge_path, interval_ms=interval_ms, context=context
+    )
 
 
-def ensure_runtime_ready() -> Tuple[bool, str | None]:
-    ready = _ensure_runtime()
-    error: str | None = None
-    if not ready:
-        last_error = mtgosdk_runtime.availability_error()
-        error = str(last_error) if last_error else "mtgosdk runtime unavailable"
-    return ready, error
+def accept_pending_trades(*_args, **_kwargs) -> dict[str, Any]:
+    """Legacy API placeholder—trade interactions are not supported via the CLI bridge."""
+    return {"accepted": False, "reason": "not_supported"}
 
 
-def runtime_status() -> Tuple[bool, str | None]:
-    ready = mtgosdk_runtime.is_initialized()
-    error: str | None = None
-    if not ready:
-        last_error = mtgosdk_runtime.availability_error()
-        error = str(last_error) if last_error else "mtgosdk runtime unavailable"
-    return ready, error
+def list_decks(*_args, **_kwargs) -> list[dict[str, Any]]:
+    """Legacy API placeholder—deck grouping is not exposed by the CLI bridge."""
+    return []
+
+
+def get_full_collection(*_args, **_kwargs) -> Mapping[str, Any]:
+    """Backward compatible alias for ``get_collection_snapshot``."""
+    return get_collection_snapshot(*_args, **_kwargs)
+
