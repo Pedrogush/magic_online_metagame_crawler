@@ -203,6 +203,11 @@ def _watch_worker(
         bufsize=1,
     )
 
+    buffer = ""
+    depth = 0
+    in_string = False
+    escape = False
+
     try:
         while True:
             if stop_event.is_set():
@@ -214,18 +219,52 @@ def _watch_worker(
                     break
                 continue
 
-            data = line.strip()
-            if not data:
+            chunk = line.strip()
+            if not chunk:
                 continue
 
-            try:
-                payload = json.loads(data.lstrip("\ufeff"))
-            except json.JSONDecodeError:
-                logger.debug("Skipping malformed watch payload: {}", data)
-                continue
+            if not buffer:
+                buffer = chunk.lstrip("\ufeff")
+            else:
+                buffer += chunk
 
-            _queue_replace(output_queue, payload)
+            for ch in chunk:
+                if escape:
+                    escape = False
+                    continue
+                if ch == "\\":
+                    escape = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                elif not in_string:
+                    if ch in "{[":
+                        depth += 1
+                    elif ch in "}]":
+                        if depth > 0:
+                            depth -= 1
+
+            if depth == 0 and not in_string and buffer:
+                candidate = buffer.strip()
+                if candidate:
+                    try:
+                        payload = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        logger.debug("Skipping malformed watch payload: {}", candidate)
+                    else:
+                        _queue_replace(output_queue, payload)
+                buffer = ""
+                depth = 0
+                in_string = False
+                escape = False
     finally:
+        if buffer.strip():
+            try:
+                payload = json.loads(buffer.strip())
+            except json.JSONDecodeError:
+                logger.debug("Skipping trailing malformed watch payload: {}", buffer.strip())
+            else:
+                _queue_replace(output_queue, payload)
         stop_event.set()
         if process.poll() is None:
             process.terminate()

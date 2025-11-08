@@ -17,7 +17,8 @@ using MTGOSDK.API.Play.Games;
 using MTGOSDK.API.Play.Tournaments;
 using MTGOSDK.API.Play.History;
 using MTGOSDK.API.Play.Leagues;
-
+using MTGOSDK.API.Users;
+// dotnet publish dotnet/MTGOBridge/MTGOBridge.csproj -c Release -r win-x64 --self-contained false
 var mode = ParseMode(args);
 if (mode == ExecutionMode.None)
 {
@@ -27,7 +28,7 @@ if (mode == ExecutionMode.None)
 var jsonOptions = new JsonSerializerOptions
 {
     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    WriteIndented = true,
+    WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
 };
 
@@ -37,11 +38,28 @@ if (mode == ExecutionMode.Watch)
     return;
 }
 
+if (mode == ExecutionMode.LogFiles)
+{
+    var logFilesPayload = GetLogFilesSnapshot();
+    var logFilesSerialized = JsonSerializer.Serialize(logFilesPayload, jsonOptions);
+    Console.WriteLine(logFilesSerialized);
+    return;
+}
+
+if (mode == ExecutionMode.Username)
+{
+    var usernamePayload = GetUsernameSnapshot();
+    var usernameSerialized = JsonSerializer.Serialize(usernamePayload, jsonOptions);
+    Console.WriteLine(usernameSerialized);
+    return;
+}
+
 var timings = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 var totalStopwatch = Stopwatch.StartNew();
 
 CollectionSnapshot? collectionSnapshot = null;
 HistorySnapshot? historySnapshot = null;
+CurrencySnapshot? currencySnapshot = null;
 
 if (mode is ExecutionMode.Collection or ExecutionMode.All)
 {
@@ -53,6 +71,11 @@ if (mode is ExecutionMode.History or ExecutionMode.All)
     historySnapshot = Measure("historyMs", GetHistorySnapshot, timings);
 }
 
+if (mode is ExecutionMode.Currency or ExecutionMode.All)
+{
+    currencySnapshot = Measure("currencyMs", GetCurrencySnapshot, timings);
+}
+
 totalStopwatch.Stop();
 timings["totalMs"] = totalStopwatch.ElapsedMilliseconds;
 
@@ -61,6 +84,7 @@ var payload = new BridgePayload(
     mode.ToString(),
     collectionSnapshot,
     historySnapshot,
+    currencySnapshot,
     timings
 );
 
@@ -81,6 +105,94 @@ static T Measure<T>(string key, Func<T> factory, IDictionary<string, long> timin
     {
         sw.Stop();
         timings[key] = sw.ElapsedMilliseconds;
+    }
+}
+
+static UsernameSnapshot GetUsernameSnapshot()
+{
+    try
+    {
+        // Strategy 1: Try to get from Client.CurrentUser using reflection
+        var clientType = Type.GetType("MTGOSDK.API.Client, MTGOSDK");
+        if (clientType != null)
+        {
+            var currentUserProp = clientType.GetProperty("CurrentUser", BindingFlags.Public | BindingFlags.Static);
+            if (currentUserProp != null)
+            {
+                var currentUser = currentUserProp.GetValue(null);
+                if (currentUser != null)
+                {
+                    var name = SafeGet(currentUser, "Name", string.Empty);
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        return new UsernameSnapshot(name, null);
+                    }
+                }
+            }
+        }
+
+        // Strategy 2: Try UserManager.CurrentUser
+        var userManagerType = Type.GetType("MTGOSDK.API.Users.UserManager, MTGOSDK");
+        if (userManagerType != null)
+        {
+            var currentUserProp = userManagerType.GetProperty("CurrentUser", BindingFlags.Public | BindingFlags.Static);
+            if (currentUserProp != null)
+            {
+                var currentUser = currentUserProp.GetValue(null);
+                if (currentUser != null)
+                {
+                    var name = SafeGet(currentUser, "Name", string.Empty);
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        return new UsernameSnapshot(name, null);
+                    }
+                }
+            }
+        }
+
+        // Strategy 3: Get username from collection name
+        var collection = CollectionManager.Collection;
+        if (collection != null)
+        {
+            var collectionName = collection.Name;
+            if (!string.IsNullOrWhiteSpace(collectionName) && collectionName != "Collection")
+            {
+                // Collection name might be the username
+                return new UsernameSnapshot(collectionName, null);
+            }
+        }
+
+        return new UsernameSnapshot(null, "Could not determine current user");
+    }
+    catch (Exception ex)
+    {
+        return new UsernameSnapshot(null, ex.Message);
+    }
+}
+
+static LogFilesSnapshot GetLogFilesSnapshot()
+{
+    try
+    {
+        // GetGameHistoryFiles([optional] System.String username, [optional] System.Boolean filterFiles) -> System.String[]
+        var files = HistoryManager.GetGameHistoryFiles(filterFiles: true);
+
+        if (files == null)
+        {
+            return new LogFilesSnapshot(
+                Array.Empty<string>(),
+                "GetGameHistoryFiles returned null"
+            );
+        }
+
+        return new LogFilesSnapshot(files, null);
+    }
+    catch (Exception ex)
+    {
+        return new LogFilesSnapshot(
+            Array.Empty<string>(),
+            ex.Message
+        );
     }
 }
 
@@ -116,40 +228,85 @@ static CollectionSnapshot GetCollectionSnapshot()
     }
 }
 
-static HistorySnapshot GetHistorySnapshot()
+static CurrencySnapshot GetCurrencySnapshot()
 {
-    var items = new List<HistoryEntry>();
-    bool historyLoaded;
-    string? error = null;
-
     try
     {
-        historyLoaded = HistoryManager.HistoryLoaded;
-        if (!historyLoaded)
+        var collection = CollectionManager.Collection;
+        if (collection is null)
         {
-            // Attempt to read history for the active user to populate cache.
-            HistoryManager.ReadGameHistory();
-            historyLoaded = HistoryManager.HistoryLoaded;
+            return new CurrencySnapshot(null, null, null, "Collection manager returned null");
         }
 
-        if (historyLoaded)
+        var frozen = collection.GetFrozenCollection ?? Array.Empty<CardQuantityPair>();
+        var ticketTotal = 0;
+        var pointTotal = 0;
+        var chestTotal = 0;
+        var hasTickets = false;
+        var hasPoints = false;
+        var hasChests = false;
+
+        foreach (var entry in frozen)
         {
-            foreach (var item in HistoryManager.Items)
+            if (entry is null)
             {
-                var entry = MapHistoryItem(item);
-                if (entry != null)
-                {
-                    items.Add(entry);
-                }
+                continue;
+            }
+
+            if (IsEventTicket(entry))
+            {
+                ticketTotal += entry.Quantity;
+                hasTickets = true;
+                continue;
+            }
+
+            if (IsPlayPoints(entry))
+            {
+                pointTotal += entry.Quantity;
+                hasPoints = true;
+                continue;
+            }
+
+            if (IsTreasureChest(entry))
+            {
+                chestTotal += entry.Quantity;
+                hasChests = true;
             }
         }
+
+        return new CurrencySnapshot(
+            hasTickets ? ticketTotal : null,
+            hasPoints ? pointTotal : null,
+            hasChests ? chestTotal : null,
+            null
+        );
     }
     catch (Exception ex)
     {
-        historyLoaded = false;
-        error = ex.Message;
+        return new CurrencySnapshot(null, null, null, ex.Message);
+    }
+}
+
+static HistorySnapshot GetHistorySnapshot()
+{
+    bool historyLoaded = false;
+    string? error = null;
+
+    // ReadGameHistory() returns the full list - use it directly instead of accessing .Items!
+    var rawItems = HistoryManager.ReadGameHistory();
+    if (rawItems == null)
+    {
+        return new HistorySnapshot(historyLoaded, Array.Empty<HistoryEntry>(), "History items is null");
     }
 
+    // Process in parallel - each MapHistoryItem call uses reflection anyway
+    // so parallelizing this should give a good speedup
+    var items = rawItems
+        .Select(item => MapHistoryItem(item))
+        .Where(entry => entry != null)
+        .Cast<HistoryEntry>()
+        .ToList();
+    foreach(var item in rawItems) Console.WriteLine(item.GetType().Name);
     return new HistorySnapshot(historyLoaded, items, error);
 }
 
@@ -160,96 +317,309 @@ static HistoryEntry? MapHistoryItem(object? item)
         return null;
     }
 
-    switch (item)
+    var type = item.GetType();
+    var typeName = type.Name;
+
+    // Extract basic properties using reflection - no type casting
+    var id = SafeGet<int>(item, "Id");
+    var startTime = SafeGet(item, "StartTime", DateTime.MinValue);
+
+    // Handle HistoricalMatch
+    if (typeName == "HistoricalMatch")
     {
-        case HistoricalMatch match:
-            return new HistoryEntry(
-                "match",
-                match.Id,
-                match.StartTime,
-                match.Opponents.Select(o => Normalize(o?.Name)).Where(n => n.Length > 0).ToList(),
-                match.GameWins,
-                match.GameLosses,
-                match.GameTies,
-                match.GameIds.ToList(),
-                null,
-                null,
-                null
-            );
-
-        case HistoricalTournament tournament:
-            var summaries = tournament.Matches
-                .Select(MapMatchSummary)
-                .Where(summary => summary != null)
-                .Cast<MatchSummary>()
-                .ToList();
-
-            return new HistoryEntry(
-                "tournament",
-                tournament.Id,
-                tournament.StartTime,
-                Array.Empty<string>(),
-                null,
-                null,
-                null,
-                null,
-                summaries,
-                tournament.MatchWins,
-                tournament.MatchLosses
-            );
-
-        case HistoricalItem<dynamic>.Default fallback:
-            return new HistoryEntry(
-                "historicalItem",
-                fallback.Id,
-                fallback.StartTime,
-                Array.Empty<string>(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-            );
-
-        default:
-            return new HistoryEntry(
-                item.GetType().Name,
-                SafeGet<int>(item, "Id"),
-                SafeGet(item, "StartTime", DateTime.MinValue),
-                Array.Empty<string>(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-            );
+        var opponents = ExtractOpponentNames(item);
+        var gameWins = SafeGet<int?>(item, "GameWins");
+        var gameLosses = SafeGet<int?>(item, "GameLosses");
+        var gameTies = SafeGet<int?>(item, "GameTies");
+        var gameIds = ExtractGameIds(item);
+        return new HistoryEntry(
+            "match",
+            id,
+            startTime,
+            opponents,
+            gameWins,
+            gameLosses,
+            gameTies,
+            gameIds,
+            null,
+            null,
+            null
+        );
     }
-}
 
-static MatchSummary? MapMatchSummary(HistoricalMatch match)
-{
-    var opponents = match.Opponents
-        .Select(o => Normalize(o?.Name))
-        .Where(n => n.Length > 0)
-        .ToList();
+    // Handle HistoricalTournament
+    if (typeName == "HistoricalTournament")
+    {
+        var matches = ExtractTournamentMatches(item);
+        var matchWins = SafeGet<int?>(item, "MatchWins");
+        var matchLosses = SafeGet<int?>(item, "MatchLosses");
+        return new HistoryEntry(
+            "tournament",
+            id,
+            startTime,
+            Array.Empty<string>(),
+            null,
+            null,
+            null,
+            null,
+            matches,
+            matchWins,
+            matchLosses
+        );
+    }
 
-    return new MatchSummary(
-        match.Id,
-        match.StartTime,
-        match.GameWins,
-        match.GameLosses,
-        match.GameTies,
-        opponents,
-        match.GameIds.ToList()
+    // Default fallback
+    return new HistoryEntry(
+        typeName,
+        id,
+        startTime,
+        Array.Empty<string>(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
     );
 }
 
-static string Normalize(string? value) =>
-    string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+static IReadOnlyList<string> ExtractOpponentNames(object match)
+{
+    var result = new List<string>();
+
+    if (match == null)
+    {
+        return result;
+    }
+
+    var type = match.GetType();
+
+    // STRATEGY 1: Access raw backing object before SDK converts to User objects
+    // HistoricalMatch has an internal "obj" field that contains the raw dynamic data
+    try
+    {
+        // Try to get the internal "obj" field (contains the raw dynamic object)
+        var objField = type.GetField("obj", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (objField != null)
+        {
+            var rawObj = objField.GetValue(match);
+            if (rawObj != null)
+            {
+                // Access Opponents on the raw dynamic object (should be strings, not User objects)
+                var rawType = rawObj.GetType();
+                var rawOpponentsProp = rawType.GetProperty("Opponents");
+                if (rawOpponentsProp != null)
+                {
+                    try
+                    {
+                        var rawOpponents = rawOpponentsProp.GetValue(rawObj);
+                        if (rawOpponents is IEnumerable rawEnum)
+                        {
+                            foreach (var item in rawEnum)
+                            {
+                                // The raw data might be strings directly
+                                if (item is string str && !string.IsNullOrWhiteSpace(str))
+                                {
+                                    result.Add(str.Trim());
+                                }
+                                // Or might be dynamic objects with string properties
+                                else if (item != null)
+                                {
+                                    // Try to get string representation or Name property
+                                    var itemType = item.GetType();
+                                    var nameProp = itemType.GetProperty("Name");
+                                    if (nameProp != null)
+                                    {
+                                        var nameValue = nameProp.GetValue(item);
+                                        if (nameValue is string name && !string.IsNullOrWhiteSpace(name))
+                                        {
+                                            result.Add(name.Trim());
+                                        }
+                                    }
+                                    else
+                                    {
+                                        // Fallback to ToString
+                                        var strVal = item.ToString();
+                                        if (!string.IsNullOrWhiteSpace(strVal))
+                                        {
+                                            result.Add(strVal.Trim());
+                                        }
+                                    }
+                                }
+                            }
+
+                            // If we got results from raw data, return them
+                            if (result.Count > 0)
+                            {
+                                return result;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Raw access failed, try other strategies
+                    }
+                }
+            }
+        }
+    }
+    catch
+    {
+        // Strategy 1 failed, continue to strategy 2
+    }
+
+    // STRATEGY 2: Try the SDK's Opponents property (might work if data is valid)
+    object? opponents = null;
+    try
+    {
+        var opponentsProp = type.GetProperty("Opponents", BindingFlags.Public | BindingFlags.Instance);
+        if (opponentsProp != null)
+        {
+            try
+            {
+                opponents = opponentsProp.GetValue(match);
+            }
+            catch (TargetInvocationException)
+            {
+                // SDK conversion failed - this is expected
+                opponents = null;
+            }
+            catch
+            {
+                opponents = null;
+            }
+        }
+    }
+    catch
+    {
+        // Property lookup failed
+    }
+
+    // If SDK property worked, extract User names
+    if (opponents != null && opponents is IEnumerable enumerable)
+    {
+        foreach (var opponent in enumerable)
+        {
+            if (opponent == null) continue;
+
+            string? name = null;
+            var opponentType = opponent.GetType();
+
+            // Try to get Name property
+            try
+            {
+                var nameProp = opponentType.GetProperty("Name", BindingFlags.Public | BindingFlags.Instance);
+                if (nameProp != null)
+                {
+                    var nameValue = nameProp.GetValue(opponent);
+                    name = nameValue as string;
+                }
+            }
+            catch
+            {
+                // Try method invocation
+                try
+                {
+                    var getName = opponentType.GetMethod("get_Name", BindingFlags.Public | BindingFlags.Instance);
+                    if (getName != null)
+                    {
+                        var nameValue = getName.Invoke(opponent, null);
+                        name = nameValue as string;
+                    }
+                }
+                catch
+                {
+                    continue;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                result.Add(name.Trim());
+            }
+        }
+    }
+
+    return result;
+}
+
+static IReadOnlyList<int> ExtractGameIds(object match)
+{
+    var result = new List<int>();
+    try
+    {
+        var prop = match.GetType().GetProperty("GameIds");
+        if (prop == null) return result;
+
+        var value = prop.GetValue(match);
+        if (value == null) return result;
+
+        if (value is IEnumerable<int> intList)
+        {
+            result.AddRange(intList);
+        }
+        else if (value is IEnumerable enumerable)
+        {
+            foreach (var item in enumerable)
+            {
+                if (item is int id)
+                {
+                    result.Add(id);
+                }
+            }
+        }
+    }
+    catch
+    {
+        // Silently ignore errors
+    }
+    return result;
+}
+
+static IReadOnlyList<MatchSummary> ExtractTournamentMatches(object tournament)
+{
+    var result = new List<MatchSummary>();
+    try
+    {
+        var prop = tournament.GetType().GetProperty("Matches");
+        if (prop == null) return result;
+
+        var value = prop.GetValue(tournament);
+        if (value == null) return result;
+
+        if (value is IEnumerable matches)
+        {
+            foreach (var match in matches)
+            {
+                if (match == null) continue;
+
+                var id = SafeGet<int>(match, "Id");
+                var startTime = SafeGet(match, "StartTime", DateTime.MinValue);
+                var gameWins = SafeGet<int>(match, "GameWins");
+                var gameLosses = SafeGet<int>(match, "GameLosses");
+                var gameTies = SafeGet<int>(match, "GameTies");
+                var opponents = ExtractOpponentNames(match);
+                var gameIds = ExtractGameIds(match);
+
+                result.Add(new MatchSummary(
+                    id,
+                    startTime,
+                    gameWins,
+                    gameLosses,
+                    gameTies,
+                    opponents,
+                    gameIds
+                ));
+            }
+        }
+    }
+    catch
+    {
+        // Silently ignore errors
+    }
+    return result;
+}
 
 static T SafeGet<T>(object target, string propertyName, T defaultValue = default!)
 {
@@ -297,13 +667,25 @@ static async Task RunWatchLoopAsync(JsonSerializerOptions options, TimeSpan? int
         try
         {
             var timers = GetChallengeTimers();
-            snapshot = new WatchSnapshot(DateTimeOffset.UtcNow, timers, null);
+            var currency = GetCurrencySnapshot();
+            snapshot = new WatchSnapshot(DateTimeOffset.UtcNow, timers, currency, null);
         }
         catch (Exception ex)
         {
+            CurrencySnapshot fallbackCurrency;
+            try
+            {
+                fallbackCurrency = GetCurrencySnapshot();
+            }
+            catch (Exception innerEx)
+            {
+                fallbackCurrency = new CurrencySnapshot(null, null, null, innerEx.Message);
+            }
+
             snapshot = new WatchSnapshot(
                 DateTimeOffset.UtcNow,
                 Array.Empty<ChallengeTimerSnapshot>(),
+                fallbackCurrency,
                 ex.Message
             );
         }
@@ -351,6 +733,65 @@ static IReadOnlyList<ChallengeTimerSnapshot> GetChallengeTimers()
         }
     }
     return results;
+}
+
+static bool IsEventTicket(CardQuantityPair? entry)
+{
+    if (entry is null)
+    {
+        return false;
+    }
+
+    var card = entry.Card;
+    if (card != null)
+    {
+        var isTicket = SafeGet<bool?>(card, "IsTicket", null);
+        if (isTicket == true)
+        {
+            return true;
+        }
+    }
+
+    return MatchesName(entry.Name, "Event Ticket", "Event Tickets");
+}
+
+static bool IsPlayPoints(CardQuantityPair? entry)
+{
+    if (entry is null)
+    {
+        return false;
+    }
+
+    return MatchesName(entry.Name, "Play Point", "Play Points");
+}
+
+static bool IsTreasureChest(CardQuantityPair? entry)
+{
+    if (entry is null)
+    {
+        return false;
+    }
+
+    // MTGO labels both "Treasure Chest" and "Treasure Chest Booster"
+    return MatchesName(entry.Name, "Treasure Chest", "Treasure Chest Booster", "Treasure Chest Boosters");
+}
+
+static bool MatchesName(string? candidate, params string[] expectedValues)
+{
+    if (string.IsNullOrWhiteSpace(candidate))
+    {
+        return false;
+    }
+
+    foreach (var expected in expectedValues)
+    {
+        if (candidate.Equals(expected, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static IReadOnlyList<object?> SnapshotEnumerable(object? candidate)
@@ -434,7 +875,10 @@ static ExecutionMode ParseMode(string[] args)
         "collection" or "collect" => ExecutionMode.Collection,
         "history" or "matches" => ExecutionMode.History,
         "all" or "both" => ExecutionMode.All,
+        "currency" or "wallet" or "tickets" or "points" => ExecutionMode.Currency,
         "watch" or "monitor" => ExecutionMode.Watch,
+        "logfiles" or "logs" => ExecutionMode.LogFiles,
+        "username" or "user" or "name" => ExecutionMode.Username,
         _ => ExecutionMode.None,
     };
 }
@@ -445,7 +889,10 @@ enum ExecutionMode
     Collection,
     History,
     All,
+    Currency,
     Watch,
+    LogFiles,
+    Username,
 }
 
 public sealed record ChallengeTimerSnapshot(
@@ -456,9 +903,17 @@ public sealed record ChallengeTimerSnapshot(
     string? State
 );
 
+public sealed record CurrencySnapshot(
+    int? EventTickets,
+    int? PlayPoints,
+    int? TreasureChests,
+    string? Error
+);
+
 public sealed record WatchSnapshot(
     DateTimeOffset Timestamp,
     IReadOnlyList<ChallengeTimerSnapshot> ChallengeTimers,
+    CurrencySnapshot? Currency,
     string? Error
 );
 
@@ -503,10 +958,21 @@ public sealed record HistorySnapshot(
     string? Error
 );
 
+public sealed record LogFilesSnapshot(
+    IReadOnlyList<string> Files,
+    string? Error
+);
+
+public sealed record UsernameSnapshot(
+    string? Username,
+    string? Error
+);
+
 public sealed record BridgePayload(
     DateTimeOffset Timestamp,
     string Mode,
     CollectionSnapshot? Collection,
     HistorySnapshot? History,
+    CurrencySnapshot? Currency,
     IReadOnlyDictionary<string, long> Timings
 );

@@ -55,6 +55,9 @@ def analyze_deck(deck_content: str):
         if not line:
             is_sideboard = True
             continue
+        if line.lower() == "sideboard":
+            is_sideboard = True
+            continue
 
         try:
             parts = line.split(" ", 1)
