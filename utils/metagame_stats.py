@@ -216,9 +216,9 @@ def _filter_decks(
     fmt: str | None = None,
     days: int | None = None,
 ) -> list[dict[str, Any]]:
-    cutoff = None
-    if days is not None:
-        cutoff = datetime.now(UTC) - timedelta(days=days)
+    now = datetime.now(UTC)
+    window = timedelta(days=days) if days is not None else None
+    window_with_tolerance = (window + _FILTER_TOLERANCE) if window is not None else None
 
     filtered: list[dict[str, Any]] = []
     for deck in decks:
@@ -226,9 +226,13 @@ def _filter_decks(
             continue
         if fmt and (deck.get("format") or "").lower() != fmt.lower():
             continue
-        if cutoff:
+        if window_with_tolerance is not None:
             publish = _parse_iso(deck.get("publish_date"))
-            if not publish or publish + _FILTER_TOLERANCE < cutoff:
+            if not publish:
+                continue
+            if publish.tzinfo is None:
+                publish = publish.replace(tzinfo=UTC)
+            if now - publish > window_with_tolerance:
                 continue
         filtered.append(deck)
     return filtered
