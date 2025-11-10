@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Iterable, NamedTuple
+from typing import NamedTuple
 
 from loguru import logger
 
@@ -68,7 +69,7 @@ class ArchetypeSpecific:
     name: str
     include_color: bool
     conditions: tuple[Condition, ...]
-    variants: tuple["ArchetypeSpecific", ...] = ()
+    variants: tuple[ArchetypeSpecific, ...] = ()
 
     @cached_property
     def complexity(self) -> int:
@@ -132,8 +133,8 @@ def determine_color_identity(
     lands: dict[str, str],
     non_lands: dict[str, str],
 ) -> str:
-    colors_in_lands = {key: 0 for key in COLOR_ORDER}
-    colors_in_nonlands = {key: 0 for key in COLOR_ORDER}
+    colors_in_lands = dict.fromkeys(COLOR_ORDER, 0)
+    colors_in_nonlands = dict.fromkeys(COLOR_ORDER, 0)
 
     for zone in (mainboard, sideboard):
         for entry in zone.values():
