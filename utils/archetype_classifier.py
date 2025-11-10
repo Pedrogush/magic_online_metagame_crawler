@@ -84,7 +84,7 @@ class ArchetypeGeneric:
 
     @cached_property
     def complexity(self) -> int:
-        return 2 ** 31 - 1
+        return 2**31 - 1
 
 
 @dataclass
@@ -95,7 +95,9 @@ class FormatBundle:
     specifics: tuple[ArchetypeSpecific, ...]
     generics: tuple[ArchetypeGeneric, ...]
 
-    def classify(self, mainboard: dict[str, DeckEntry], sideboard: dict[str, DeckEntry]) -> tuple[str | None, float]:
+    def classify(
+        self, mainboard: dict[str, DeckEntry], sideboard: dict[str, DeckEntry]
+    ) -> tuple[str | None, float]:
         color = determine_color_identity(mainboard, sideboard, self.lands, self.non_lands)
         matches: list[tuple[ArchetypeSpecific, ArchetypeSpecific | None]] = []
         for archetype in self.specifics:
@@ -145,11 +147,19 @@ def determine_color_identity(
                 for symbol in color_hint:
                     colors_in_nonlands[symbol] += entry.count
 
-    produced = "".join(symbol for symbol in COLOR_ORDER if colors_in_lands[symbol] > 0 and colors_in_nonlands[symbol] > 0)
+    produced = "".join(
+        symbol
+        for symbol in COLOR_ORDER
+        if colors_in_lands[symbol] > 0 and colors_in_nonlands[symbol] > 0
+    )
     return produced or COLORLESS_CODE
 
 
-def conditions_met(conditions: tuple[Condition, ...], mainboard: dict[str, DeckEntry], sideboard: dict[str, DeckEntry]) -> bool:
+def conditions_met(
+    conditions: tuple[Condition, ...],
+    mainboard: dict[str, DeckEntry],
+    sideboard: dict[str, DeckEntry],
+) -> bool:
     for condition in conditions:
         cards = condition.cards
         if not cards:
@@ -196,7 +206,9 @@ def conditions_met(conditions: tuple[Condition, ...], mainboard: dict[str, DeckE
     return True
 
 
-def select_best_match(matches: list[tuple[ArchetypeSpecific, ArchetypeSpecific | None]]) -> tuple[ArchetypeSpecific, ArchetypeSpecific | None]:
+def select_best_match(
+    matches: list[tuple[ArchetypeSpecific, ArchetypeSpecific | None]],
+) -> tuple[ArchetypeSpecific, ArchetypeSpecific | None]:
     return min(
         matches,
         key=lambda pair: pair[0].complexity + (pair[1].complexity if pair[1] else 0),
@@ -385,8 +397,16 @@ class ArchetypeClassifier:
             deck_format = normalize(deck.get("format") or fmt)
             if deck_format != fmt_norm:
                 continue
-            mainboard = {card["name"]: DeckEntry(card["name"], int(card.get("count", 0) or 0)) for card in deck.get("mainboard", []) if card.get("name")}
-            sideboard = {card["name"]: DeckEntry(card["name"], int(card.get("count", 0) or 0)) for card in deck.get("sideboard", []) if card.get("name")}
+            mainboard = {
+                card["name"]: DeckEntry(card["name"], int(card.get("count", 0) or 0))
+                for card in deck.get("mainboard", [])
+                if card.get("name")
+            }
+            sideboard = {
+                card["name"]: DeckEntry(card["name"], int(card.get("count", 0) or 0))
+                for card in deck.get("sideboard", [])
+                if card.get("name")
+            }
             if not mainboard:
                 continue
             name, score = bundle.classify(mainboard, sideboard)
@@ -394,7 +414,9 @@ class ArchetypeClassifier:
                 deck["archetype"] = name
                 deck["archetype_score"] = round(score, 3)
             else:
-                deck.setdefault("archetype", deck.get("deck_name") or deck.get("event_name") or "Unknown")
+                deck.setdefault(
+                    "archetype", deck.get("deck_name") or deck.get("event_name") or "Unknown"
+                )
 
 
 __all__ = ["ArchetypeClassifier"]

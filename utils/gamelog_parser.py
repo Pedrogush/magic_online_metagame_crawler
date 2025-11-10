@@ -35,14 +35,13 @@ def get_current_username() -> str | None:
     except ImportError:
         CONFIG = {}
 
-    bridge_path = CONFIG.get("mtgo_bridge_path", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe")
+    bridge_path = CONFIG.get(
+        "mtgo_bridge_path", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
+    )
 
     try:
         result = subprocess.run(
-            [bridge_path, "username"],
-            capture_output=True,
-            text=True,
-            timeout=10
+            [bridge_path, "username"], capture_output=True, text=True, timeout=10
         )
 
         if result.returncode == 0:
@@ -69,17 +68,36 @@ def detect_format_from_cards(cards: list[str]) -> str:
     """
     # Common Modern-only cards (not in Standard, Pioneer, Legacy staples)
     modern_indicators = {
-        "Thoughtseize", "Fatal Push", "Lightning Bolt", "Counterspell",
-        "Urza's Saga", "Ragavan, Nimble Pilferer", "Solitude", "Fury",
-        "Grief", "Omnath, Locus of Creation", "Wrenn and Six",
-        "Lurrus of the Dream-Den", "Mishra's Bauble", "Aether Vial"
+        "Thoughtseize",
+        "Fatal Push",
+        "Lightning Bolt",
+        "Counterspell",
+        "Urza's Saga",
+        "Ragavan, Nimble Pilferer",
+        "Solitude",
+        "Fury",
+        "Grief",
+        "Omnath, Locus of Creation",
+        "Wrenn and Six",
+        "Lurrus of the Dream-Den",
+        "Mishra's Bauble",
+        "Aether Vial",
     }
 
     # Vintage/Legacy indicators (Power 9, reserved list)
     vintage_legacy_indicators = {
-        "Black Lotus", "Mox Pearl", "Mox Sapphire", "Mox Jet",
-        "Mox Ruby", "Mox Emerald", "Time Walk", "Ancestral Recall",
-        "Force of Will", "Brainstorm", "Wasteland", "Daze"
+        "Black Lotus",
+        "Mox Pearl",
+        "Mox Sapphire",
+        "Mox Jet",
+        "Mox Ruby",
+        "Mox Emerald",
+        "Time Walk",
+        "Ancestral Recall",
+        "Force of Will",
+        "Brainstorm",
+        "Wasteland",
+        "Daze",
     }
 
     # Standard rotates frequently, harder to detect
@@ -156,7 +174,11 @@ def detect_archetype(cards: list[str]) -> str:
             return best_match[0]
 
     # Fallback: generic classification by card types
-    lands = sum(1 for card in cards if any(x in card for x in ["Plains", "Island", "Swamp", "Mountain", "Forest", "Land"]))
+    lands = sum(
+        1
+        for card in cards
+        if any(x in card for x in ["Plains", "Island", "Swamp", "Mountain", "Forest", "Land"])
+    )
 
     if lands < 10:
         return "Aggro"
@@ -175,18 +197,18 @@ def locate_gamelog_directory_via_bridge() -> str | None:
     """
     import json
     import subprocess
+
     try:
         from utils.config import CONFIG
     except ImportError:
         CONFIG = {}
-    bridge_path = CONFIG.get("mtgo_bridge_path", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe")
+    bridge_path = CONFIG.get(
+        "mtgo_bridge_path", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
+    )
 
     try:
         result = subprocess.run(
-            [bridge_path, "logfiles"],
-            capture_output=True,
-            text=True,
-            timeout=10
+            [bridge_path, "logfiles"], capture_output=True, text=True, timeout=10
         )
 
         if result.returncode == 0:
@@ -328,16 +350,25 @@ def parse_timestamp(timestamp_str: str, file_path: str = None) -> datetime:
         datetime object
     """
     # Check if this looks like binary data (UUIDs, special characters, etc.)
-    if '$' in timestamp_str or any(ord(c) > 127 for c in timestamp_str[:50]):
+    if "$" in timestamp_str or any(ord(c) > 127 for c in timestamp_str[:50]):
         # Binary format - use file modification time as fallback
         if file_path and os.path.exists(file_path):
             return datetime.fromtimestamp(os.path.getmtime(file_path))
         return datetime.now()
 
     month_map = {
-        "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
-        "May": "05", "Jun": "06", "Jul": "07", "Aug": "08",
-        "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"
+        "Jan": "01",
+        "Feb": "02",
+        "Mar": "03",
+        "Apr": "04",
+        "May": "05",
+        "Jun": "06",
+        "Jul": "07",
+        "Aug": "08",
+        "Sep": "09",
+        "Oct": "10",
+        "Nov": "11",
+        "Dec": "12",
     }
 
     try:
@@ -448,16 +479,16 @@ def extract_cards_played(content: str, player_name: str) -> list[str]:
         List of unique card names
     """
     cards = set()
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     # Convert to display format for matching
     display_name = normalize_player_name(player_name, False)
 
     for line in lines:
         # Check if this player's action
-        if f'@P{player_name}' in line or f'@P{display_name}' in line:
+        if f"@P{player_name}" in line or f"@P{display_name}" in line:
             # Extract cards in format @[Card Name@:id,instance:@]
-            card_matches = re.findall(r'@\[([^@]+)@:\d+,\d+:@\]', line)
+            card_matches = re.findall(r"@\[([^@]+)@:\d+,\d+:@\]", line)
             for card in card_matches:
                 cards.add(card)
 
@@ -477,23 +508,29 @@ def parse_mulligan_data(content: str) -> dict[str, list[int]]:
     """
     mulligan_data = {}
     current_game = 0
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     for line in lines:
         # New game starts
-        if 'chooses to play first' in line or 'chooses to not play first' in line:
+        if "chooses to play first" in line or "chooses to not play first" in line:
             current_game += 1
 
         # Mulligan detected: "PlayerName mulligans to X cards"
-        mulligan_match = re.search(r'@P([^@]+)\smulligans to (\w+) cards?', line)
+        mulligan_match = re.search(r"@P([^@]+)\smulligans to (\w+) cards?", line)
         if mulligan_match:
             player = mulligan_match.group(1).strip()
             count_word = mulligan_match.group(2)
 
             # Convert word to number
             word_to_num = {
-                'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
-                'five': 5, 'six': 6, 'seven': 7
+                "zero": 0,
+                "one": 1,
+                "two": 2,
+                "three": 3,
+                "four": 4,
+                "five": 5,
+                "six": 6,
+                "seven": 7,
             }
             mulligan_count = 7 - word_to_num.get(count_word.lower(), 7)
 
@@ -501,7 +538,9 @@ def parse_mulligan_data(content: str) -> dict[str, list[int]]:
                 mulligan_data[player] = {}
             if current_game not in mulligan_data[player]:
                 mulligan_data[player][current_game] = 0
-            mulligan_data[player][current_game] = max(mulligan_data[player][current_game], mulligan_count)
+            mulligan_data[player][current_game] = max(
+                mulligan_data[player][current_game], mulligan_count
+            )
 
     # Convert to lists (games in order)
     result = {}
@@ -521,18 +560,18 @@ def parse_match_score(content: str) -> tuple[str, int, int] | None:
     Returns:
         Tuple of (winner_name, winner_score, loser_score) or None
     """
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     # Look for "PlayerName wins the match X-Y" or "PlayerName leads the match X-Y"
     for line in reversed(lines):  # Start from end
-        match_win = re.search(r'@P([^@]+)\swins the match (\d)-(\d)', line)
+        match_win = re.search(r"@P([^@]+)\swins the match (\d)-(\d)", line)
         if match_win:
             winner = match_win.group(1).strip()
             winner_score = int(match_win.group(2))
             loser_score = int(match_win.group(3))
             return (winner, winner_score, loser_score)
 
-        match_lead = re.search(r'@P([^@]+)\sleads the match (\d)-(\d)', line)
+        match_lead = re.search(r"@P([^@]+)\sleads the match (\d)-(\d)", line)
         if match_lead:
             leader = match_lead.group(1).strip()
             leader_score = int(match_lead.group(2))
@@ -553,13 +592,13 @@ def parse_game_results(content: str) -> list[dict[str, str]]:
         List of game result dicts with winner info
     """
     games = []
-    lines = content.split('\n')
+    lines = content.split("\n")
     current_game_num = 0
     game_ended_in_current_game = False
 
     for line in lines:
         # New game starts
-        if 'chooses to play first' in line or 'chooses to not play first' in line:
+        if "chooses to play first" in line or "chooses to not play first" in line:
             current_game_num += 1
             game_ended_in_current_game = False
 
@@ -568,24 +607,28 @@ def parse_game_results(content: str) -> list[dict[str, str]]:
             continue
 
         # Game win/concession - record ONLY ONCE per game
-        if 'wins the game' in line:
-            winner_match = re.search(r'@P([^@]+)\swins the game', line)
+        if "wins the game" in line:
+            winner_match = re.search(r"@P([^@]+)\swins the game", line)
             if winner_match:
-                games.append({
-                    'game_num': current_game_num,
-                    'winner': winner_match.group(1).strip(),
-                    'method': 'win'
-                })
+                games.append(
+                    {
+                        "game_num": current_game_num,
+                        "winner": winner_match.group(1).strip(),
+                        "method": "win",
+                    }
+                )
                 game_ended_in_current_game = True
-        elif 'has conceded from the game' in line:
-            loser_match = re.search(r'@P([^@]+)\shas conceded', line)
+        elif "has conceded from the game" in line:
+            loser_match = re.search(r"@P([^@]+)\shas conceded", line)
             if loser_match:
                 # Winner is the other player (determined later)
-                games.append({
-                    'game_num': current_game_num,
-                    'loser': loser_match.group(1).strip(),
-                    'method': 'concession'
-                })
+                games.append(
+                    {
+                        "game_num": current_game_num,
+                        "loser": loser_match.group(1).strip(),
+                        "method": "concession",
+                    }
+                )
                 game_ended_in_current_game = True
 
     return games
@@ -602,11 +645,11 @@ def parse_gamelog_file(file_path: str) -> dict | None:
         Dict with comprehensive match data or None if parsing fails
     """
     try:
-        with open(file_path, encoding='latin1') as f:
+        with open(file_path, encoding="latin1") as f:
             content = f.read()
 
         # Extract metadata from first line (timestamp)
-        first_line = content.split('\n')[0]
+        first_line = content.split("\n")[0]
         timestamp = parse_timestamp(first_line, file_path)
 
         # Extract players
@@ -630,8 +673,16 @@ def parse_gamelog_file(file_path: str) -> dict | None:
             player2_wins = loser_score if winner_name == players[0] else winner_score
         else:
             # Fallback: count from game results
-            player1_wins = sum(1 for g in game_results if g.get('winner') == players[0] or g.get('loser') == players[1])
-            player2_wins = sum(1 for g in game_results if g.get('winner') == players[1] or g.get('loser') == players[0])
+            player1_wins = sum(
+                1
+                for g in game_results
+                if g.get("winner") == players[0] or g.get("loser") == players[1]
+            )
+            player2_wins = sum(
+                1
+                for g in game_results
+                if g.get("winner") == players[1] or g.get("loser") == players[0]
+            )
 
             if player1_wins > player2_wins:
                 match_winner = players_normalized[0]
@@ -674,7 +725,7 @@ def parse_gamelog_file(file_path: str) -> dict | None:
             "player1_mulligans": player1_mulligans,
             "player2_mulligans": player2_mulligans,
             "total_mulligans": sum(player1_mulligans) if player1_mulligans else 0,
-            "notes": ""
+            "notes": "",
         }
 
     except Exception:
@@ -712,7 +763,9 @@ def find_gamelog_files(directory: str, since_date: datetime | None = None) -> li
     return files
 
 
-def parse_all_gamelogs(directory: str = None, limit: int = None, progress_callback=None) -> list[dict]:
+def parse_all_gamelogs(
+    directory: str = None, limit: int = None, progress_callback=None
+) -> list[dict]:
     """
     Parse all GameLog files in directory.
 
@@ -765,9 +818,11 @@ if __name__ == "__main__":
 
         print(f"\nFound {len(matches)} recent matches:")
         for match in matches[:5]:
-            print(f"  {match['timestamp'].strftime('%Y-%m-%d %H:%M')} - "
-                  f"{match['players'][0]} vs {match['opponent']} - "
-                  f"Winner: {match['winner'] or 'Unknown'}")
+            print(
+                f"  {match['timestamp'].strftime('%Y-%m-%d %H:%M')} - "
+                f"{match['players'][0]} vs {match['opponent']} - "
+                f"Winner: {match['winner'] or 'Unknown'}"
+            )
     else:
         print("Could not locate GameLog directory")
         print("Make sure MTGO is installed or provide path manually")

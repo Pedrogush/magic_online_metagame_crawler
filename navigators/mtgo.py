@@ -52,9 +52,7 @@ def load_box_positions():
     Loads OCR box position configuration for opponent tracking.
     """
     if not LEADERBOARD_POSITIONS_FILE.exists():
-        logger.debug(
-            f"{LEADERBOARD_POSITIONS_FILE} not found, please run configure_box_positions"
-        )
+        logger.debug(f"{LEADERBOARD_POSITIONS_FILE} not found, please run configure_box_positions")
         configure_box_positions()
     if LEADERBOARD_POSITIONS_FILE.exists():
         try:
@@ -64,7 +62,9 @@ def load_box_positions():
             logger.error(f"Failed to load leaderboard positions: {exc}")
             return {"top": {}, "bottom": {}}
     if LEGACY_LEADERBOARD_POSITIONS.exists():
-        logger.warning("Loaded legacy leaderboard_positions.json from project root; migrating to config/")
+        logger.warning(
+            "Loaded legacy leaderboard_positions.json from project root; migrating to config/"
+        )
         with LEGACY_LEADERBOARD_POSITIONS.open("r", encoding="utf-8") as f:
             data = json.load(f)
         try:
@@ -96,6 +96,7 @@ def wait_for_click() -> tuple:
     Configuration helper: waits for user to click a screen position.
     Used for defining OCR regions in opponent tracking setup.
     """
+
     def on_click(x, y, button, pressed):
         draw_lines(x, y)
         if button == mouse.Button.left and pressed:

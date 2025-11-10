@@ -76,17 +76,26 @@ def analyze_deck(deck_content: str):
     mainboard_count = sum(count for _, count in mainboard)
     sideboard_count = sum(count for _, count in sideboard)
 
-    estimated_lands = len([c for c, _ in mainboard if any(x in c.lower() for x in ['mountain', 'island', 'swamp', 'forest', 'plains', 'land', 'wastes'])])
+    estimated_lands = len(
+        [
+            c
+            for c, _ in mainboard
+            if any(
+                x in c.lower()
+                for x in ["mountain", "island", "swamp", "forest", "plains", "land", "wastes"]
+            )
+        ]
+    )
 
     return {
-        'mainboard_count': mainboard_count,
-        'sideboard_count': sideboard_count,
-        'total_cards': mainboard_count + sideboard_count,
-        'unique_mainboard': len(mainboard),
-        'unique_sideboard': len(sideboard),
-        'mainboard_cards': mainboard,
-        'sideboard_cards': sideboard,
-        'estimated_lands': estimated_lands,
+        "mainboard_count": mainboard_count,
+        "sideboard_count": sideboard_count,
+        "total_cards": mainboard_count + sideboard_count,
+        "unique_mainboard": len(mainboard),
+        "unique_sideboard": len(sideboard),
+        "mainboard_cards": mainboard,
+        "sideboard_cards": sideboard,
+        "estimated_lands": estimated_lands,
     }
 
 

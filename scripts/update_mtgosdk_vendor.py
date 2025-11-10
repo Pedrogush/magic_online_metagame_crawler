@@ -31,9 +31,7 @@ def fetch_latest_version(package: str) -> str:
 def download_package(package: str, version: str, target: Path) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     filename = target / f"{package}.{version}.nupkg"
-    download_url = (
-        f"https://api.nuget.org/v3-flatcontainer/{package.lower()}/{version}/{package.lower()}.{version}.nupkg"
-    )
+    download_url = f"https://api.nuget.org/v3-flatcontainer/{package.lower()}/{version}/{package.lower()}.{version}.nupkg"
     resp = requests.get(download_url, timeout=30)
     resp.raise_for_status()
     filename.write_bytes(resp.content)

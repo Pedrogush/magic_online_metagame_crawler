@@ -66,7 +66,11 @@ def get_archetypes(mtg_format: str, cache_ttl: int = 60 * 60, allow_stale: bool 
 
     logger.debug(f"Fetching archetypes for {mtg_format} from MTGGoldfish")
     try:
-        page = requests.get(f"https://www.mtggoldfish.com/metagame/{mtg_format}/full", impersonate="chrome", timeout=30)
+        page = requests.get(
+            f"https://www.mtggoldfish.com/metagame/{mtg_format}/full",
+            impersonate="chrome",
+            timeout=30,
+        )
         page.raise_for_status()
     except Exception as exc:
         logger.error(f"Failed to fetch archetype page: {exc}")
@@ -148,7 +152,10 @@ def get_archetype_stats(mtg_format: str):
         except json.JSONDecodeError as exc:
             logger.warning(f"Invalid archetype cache at {cache_path}: {exc}")
             stats = {}
-        if mtg_format in stats and time.time() - stats[mtg_format].get("timestamp", 0) < 60 * 60 * 24:
+        if (
+            mtg_format in stats
+            and time.time() - stats[mtg_format].get("timestamp", 0) < 60 * 60 * 24
+        ):
             if legacy_source:
                 try:
                     ARCHETYPE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -158,7 +165,9 @@ def get_archetype_stats(mtg_format: str):
                         try:
                             cache_path.unlink()
                         except OSError as exc:
-                            logger.debug(f"Unable to remove legacy archetype cache {cache_path}: {exc}")
+                            logger.debug(
+                                f"Unable to remove legacy archetype cache {cache_path}: {exc}"
+                            )
                 except OSError as exc:
                     logger.warning(f"Failed to migrate archetype cache: {exc}")
             return stats
@@ -171,7 +180,11 @@ def get_archetype_stats(mtg_format: str):
         for day in range(7):
             date = (datetime.now() - timedelta(days=day)).strftime("%Y-%m-%d")
             stats[mtg_format][archetype["name"]]["results"][date] = len(
-                [deck for deck in stats[mtg_format][archetype["name"]]["decks"] if date.lower() in deck["date"].lower()]
+                [
+                    deck
+                    for deck in stats[mtg_format][archetype["name"]]["decks"]
+                    if date.lower() in deck["date"].lower()
+                ]
             )
     ARCHETYPE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with ARCHETYPE_CACHE_FILE.open("w", encoding="utf-8") as f:
@@ -207,9 +220,14 @@ def get_daily_decks(mtg_format: str):
         tbody: bs4.Tag = h4.find_next_sibling()
         cells = tbody.select("tr.striped")
         for cell in cells:
-            deck_name = cell.select_one("td.column-deck").select_one("span.deck-price-paper").text.strip()
+            deck_name = (
+                cell.select_one("td.column-deck").select_one("span.deck-price-paper").text.strip()
+            )
             deck_number = (
-                cell.select_one("td.column-deck").select_one("a")["href"].replace("#online", "").replace("/deck/", "")
+                cell.select_one("td.column-deck")
+                .select_one("a")["href"]
+                .replace("#online", "")
+                .replace("/deck/", "")
             )
             player_name = cell.select_one("td.column-player").text.strip()
             placement = None
@@ -254,7 +272,9 @@ def _load_deck_cache() -> tuple[dict[str, str], Path, str | None]:
     return deck_cache, cache_path, legacy_source
 
 
-def _persist_deck_cache(deck_cache: dict[str, str], cache_path: Path, legacy_source: str | None) -> None:
+def _persist_deck_cache(
+    deck_cache: dict[str, str], cache_path: Path, legacy_source: str | None
+) -> None:
     DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
         json.dump(deck_cache, fh, indent=4)
@@ -306,5 +326,10 @@ def download_deck(deck_num: str):
 
 if __name__ == "__main__":
     stats = get_archetype_stats("modern")
-    print(json.dumps({s:stats['modern'][s]['results'] for s in stats['modern'] if 'timestamp' not in s}, indent=8))
+    print(
+        json.dumps(
+            {s: stats["modern"][s]["results"] for s in stats["modern"] if "timestamp" not in s},
+            indent=8,
+        )
+    )
     print("done")

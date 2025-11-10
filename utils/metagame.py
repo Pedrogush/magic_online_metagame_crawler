@@ -55,9 +55,7 @@ def get_latest_deck(player: str, option: str):
             continue
         entry_format: str = tds[2].text
         if entry_format.lower().strip() == option.lower():
-            logger.debug(
-                f"{player} last 5-0 seen playing {tds[3].text}, in {tds[0].text}"
-            )
+            logger.debug(f"{player} last 5-0 seen playing {tds[3].text}, in {tds[0].text}")
             return tds[3].text
 
     return "Unknown"

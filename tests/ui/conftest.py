@@ -89,8 +89,12 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(card_images, "IMAGE_CACHE_DIR", image_cache, raising=False)
     monkeypatch.setattr(card_images, "IMAGE_DB_PATH", image_cache / "images.db", raising=False)
-    monkeypatch.setattr(card_images, "BULK_DATA_CACHE", image_cache / "bulk_data.json", raising=False)
-    monkeypatch.setattr(card_images, "PRINTING_INDEX_CACHE", image_cache / "printings_v1.json", raising=False)
+    monkeypatch.setattr(
+        card_images, "BULK_DATA_CACHE", image_cache / "bulk_data.json", raising=False
+    )
+    monkeypatch.setattr(
+        card_images, "PRINTING_INDEX_CACHE", image_cache / "printings_v1.json", raising=False
+    )
 
     def fake_ensure_latest(self: CardDataManager, force: bool = False) -> None:
         self._cards = SAMPLE_CARDS
@@ -100,7 +104,9 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         lookup = self._cards_by_name or {}
         return lookup.get(name.lower())
 
-    def fake_search_cards(self: CardDataManager, query: str = "", **kwargs) -> list[dict[str, object]]:
+    def fake_search_cards(
+        self: CardDataManager, query: str = "", **kwargs
+    ) -> list[dict[str, object]]:
         needle = (query or "").strip().lower()
         cards = self._cards or []
         return [card for card in cards if needle in card.get("name_lower", "")]
@@ -237,13 +243,22 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         mtggoldfish,
         "get_archetype_decks",
         lambda archetype: [
-            {"name": archetype, "number": "1", "player": "TestPilot", "event": "Test Event", "result": "2-1", "date": "2024-10-01"},
+            {
+                "name": archetype,
+                "number": "1",
+                "player": "TestPilot",
+                "event": "Test Event",
+                "result": "2-1",
+                "date": "2024-10-01",
+            },
         ],
         raising=False,
     )
 
     def fake_download(number: str) -> None:
-        (decks / "curr_deck.txt").write_text("4 Mountain\n4 Island\nSideboard\n2 Dispel\n", encoding="utf-8")
+        (decks / "curr_deck.txt").write_text(
+            "4 Mountain\n4 Island\nSideboard\n2 Dispel\n", encoding="utf-8"
+        )
 
     monkeypatch.setattr(mtggoldfish, "download_deck", fake_download, raising=False)
 

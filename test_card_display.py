@@ -29,7 +29,9 @@ class TestFrame(wx.Frame):
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         placeholder_btn = wx.Button(panel, label="Show Placeholder")
-        placeholder_btn.Bind(wx.EVT_BUTTON, lambda e: self.card_display.show_placeholder("Test placeholder"))
+        placeholder_btn.Bind(
+            wx.EVT_BUTTON, lambda e: self.card_display.show_placeholder("Test placeholder")
+        )
         btn_sizer.Add(placeholder_btn, 0, wx.ALL, 5)
 
         load_btn = wx.Button(panel, label="Load Test Image")

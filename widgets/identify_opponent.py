@@ -50,11 +50,7 @@ class MTGOpponentDeckSpy(wx.Frame):
 
     def __init__(self, parent: wx.Window | None = None) -> None:
         style = (
-            wx.CAPTION
-            | wx.CLOSE_BOX
-            | wx.STAY_ON_TOP
-            | wx.FRAME_FLOAT_ON_PARENT
-            | wx.MINIMIZE_BOX
+            wx.CAPTION | wx.CLOSE_BOX | wx.STAY_ON_TOP | wx.FRAME_FLOAT_ON_PARENT | wx.MINIMIZE_BOX
         )
         super().__init__(parent, title="MTGO Opponent Tracker", size=(360, 180), style=style)
 
@@ -116,7 +112,9 @@ class MTGOpponentDeckSpy(wx.Frame):
 
         sizer.AddSpacer(4)
 
-    def _stylize_label(self, label: wx.StaticText, *, bold: bool = False, subtle: bool = False) -> None:
+    def _stylize_label(
+        self, label: wx.StaticText, *, bold: bool = False, subtle: bool = False
+    ) -> None:
         label.SetForegroundColour(SUBDUED_TEXT if subtle else LIGHT_TEXT)
         label.SetBackgroundColour(DARK_BG)
         font = label.GetFont()
@@ -177,7 +175,9 @@ class MTGOpponentDeckSpy(wx.Frame):
         self.status_label.Wrap(320)
         self._refresh_opponent_display()
 
-    def _lookup_decks_all_formats(self, opponent_name: str, *, force: bool = False) -> dict[str, str]:
+    def _lookup_decks_all_formats(
+        self, opponent_name: str, *, force: bool = False
+    ) -> dict[str, str]:
         """Lookup opponent's recent decks across all formats."""
         cached = self.cache.get(opponent_name)
         now = time.time()

@@ -233,9 +233,7 @@ class CardImageDisplay(wx.Panel):
 
         # Create blended bitmap
         blended = self._blend_bitmaps(
-            self.animation_current_bitmap,
-            self.animation_target_bitmap,
-            self.animation_alpha
+            self.animation_current_bitmap, self.animation_target_bitmap, self.animation_alpha
         )
 
         self.bitmap_ctrl.SetBitmap(blended)
@@ -270,8 +268,8 @@ class CardImageDisplay(wx.Panel):
 
         for i in range(0, len(data1), 3):
             blended_data[i] = int(data1[i] * (1 - alpha) + data2[i] * alpha)
-            blended_data[i+1] = int(data1[i+1] * (1 - alpha) + data2[i+1] * alpha)
-            blended_data[i+2] = int(data1[i+2] * (1 - alpha) + data2[i+2] * alpha)
+            blended_data[i + 1] = int(data1[i + 1] * (1 - alpha) + data2[i + 1] * alpha)
+            blended_data[i + 2] = int(data1[i + 2] * (1 - alpha) + data2[i + 2] * alpha)
 
         result.SetData(bytes(blended_data))
 
@@ -372,7 +370,9 @@ class CardImageDisplay(wx.Panel):
             gc.SetPen(wx.Pen(wx.Colour(60, 60, 60), 1))
             gc.SetBrush(wx.TRANSPARENT_BRUSH)
             path = gc.CreatePath()
-            path.AddRoundedRectangle(0.5, 0.5, self.image_width - 1, self.image_height - 1, self.corner_radius)
+            path.AddRoundedRectangle(
+                0.5, 0.5, self.image_width - 1, self.image_height - 1, self.corner_radius
+            )
             gc.DrawPath(path)
         else:
             # Fallback border without antialiasing
@@ -465,7 +465,9 @@ class CardImageDisplay(wx.Panel):
         # Draw rounded rectangle
         dc.SetPen(wx.Pen(wx.Colour(80, 80, 80), 2))
         dc.SetBrush(wx.Brush(wx.Colour(50, 50, 50)))
-        dc.DrawRoundedRectangle(5, 5, self.image_width - 10, self.image_height - 10, self.corner_radius)
+        dc.DrawRoundedRectangle(
+            5, 5, self.image_width - 10, self.image_height - 10, self.corner_radius
+        )
 
         # Draw text
         dc.SetTextForeground(wx.Colour(150, 150, 150))

@@ -72,7 +72,9 @@ def monitor_currency(
                     continue
 
                 currency = payload.get("currency")
-                tickets, play_points, treasure_chests, currency_error = _extract_currency_counts(currency)
+                tickets, play_points, treasure_chests, currency_error = _extract_currency_counts(
+                    currency
+                )
                 current = (tickets, play_points, treasure_chests, currency_error)
 
                 if last_report != current:

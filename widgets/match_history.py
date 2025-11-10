@@ -40,8 +40,10 @@ class MatchHistoryFrame(wx.Frame):
 
     def _init_username(self) -> None:
         """Get current MTGO username in background."""
+
         def worker():
             from utils.gamelog_parser import get_current_username
+
             username = get_current_username()
             wx.CallAfter(self._set_username, username)
 
@@ -87,10 +89,14 @@ class MatchHistoryFrame(wx.Frame):
         self.game_rate_label = wx.StaticText(box_parent, label="Absolute Game Win Rate: —")
         self.game_rate_label.SetForegroundColour(LIGHT_TEXT)
         metrics_grid.Add(self.game_rate_label, 0, wx.ALIGN_LEFT)
-        self.filtered_match_rate_label = wx.StaticText(box_parent, label="Match Win Rate (filtered): —")
+        self.filtered_match_rate_label = wx.StaticText(
+            box_parent, label="Match Win Rate (filtered): —"
+        )
         self.filtered_match_rate_label.SetForegroundColour(LIGHT_TEXT)
         metrics_grid.Add(self.filtered_match_rate_label, 0, wx.ALIGN_LEFT)
-        self.filtered_game_rate_label = wx.StaticText(box_parent, label="Game Win Rate (filtered): —")
+        self.filtered_game_rate_label = wx.StaticText(
+            box_parent, label="Game Win Rate (filtered): —"
+        )
         self.filtered_game_rate_label.SetForegroundColour(LIGHT_TEXT)
         metrics_grid.Add(self.filtered_game_rate_label, 0, wx.ALIGN_LEFT)
         self.mulligan_rate_label = wx.StaticText(box_parent, label="Mulligan Rate: —")
@@ -103,12 +109,22 @@ class MatchHistoryFrame(wx.Frame):
 
         filter_row = wx.BoxSizer(wx.HORIZONTAL)
         metrics_sizer.Add(filter_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-        filter_row.Add(wx.StaticText(box_parent, label="Start (YYYY-MM-DD):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        filter_row.Add(
+            wx.StaticText(box_parent, label="Start (YYYY-MM-DD):"),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            4,
+        )
         self.start_date_ctrl = wx.TextCtrl(box_parent, size=(120, -1))
         self.start_date_ctrl.SetBackgroundColour(DARK_ALT)
         self.start_date_ctrl.SetForegroundColour(LIGHT_TEXT)
         filter_row.Add(self.start_date_ctrl, 0, wx.RIGHT, 10)
-        filter_row.Add(wx.StaticText(box_parent, label="End (YYYY-MM-DD):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        filter_row.Add(
+            wx.StaticText(box_parent, label="End (YYYY-MM-DD):"),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            4,
+        )
         self.end_date_ctrl = wx.TextCtrl(box_parent, size=(120, -1))
         self.end_date_ctrl.SetBackgroundColour(DARK_ALT)
         self.end_date_ctrl.SetForegroundColour(LIGHT_TEXT)
@@ -157,12 +173,13 @@ class MatchHistoryFrame(wx.Frame):
 
         threading.Thread(target=worker, daemon=True).start()
 
-
     def _handle_history_error(self, message: str) -> None:
         if not self or not self.IsShown():
             return
         self._set_busy(False)
-        wx.MessageBox(f"Unable to load match history:\n{message}", "Match History", wx.OK | wx.ICON_ERROR)
+        wx.MessageBox(
+            f"Unable to load match history:\n{message}", "Match History", wx.OK | wx.ICON_ERROR
+        )
 
     def _populate_history(self, matches: list[dict[str, Any]]) -> None:
         if not self or not self.IsShown():
@@ -232,7 +249,7 @@ class MatchHistoryFrame(wx.Frame):
                 opp_score = player2_score
 
             # Determine if we won
-            we_won = (winner == our_name)
+            we_won = winner == our_name
 
             # Format mulligan display
             total_mulls = sum(our_mulligans) if our_mulligans else 0
@@ -278,7 +295,9 @@ class MatchHistoryFrame(wx.Frame):
 
         deck_text = f"=== {player1_name} ({player1_archetype}) — {len(player1_deck)} cards ===\n"
         deck_text += "\n".join(f"  • {card}" for card in player1_deck)
-        deck_text += f"\n\n=== {player2_name} ({player2_archetype}) — {len(player2_deck)} cards ===\n"
+        deck_text += (
+            f"\n\n=== {player2_name} ({player2_archetype}) — {len(player2_deck)} cards ===\n"
+        )
         deck_text += "\n".join(f"  • {card}" for card in player2_deck)
 
         # Show in dialog
@@ -322,11 +341,15 @@ class MatchHistoryFrame(wx.Frame):
         match_rate = (match_wins / total_matches) * 100 if total_matches else 0.0
         game_rate = (games_won / games_played) * 100 if games_played else 0.0
 
-        self.match_rate_label.SetLabel(f"Absolute Match Win Rate: {match_rate:.1f}% ({match_wins}/{total_matches})")
+        self.match_rate_label.SetLabel(
+            f"Absolute Match Win Rate: {match_rate:.1f}% ({match_wins}/{total_matches})"
+        )
         self.game_rate_label.SetLabel(
             f"Absolute Game Win Rate: {game_rate:.1f}% ({games_won}/{games_played or 1})"
         )
-        self.mulligan_rate_label.SetLabel(f"Mulligan Rate: {mulligan_rate:.1f}% ({total_mulligans}/{games_with_data} games)")
+        self.mulligan_rate_label.SetLabel(
+            f"Mulligan Rate: {mulligan_rate:.1f}% ({total_mulligans}/{games_with_data} games)"
+        )
         self.avg_mulligans_label.SetLabel(f"Avg Mulligans/Match: {avg_mulligans_per_match:.2f}")
 
         start = self._parse_date_input(self.start_date_ctrl.GetValue())
@@ -341,7 +364,9 @@ class MatchHistoryFrame(wx.Frame):
             filtered_games_won = sum(match["games_won"] for match in filtered)
             filtered_games_total = sum(match["games_total"] for match in filtered)
             filtered_match_rate = (filtered_match_wins / len(filtered)) * 100
-            filtered_game_rate = (filtered_games_won / filtered_games_total) * 100 if filtered_games_total else 0.0
+            filtered_game_rate = (
+                (filtered_games_won / filtered_games_total) * 100 if filtered_games_total else 0.0
+            )
             self.filtered_match_rate_label.SetLabel(
                 f"Match Win Rate (filtered): {filtered_match_rate:.1f}% ({filtered_match_wins}/{len(filtered)})"
             )
@@ -381,7 +406,11 @@ class MatchHistoryFrame(wx.Frame):
                     our_mulligans = sum(match.get("player1_mulligans", []))
                     our_score = player1_score
                     opp_score = player2_score
-                elif players and len(players) > 1 and players[1].lower() == self.current_username.lower():
+                elif (
+                    players
+                    and len(players) > 1
+                    and players[1].lower() == self.current_username.lower()
+                ):
                     our_name = players[1]
                     our_mulligans = sum(match.get("player2_mulligans", []))
                     our_score = player2_score
@@ -399,13 +428,15 @@ class MatchHistoryFrame(wx.Frame):
 
             match_win = (winner == our_name) if winner and our_name else False
 
-            results.append({
-                "date": date_obj,
-                "match_win": match_win,
-                "games_won": our_score,
-                "games_total": our_score + opp_score,
-                "total_mulligans": our_mulligans,
-            })
+            results.append(
+                {
+                    "date": date_obj,
+                    "match_win": match_win,
+                    "games_won": our_score,
+                    "games_total": our_score + opp_score,
+                    "total_mulligans": our_mulligans,
+                }
+            )
 
         return results
 

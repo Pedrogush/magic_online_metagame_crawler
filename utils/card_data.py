@@ -63,11 +63,15 @@ class CardDataManager:
                     if remote_meta:
                         logger.info("Refreshing MTGJSON AtomicCards dataset")
                     else:
-                        logger.info("Fetching MTGJSON AtomicCards dataset (using headers for metadata)")
+                        logger.info(
+                            "Fetching MTGJSON AtomicCards dataset (using headers for metadata)"
+                        )
                     self._download_and_rebuild(remote_meta)
                 except Exception as exc:
                     if missing_index:
-                        raise RuntimeError("Card data download failed and no cache is available") from exc
+                        raise RuntimeError(
+                            "Card data download failed and no cache is available"
+                        ) from exc
                     logger.warning(f"Failed to refresh MTGJSON data, using cache: {exc}")
         self._load_index()
 

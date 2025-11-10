@@ -38,10 +38,10 @@ PRINTING_INDEX_CACHE = IMAGE_CACHE_DIR / f"printings_v{PRINTING_INDEX_VERSION}.j
 
 # Image size options (in order of preference for storage)
 IMAGE_SIZES = {
-    "small": "small",      # 146x204 - thumbnails
-    "normal": "normal",    # 488x680 - default
-    "large": "large",      # 672x936 - high quality
-    "png": "png",          # 745x1040 - highest quality, transparent
+    "small": "small",  # 146x204 - thumbnails
+    "normal": "normal",  # 488x680 - default
+    "large": "large",  # 672x936 - high quality
+    "png": "png",  # 745x1040 - highest quality, transparent
 }
 
 # Download configuration
@@ -93,7 +93,8 @@ class CardImageCache:
     def _init_database(self) -> None:
         """Initialize SQLite database schema."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS card_images (
                     uuid TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -106,21 +107,28 @@ class CardImageCache:
                     artist TEXT,
                     UNIQUE(uuid, image_size)
                 )
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_card_name ON card_images(name)
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_set_code ON card_images(set_code)
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS bulk_data_meta (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     downloaded_at TEXT NOT NULL,
                     total_cards INTEGER NOT NULL,
                     bulk_data_uri TEXT NOT NULL
                 )
-            """)
+            """
+            )
             conn.commit()
 
     def _resolve_path(self, stored_path: str) -> Path:
@@ -195,7 +203,7 @@ class CardImageCache:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
                 "SELECT file_path FROM card_images WHERE LOWER(name) = LOWER(?) AND image_size = ? LIMIT 1",
-                (card_name, size)
+                (card_name, size),
             )
             row = cursor.fetchone()
             if row:
@@ -208,8 +216,7 @@ class CardImageCache:
         """Get cached image path by Scryfall UUID."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                "SELECT file_path FROM card_images WHERE uuid = ? AND image_size = ?",
-                (uuid, size)
+                "SELECT file_path FROM card_images WHERE uuid = ? AND image_size = ?", (uuid, size)
             )
             row = cursor.fetchone()
             if row:
@@ -218,20 +225,40 @@ class CardImageCache:
                     return path
         return None
 
-    def add_image(self, uuid: str, name: str, set_code: str, collector_number: str,
-                  image_size: str, file_path: Path, scryfall_uri: str = None,
-                  artist: str = None) -> None:
+    def add_image(
+        self,
+        uuid: str,
+        name: str,
+        set_code: str,
+        collector_number: str,
+        image_size: str,
+        file_path: Path,
+        scryfall_uri: str = None,
+        artist: str = None,
+    ) -> None:
         """Add image record to database."""
         file_path_str = str(Path(file_path).resolve())
 
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO card_images
                 (uuid, name, set_code, collector_number, image_size, file_path,
                  downloaded_at, scryfall_uri, artist)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (uuid, name, set_code, collector_number, image_size, file_path_str,
-                  datetime.utcnow().isoformat(), scryfall_uri, artist))
+            """,
+                (
+                    uuid,
+                    name,
+                    set_code,
+                    collector_number,
+                    image_size,
+                    file_path_str,
+                    datetime.utcnow().isoformat(),
+                    scryfall_uri,
+                    artist,
+                ),
+            )
             conn.commit()
 
     def get_cache_stats(self) -> dict[str, Any]:
@@ -241,12 +268,13 @@ class CardImageCache:
             by_size = {}
             for size in IMAGE_SIZES.values():
                 count = conn.execute(
-                    "SELECT COUNT(*) FROM card_images WHERE image_size = ?",
-                    (size,)
+                    "SELECT COUNT(*) FROM card_images WHERE image_size = ?", (size,)
                 ).fetchone()[0]
                 by_size[size] = count
 
-            bulk_meta = conn.execute("SELECT downloaded_at, total_cards FROM bulk_data_meta WHERE id = 1").fetchone()
+            bulk_meta = conn.execute(
+                "SELECT downloaded_at, total_cards FROM bulk_data_meta WHERE id = 1"
+            ).fetchone()
 
         return {
             "unique_cards": total,
@@ -267,9 +295,7 @@ class BulkImageDownloader:
         self.cache = cache
         self.max_workers = max_workers
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "MTGOMetagameCrawler/1.0"
-        })
+        self.session.headers.update({"User-Agent": "MTGOMetagameCrawler/1.0"})
 
     def download_bulk_metadata(self, force: bool = False) -> tuple[bool, str]:
         """Download Scryfall bulk data JSON.
@@ -310,10 +336,13 @@ class BulkImageDownloader:
 
             # Update database metadata (defer card count to avoid parsing 500MB file)
             with sqlite3.connect(self.cache.db_path) as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO bulk_data_meta (id, downloaded_at, total_cards, bulk_data_uri)
                     VALUES (1, ?, ?, ?)
-                """, (datetime.utcnow().isoformat(), 0, download_uri))
+                """,
+                    (datetime.utcnow().isoformat(), 0, download_uri),
+                )
                 conn.commit()
 
             logger.info("Bulk data downloaded successfully")
@@ -323,7 +352,9 @@ class BulkImageDownloader:
             logger.exception("Failed to download bulk data")
             return False, f"Error: {exc}"
 
-    def _download_single_image(self, card: dict[str, Any], size: str = "normal") -> tuple[bool, str]:
+    def _download_single_image(
+        self, card: dict[str, Any], size: str = "normal"
+    ) -> tuple[bool, str]:
         """Download a single card image.
 
         Args:
@@ -386,7 +417,7 @@ class BulkImageDownloader:
                 image_size=size,
                 file_path=file_path,
                 scryfall_uri=card.get("scryfall_uri"),
-                artist=card.get("artist")
+                artist=card.get("artist"),
             )
 
             return True, f"Downloaded: {name}"
@@ -395,9 +426,12 @@ class BulkImageDownloader:
             logger.debug(f"Failed to download {name}: {exc}")
             return False, f"Error: {name} - {exc}"
 
-    def download_all_images(self, size: str = "normal",
-                           max_cards: int | None = None,
-                           progress_callback: callable | None = None) -> dict[str, Any]:
+    def download_all_images(
+        self,
+        size: str = "normal",
+        max_cards: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, Any]:
         """Download all card images from bulk data.
 
         Args:
@@ -411,7 +445,7 @@ class BulkImageDownloader:
         if not BULK_DATA_CACHE.exists():
             return {
                 "success": False,
-                "error": "Bulk data not downloaded. Call download_bulk_metadata() first."
+                "error": "Bulk data not downloaded. Call download_bulk_metadata() first.",
             }
 
         try:
@@ -451,10 +485,15 @@ class BulkImageDownloader:
 
                     # Progress callback
                     if progress_callback and completed % 100 == 0:
-                        progress_callback(completed, total,
-                                        f"{successful} downloaded, {skipped} cached, {failed} failed")
+                        progress_callback(
+                            completed,
+                            total,
+                            f"{successful} downloaded, {skipped} cached, {failed} failed",
+                        )
 
-            logger.info(f"Bulk download complete: {successful} downloaded, {skipped} cached, {failed} failed")
+            logger.info(
+                f"Bulk download complete: {successful} downloaded, {skipped} cached, {failed} failed"
+            )
 
             return {
                 "success": True,
@@ -466,10 +505,7 @@ class BulkImageDownloader:
 
         except Exception as exc:
             logger.exception("Bulk download failed")
-            return {
-                "success": False,
-                "error": str(exc)
-            }
+            return {"success": False, "error": str(exc)}
 
 
 def _load_printing_index_payload() -> dict[str, Any] | None:
@@ -574,9 +610,9 @@ def get_card_image(card_name: str, size: str = "normal") -> Path | None:
     return cache.get_image_path(card_name, size)
 
 
-def download_bulk_images(size: str = "normal",
-                         max_cards: int | None = None,
-                         progress_callback: callable | None = None) -> dict[str, Any]:
+def download_bulk_images(
+    size: str = "normal", max_cards: int | None = None, progress_callback: callable | None = None
+) -> dict[str, Any]:
     """High-level function to download all card images.
 
     Args:

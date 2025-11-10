@@ -96,13 +96,7 @@ class TimerAlertFrame(wx.Frame):
     POLL_INTERVAL_MS = 1000
 
     def __init__(self, parent: wx.Window | None = None) -> None:
-        style = (
-            wx.CAPTION
-            | wx.CLOSE_BOX
-            | wx.MINIMIZE_BOX
-            | wx.STAY_ON_TOP
-            | wx.RESIZE_BORDER
-        )
+        style = wx.CAPTION | wx.CLOSE_BOX | wx.MINIMIZE_BOX | wx.STAY_ON_TOP | wx.RESIZE_BORDER
         super().__init__(parent, title="MTGO Timer Alert", size=(420, 400), style=style)
 
         self._watcher: BridgeWatcher | None = None
@@ -146,7 +140,9 @@ class TimerAlertFrame(wx.Frame):
         threshold_sizer = wx.StaticBoxSizer(threshold_box, wx.VERTICAL)
         box_parent = threshold_sizer.GetStaticBox()
 
-        instructions = wx.StaticText(box_parent, label="Enter time in MM:SS format (e.g., 05:00 for 5 minutes)")
+        instructions = wx.StaticText(
+            box_parent, label="Enter time in MM:SS format (e.g., 05:00 for 5 minutes)"
+        )
         instructions.SetForegroundColour(SUBDUED_TEXT)
         threshold_sizer.Add(instructions, 0, wx.ALL, 4)
 
@@ -181,13 +177,17 @@ class TimerAlertFrame(wx.Frame):
         options_grid.Add(self.sound_choice, 0, wx.EXPAND)
 
         # Poll interval
-        options_grid.Add(self._static_text(panel, "Check interval (ms):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        options_grid.Add(
+            self._static_text(panel, "Check interval (ms):"), 0, wx.ALIGN_CENTER_VERTICAL
+        )
         self.poll_interval_ctrl = wx.SpinCtrl(panel, min=250, max=5000, initial=1000)
         self._stylize_spin(self.poll_interval_ctrl)
         options_grid.Add(self.poll_interval_ctrl, 0, wx.EXPAND)
 
         # Repeat interval
-        options_grid.Add(self._static_text(panel, "Repeat interval (seconds):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        options_grid.Add(
+            self._static_text(panel, "Repeat interval (seconds):"), 0, wx.ALIGN_CENTER_VERTICAL
+        )
         self.repeat_interval_ctrl = wx.SpinCtrl(panel, min=5, max=300, initial=30)
         self._stylize_spin(self.repeat_interval_ctrl)
         options_grid.Add(self.repeat_interval_ctrl, 0, wx.EXPAND)
@@ -195,7 +195,9 @@ class TimerAlertFrame(wx.Frame):
         sizer.Add(options_grid, 0, wx.LEFT | wx.RIGHT | wx.EXPAND, 12)
 
         # Checkboxes
-        self.start_alert_checkbox = wx.CheckBox(panel, label="Alert when timer starts counting down")
+        self.start_alert_checkbox = wx.CheckBox(
+            panel, label="Alert when timer starts counting down"
+        )
         self.start_alert_checkbox.SetValue(True)
         self.start_alert_checkbox.SetForegroundColour(LIGHT_TEXT)
         self.start_alert_checkbox.SetBackgroundColour(DARK_BG)
@@ -241,7 +243,9 @@ class TimerAlertFrame(wx.Frame):
         challenge_box.SetForegroundColour(LIGHT_TEXT)
         challenge_box.SetBackgroundColour(DARK_PANEL)
         challenge_sizer = wx.StaticBoxSizer(challenge_box, wx.VERTICAL)
-        self.challenge_text = wx.StaticText(challenge_box, label="No active challenge timer detected.")
+        self.challenge_text = wx.StaticText(
+            challenge_box, label="No active challenge timer detected."
+        )
         self.challenge_text.SetForegroundColour(LIGHT_TEXT)
         self.challenge_text.SetBackgroundColour(DARK_PANEL)
         self.challenge_text.Wrap(340)
@@ -262,7 +266,9 @@ class TimerAlertFrame(wx.Frame):
     def _remove_threshold_panel(self, panel: ThresholdPanel) -> None:
         """Remove a threshold input panel."""
         if len(self.threshold_panels) <= 1:
-            wx.MessageBox("At least one threshold is required.", "Timer Alert", wx.OK | wx.ICON_INFORMATION)
+            wx.MessageBox(
+                "At least one threshold is required.", "Timer Alert", wx.OK | wx.ICON_INFORMATION
+            )
             return
         self.threshold_panels.remove(panel)
         self.threshold_container_sizer.Detach(panel)
@@ -306,7 +312,11 @@ class TimerAlertFrame(wx.Frame):
 
         thresholds = self._parse_thresholds()
         if not thresholds:
-            wx.MessageBox("Please enter at least one valid threshold (MM:SS format).", "Timer Alert", wx.OK | wx.ICON_INFORMATION)
+            wx.MessageBox(
+                "Please enter at least one valid threshold (MM:SS format).",
+                "Timer Alert",
+                wx.OK | wx.ICON_INFORMATION,
+            )
             return
 
         try:

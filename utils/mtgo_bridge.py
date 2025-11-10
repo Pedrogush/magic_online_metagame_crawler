@@ -61,7 +61,7 @@ def get_match_history(
 def fetch_collection_async(
     *,
     bridge_path: str | None = None,
-    context = None,
+    context=None,
 ):
     return mtgo_bridge_client.fetch_collection_snapshot_async(
         bridge_path=bridge_path, context=context
@@ -71,18 +71,16 @@ def fetch_collection_async(
 def fetch_history_async(
     *,
     bridge_path: str | None = None,
-    context = None,
+    context=None,
 ):
-    return mtgo_bridge_client.fetch_match_history_async(
-        bridge_path=bridge_path, context=context
-    )
+    return mtgo_bridge_client.fetch_match_history_async(bridge_path=bridge_path, context=context)
 
 
 def start_watch(
     *,
     bridge_path: str | None = None,
     interval_ms: int = 500,
-    context = None,
+    context=None,
 ):
     return mtgo_bridge_client.start_watch(
         bridge_path=bridge_path, interval_ms=interval_ms, context=context
@@ -102,4 +100,3 @@ def list_decks(*_args, **_kwargs) -> list[dict[str, Any]]:
 def get_full_collection(*_args, **_kwargs) -> Mapping[str, Any]:
     """Backward compatible alias for ``get_collection_snapshot``."""
     return get_collection_snapshot(*_args, **_kwargs)
-

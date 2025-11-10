@@ -173,9 +173,7 @@ def update_mtgo_deck_cache(
         if fmt:
             target_formats.add(fmt)
         else:
-            target_formats = {
-                deck.get("format") for deck in aggregated if deck.get("format")
-            }
+            target_formats = {deck.get("format") for deck in aggregated if deck.get("format")}
         for format_name in sorted(filter(None, target_formats)):
             try:
                 classifier.assign_archetypes(aggregated, format_name)

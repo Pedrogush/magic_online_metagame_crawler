@@ -67,11 +67,7 @@ def test_image_download(size: str = "normal", max_cards: int = 100):
         percent = (completed / total) * 100
         print(f"\rProgress: {completed}/{total} ({percent:.1f}%) - {message}", end="", flush=True)
 
-    result = download_bulk_images(
-        size=size,
-        max_cards=max_cards,
-        progress_callback=progress
-    )
+    result = download_bulk_images(size=size, max_cards=max_cards, progress_callback=progress)
 
     print("\n")  # New line after progress
     print(f"\nResult: {'✓ SUCCESS' if result.get('success') else '✗ FAILED'}")
@@ -110,13 +106,14 @@ def download_full_database(size: str = "normal"):
             remaining = (total - completed) / rate if rate > 0 else 0
             elapsed_str = f" - ETA: {remaining:.0f}s"
 
-        print(f"\rProgress: {completed}/{total} ({percent:.1f}%){elapsed_str} - {message}",
-              end="", flush=True)
+        print(
+            f"\rProgress: {completed}/{total} ({percent:.1f}%){elapsed_str} - {message}",
+            end="",
+            flush=True,
+        )
 
     result = download_bulk_images(
-        size=size,
-        max_cards=None,  # Download all
-        progress_callback=progress
+        size=size, max_cards=None, progress_callback=progress  # Download all
     )
 
     print("\n")  # New line after progress
@@ -148,7 +145,7 @@ def show_stats():
     print(f"Total cards in bulk data: {stats.get('bulk_total_cards', 'N/A')}")
 
     print("\nImages by size:")
-    for size, count in stats.get('by_size', {}).items():
+    for size, count in stats.get("by_size", {}).items():
         print(f"  {size:8s}: {count:6d} images")
 
     # Test lookup
@@ -166,18 +163,19 @@ def show_stats():
 
 def main():
     parser = argparse.ArgumentParser(description="Test card image downloader backend")
-    parser.add_argument("--metadata-only", action="store_true",
-                       help="Only download bulk metadata JSON")
-    parser.add_argument("--test", action="store_true",
-                       help="Test mode: download first 100 cards")
-    parser.add_argument("--size", choices=["small", "normal", "large", "png"],
-                       default="normal", help="Image size to download")
-    parser.add_argument("--full", action="store_true",
-                       help="Download the entire card database")
-    parser.add_argument("--stats", action="store_true",
-                       help="Show cache statistics")
-    parser.add_argument("--max-cards", type=int,
-                       help="Maximum number of cards to download")
+    parser.add_argument(
+        "--metadata-only", action="store_true", help="Only download bulk metadata JSON"
+    )
+    parser.add_argument("--test", action="store_true", help="Test mode: download first 100 cards")
+    parser.add_argument(
+        "--size",
+        choices=["small", "normal", "large", "png"],
+        default="normal",
+        help="Image size to download",
+    )
+    parser.add_argument("--full", action="store_true", help="Download the entire card database")
+    parser.add_argument("--stats", action="store_true", help="Show cache statistics")
+    parser.add_argument("--max-cards", type=int, help="Maximum number of cards to download")
 
     args = parser.parse_args()
 
