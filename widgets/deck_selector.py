@@ -1,38 +1,39 @@
-import time
-import tkinter as tk
-import tkinter.font as tkfont
-from tkinter import ttk, messagebox, simpledialog
 import json
 import threading
+import time
+from collections import Counter
+import re
+import re
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
+
+import wx
+import wx.dataview as dv
 from loguru import logger
-from utils.deck import deck_to_dictionary, add_dicts, analyze_deck
-from utils.dbq import (
-    save_deck_to_db,
-    get_saved_decks,
-    delete_saved_deck,
+
+from navigators.mtggoldfish import get_archetypes, get_archetype_decks, download_deck
+from utils.card_data import CardDataManager
+from utils.card_images import (
+    get_card_image,
+    get_cache,
+    BulkImageDownloader,
+    IMAGE_CACHE_DIR,
+    BULK_DATA_CACHE,
+    ensure_printing_index_cache,
 )
-from utils import mtgo_bridge
-from navigators.mtggoldfish import (
-    get_archetypes,
-    get_archetype_stats,
-    get_archetype_decks,
-    download_deck,
-)
-from widgets.identify_opponent import MTGOpponentDeckSpy
-from widgets.metagame_view import MetagameStatsView
-from widgets.timer_alert import TimerAlertWindow
-from widgets.match_history import MatchHistoryWindow
+from utils.deck import add_dicts, analyze_deck, deck_to_dictionary
+from utils.dbq import save_deck_to_db
 from utils.paths import (
+    CACHE_DIR,
     CONFIG_FILE,
-    DECK_SELECTOR_SETTINGS_FILE,
     CURR_DECK_FILE,
+    DECK_SELECTOR_SETTINGS_FILE,
     DECKS_DIR,
 )
-
-CARD_SEARCH_PANEL_WIDTH = 420
-CARD_SEARCH_LISTBOX_WIDTH = 34
-DECK_GRID_COLUMNS = 4
+from widgets.card_image_display import CardImageDisplay
+from widgets.identify_opponent import MTGOpponentDeckSpy
+from widgets.match_history import MatchHistoryFrame
+from widgets.timer_alert import TimerAlertFrame
 
 FORMAT_OPTIONS = [
     "Modern",
@@ -45,21 +46,57 @@ FORMAT_OPTIONS = [
     "Brawl",
     "Historic",
 ]
-COLOR_SCHEME = "bisque"
-CS = [
-    COLOR_SCHEME + "1",
-    COLOR_SCHEME + "2",
-    COLOR_SCHEME + "3",
-    COLOR_SCHEME + "4",
-    COLOR_SCHEME,
-]
+
 LEGACY_CONFIG_FILE = Path("config.json")
-CONFIG = {}
+LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
+LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
+
+NOTES_STORE = CACHE_DIR / "deck_notes.json"
+OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
+GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
+LEGACY_NOTES_STORE = CACHE_DIR / "deck_notes_wx.json"
+LEGACY_OUTBOARD_STORE = CACHE_DIR / "deck_outboard_wx.json"
+LEGACY_GUIDE_STORE = CACHE_DIR / "deck_sbguides_wx.json"
+MANA_RENDER_LOG = Path("cache") / "mana_render.log"
+CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"
+
+for new_path, legacy_path in [
+    (NOTES_STORE, LEGACY_NOTES_STORE),
+    (OUTBOARD_STORE, LEGACY_OUTBOARD_STORE),
+    (GUIDE_STORE, LEGACY_GUIDE_STORE),
+]:
+    if not new_path.exists() and legacy_path.exists():
+        try:
+            legacy_path.replace(new_path)
+            logger.info(f"Migrated {legacy_path.name} to {new_path.name}")
+        except OSError as exc:  # pragma: no cover - migration best-effort
+            logger.warning(f"Failed to migrate {legacy_path} to {new_path}: {exc}")
+
+
+def _log_mana_event(*parts: str) -> None:  # pragma: no cover - debug helper
+    try:
+        MANA_RENDER_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with MANA_RENDER_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(" | ".join(parts) + "\n")
+    except OSError:
+        pass
+
+
+def _log_card_inspector(*parts: str) -> None:  # pragma: no cover - debug helper
+    try:
+        CARD_INSPECTOR_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with CARD_INSPECTOR_LOG.open("a", encoding="utf-8") as fh:
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            fh.write(f"{stamp} | " + " | ".join(parts) + "\n")
+    except OSError:
+        pass
+
+CONFIG: Dict[str, Any] = {}
 if CONFIG_FILE.exists():
     try:
         with CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
             CONFIG = json.load(_cfg_file)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
         logger.warning(f"Invalid {CONFIG_FILE} ({exc}); using default deck save path")
         CONFIG = {}
 elif LEGACY_CONFIG_FILE.exists():
@@ -72,1493 +109,3034 @@ elif LEGACY_CONFIG_FILE.exists():
                 json.dump(CONFIG, fh, indent=4)
         except OSError as exc:
             logger.warning(f"Failed to write migrated config.json: {exc}")
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
         logger.warning(f"Invalid legacy config.json ({exc}); using default deck save path")
         CONFIG = {}
 else:
-    logger.warning(f"{CONFIG_FILE} not found; using default deck save path")
+    logger.debug(f"{CONFIG_FILE} not found; using default deck save path")
 
 default_deck_dir = Path(CONFIG.get("deck_selector_save_path") or DECKS_DIR)
 DECK_SAVE_DIR = default_deck_dir.expanduser()
 try:
     DECK_SAVE_DIR.mkdir(parents=True, exist_ok=True)
-except OSError as exc:
+except OSError as exc:  # pragma: no cover - defensive logging
     logger.warning(f"Unable to create deck save directory '{DECK_SAVE_DIR}': {exc}")
 CONFIG.setdefault("deck_selector_save_path", str(DECK_SAVE_DIR))
 
-CARD_SEARCH_FORMATS = [
-    "Any",
-    "standard",
-    "pioneer",
-    "modern",
-    "legacy",
-    "vintage",
-    "commander",
-    "pauper",
-    "historic",
-    "explorer",
-    "alchemy",
-    "brawl",
-]
+DARK_BG = wx.Colour(20, 22, 27)
+DARK_PANEL = wx.Colour(34, 39, 46)
+DARK_ALT = wx.Colour(40, 46, 54)
+DARK_ACCENT = wx.Colour(59, 130, 246)
+LIGHT_TEXT = wx.Colour(236, 236, 236)
+SUBDUED_TEXT = wx.Colour(185, 191, 202)
 
-CARD_TYPE_FILTERS = [
-    "Any",
-    "creature",
-    "planeswalker",
-    "instant",
-    "sorcery",
-    "artifact",
-    "enchantment",
-    "battle",
-    "land",
-]
+ZONE_TITLES = {
+    "main": "Mainboard",
+    "side": "Sideboard",
+    "out": "Outboard",
+}
 
-LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
-LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
-
-
-def label(root, text=" ", color=CS[0]):
-    return tk.Label(
-        root,
-        text=text,
-        font=("calibri", 15, "bold"),
-        background=color,
-        foreground="black",
-        borderwidth=2,
-        justify="left",
-        relief="solid",
-    )
-
-
-def button(root, text, command, color=CS[0], font=("calibri", 13, "bold")):
-    return tk.Button(root, text=text, font=font, background=color, command=command)
+FULL_MANA_SYMBOLS: List[str] = (
+    ["W", "U", "B", "R", "G", "C", "S", "X", "Y", "Z", "∞", "½"]
+    + [str(i) for i in range(0, 21)]
+    + [
+        "W/U",
+        "W/B",
+        "U/B",
+        "U/R",
+        "B/R",
+        "B/G",
+        "R/G",
+        "R/W",
+        "G/W",
+        "G/U",
+        "C/W",
+        "C/U",
+        "C/B",
+        "C/R",
+        "C/G",
+        "2/W",
+        "2/U",
+        "2/B",
+        "2/R",
+        "2/G",
+        "W/P",
+        "U/P",
+        "B/P",
+        "R/P",
+        "G/P",
+    ]
+)
 
 
-def b_button(root, text, command, color=CS[1], font=("calibri", 13, "bold"), width=0, height=1):
-    kwargs = {"text": text, "font": font, "background": color, "command": command, "height": height}
-    if width:
-        kwargs["width"] = width
-    return tk.Button(root, **kwargs)
+def format_deck_name(deck: Dict[str, Any]) -> str:
+    """Compose a compact deck line for list display."""
+    date = deck.get("date", "")
+    player = deck.get("player", "")
+    event = deck.get("event", "")
+    result = deck.get("result", "")
+    return f"{date} | {player} — {event} [{result}]".strip()
 
 
-def listbox(root, color=CS[0], font=("calibri", 15, "bold")):
-    return tk.Listbox(root, selectmode=tk.SINGLE, background=color, foreground="black", font=font)
+class _Worker:
+    """Helper for dispatching background work and returning results on the UI thread."""
+
+    def __init__(
+        self,
+        func: Callable,
+        *args,
+        on_success: Optional[Callable] = None,
+        on_error: Optional[Callable] = None,
+    ) -> None:
+        self.func = func
+        self.args = args
+        self.on_success = on_success
+        self.on_error = on_error
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self) -> None:
+        try:
+            result = self.func(*self.args)
+        except Exception as exc:  # pragma: no cover - UI side effects
+            logger.exception(f"Background task failed: {exc}")
+            if self.on_error:
+                wx.CallAfter(self.on_error, exc)
+            return
+        if self.on_success:
+            wx.CallAfter(self.on_success, result)
 
 
-def frame(root, name, color=CS[3]):
-    frame = tk.Frame(root, relief="solid", padx=3, pady=3, background=color, borderwidth=2, border=1)
-    if name:
-        frame_title = tk.Label(
-            frame,
-            text=name,
-            font=("calibri", 15, "bold"),
-            background=CS[2],
-            foreground="black",
-            relief="solid",
-        )
-        frame_title.grid(column=0, row=0, sticky="nsew")
-    return frame
+class ManaIconFactory:
+    FALLBACK_COLORS = {
+        "w": (253, 251, 206),
+        "u": (188, 218, 247),
+        "b": (128, 115, 128),
+        "r": (241, 155, 121),
+        "g": (159, 203, 166),
+        "c": (208, 198, 187),
+        "multicolor": (246, 223, 138),
+    }
+    _FONT_LOADED = False
+    _FONT_NAME = "Mana"
 
+    def __init__(self) -> None:
+        self._cache: Dict[str, wx.Bitmap] = {}
+        self._glyph_map, self._color_map = self._load_css_resources()
+        self._ensure_font_loaded()
 
-def b_frame(root, color=CS[1]):
-    frame = tk.Frame(root, relief="flat", padx=3, pady=0, background=color, borderwidth=0, height=15)
-    return frame
+    def render(self, parent: wx.Window, mana_cost: str) -> wx.Window:
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(parent.GetBackgroundColour())
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        panel.SetSizer(sizer)
+        tokens = self._tokenize(mana_cost)
+        if not tokens:
+            label = wx.StaticText(panel, label="—")
+            label.SetForegroundColour(SUBDUED_TEXT)
+            sizer.Add(label)
+            return panel
+        for idx, token in enumerate(tokens):
+            bmp = self._get_bitmap(token)
+            icon = wx.StaticBitmap(panel, bitmap=bmp)
+            margin = 1 if idx < len(tokens) - 1 else 0
+            sizer.Add(icon, 0, wx.RIGHT, margin)
+        panel.SetMinSize((max(28, len(tokens) * 28), 32))
+        return panel
 
+    def bitmap_for_symbol(self, symbol: str) -> wx.Bitmap:
+        token = symbol.strip()
+        if token.startswith("{") and token.endswith("}"):
+            token = token[1:-1]
+        return self._get_bitmap(token or "")
 
-def choose_format_button_config(button):
-    button.config(
-        font=("calibri", 10, "bold"),
-        background=CS[2],
-        relief="solid",
-        borderwidth=2,
-        fg="black",
-        disabledforeground=CS[3],
-        activebackground=CS[3],
-        activeforeground="black",
-        highlightbackground=CS[3],
-    )
-    button["menu"].config(
-        font=("calibri", 10, "bold"),
-        background=CS[2],
-        activebackground=CS[2],
-        disabledforeground=CS[3],
-        foreground="black",
-        activeforeground="black",
-        selectcolor="black",
-        borderwidth=2,
-        relief="solid",
-    )
+    def _tokenize(self, cost: str) -> List[str]:
+        tokens: List[str] = []
+        if not cost:
+            return tokens
+        parts = cost.replace("}", "").split("{")
+        for part in parts:
+            token = part.strip()
+            if not token:
+                continue
+            tokens.append(token)
+        return tokens
 
+    def _get_bitmap(self, symbol: str) -> wx.Bitmap:
+        if symbol in self._cache:
+            return self._cache[symbol]
+        key = self._normalize_symbol(symbol)
+        components = self._hybrid_components(key)
+        second_color: Optional[tuple[int, int, int]] = None
+        glyph = self._glyph_map.get(key or "") if not components else ""
+        _log_mana_event("_get_bitmap", f"symbol={symbol}", f"key={key}", f"glyph={'yes' if glyph else 'no'}", f"components={components}")
+        scale = 3
+        size = 26 * scale
+        bmp = wx.Bitmap(size, size)
+        dc = wx.MemoryDC(bmp)
+        dc.SetBackground(wx.Brush(DARK_ALT))
+        dc.Clear()
 
-def repopulate_listbox(listbox: tk.Listbox, items: list):
-    for item in listbox.get(0, tk.END):
-        listbox.delete(0)
-    for index, item in enumerate(items):
-        listbox.insert(index, item)
+        cx = cy = size // 2
+        radius = (size // 2) - scale
+        gctx = wx.GraphicsContext.Create(dc)
+        shadow_colour = wx.Colour(0, 0, 0, 80)
+        gctx.SetPen(wx.Pen(wx.Colour(0, 0, 0, 0)))
+        gctx.SetBrush(wx.Brush(shadow_colour))
+        gctx.DrawEllipse(cx - radius + scale, cy - radius + scale, radius * 2, radius * 2)
 
-
-def format_deck_name(deck: dict):
-    return f"{deck['date']} {deck['player']} {deck['event']} {deck['result']}"
-
-
-class MTGDeckSelectionWidget:
-
-    def __init__(self, root: tk.Tk):
-        self.root: tk.Tk = root
-        self.format = tk.StringVar(value="Modern")
-        self.window_settings = self._load_window_settings()
-        size_settings = self._normalize_window_size(self.window_settings.get("window_size"))
-        position_settings = self._normalize_window_position(self.window_settings.get("screen_pos"))
-        self.window_size = size_settings
-        self.window_position = position_settings
-        saved_format = self.window_settings.get("format")
-        if saved_format and saved_format in FORMAT_OPTIONS:
-            self.format.set(saved_format)
-        self.last_looked_at_ts = time.time()
-        self.last_seen_deck = ""
-        self.updating = False
-        self.user_has_edited_deck = False
-        self.currently_selected_deck = {}
-        self.deck_buffer: dict = {}
-        self.decks_added = 0
-        self.archetypes = []
-        self.archetype_stats = {}
-        self.saved_decks = []  # For database saved decks
-        self.current_mode = "browse"  # "browse", "saved", or "builder"
-        self.loading = False
-        self.loading_daily_average = False  # Prevent simultaneous daily average loads
-        self.card_manager = None
-        self.card_data_ready = False
-        self.card_data_loading = False
-        self.card_search_results = []
-        self.builder_deck = {"main": {}, "side": {}}
-        self.saved_decks_popup = None
-        self.saved_decks_popup_listbox = None
-        self.saved_decks_popup_status = None
-        self.saved_decks_popup_data = []
-        self.deck_save_dir = DECK_SAVE_DIR
-        self.opponent_tracker_window = None
-        self.timer_alert_window = None
-        self.match_history_window = None
-        self.sdk_status_var = tk.StringVar(value="MTGOSDK: checking…")
-        self.ui_make_components()
-        self._apply_window_preferences()
-        self.root.bind("<Configure>", self.on_window_configure)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        # Load archetypes asynchronously after window is shown
-        self.root.after(100, self.lazy_load_archetypes)
-        self._schedule_runtime_status_check(initial=True)
-
-    def ui_reset_to_archetype_selection(self):
-        self.clear_deck_textboxes()
-        self.deck_buffer = {}
-        self.decks_added = 0
-        self.listbox.unbind("<<ListboxSelect>>")
-        self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
-
-        # Check if archetypes are loaded
-        if self.archetypes:
-            repopulate_listbox(self.listbox, [archetype["name"] for archetype in self.archetypes])
+        text_font = self._build_render_font(scale)
+        text_color = wx.Colour(20, 20, 20)
+        if components:
+            second_color = self._draw_hybrid_circle(gctx, cx, cy, radius, components)
         else:
-            # Archetypes not loaded yet, trigger loading
-            self.listbox.delete(0, tk.END)
-            self.listbox.insert(0, "⏳ Loading archetypes...")
-            self.lazy_load_archetypes()
+            fill_color = self._color_for_key(key or "")
+            gctx.SetPen(wx.Pen(wx.Colour(25, 25, 25, 140), 2))
+            gctx.SetBrush(wx.Brush(wx.Colour(*fill_color)))
+            gctx.DrawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
+            glyph_to_draw = glyph or self._glyph_fallback(key)
+            if glyph_to_draw:
+                gctx.SetFont(text_font, text_color)
+                tw, th = gctx.GetTextExtent(glyph_to_draw)
+                gctx.DrawText(glyph_to_draw, cx - tw / 2, cy - th / 2)
 
-        if hasattr(self, "reset_button"):
-            self.reset_button.grid_forget()
-        if getattr(self, "delete_deck_button", None):
-            self.delete_deck_button.grid_forget()
-            self.delete_deck_button = None
-        if hasattr(self, "make_daily_average_deck_button"):
-            self.make_daily_average_deck_button.grid_forget()
+        dc.SelectObject(wx.NullBitmap)
 
-    def ui_make_components(self):
-        self.root.title("MTG Deck Research Browser")
-        self.root.resizable(True, True)
-        self.ui_create()
-        # Don't populate yet - will be done lazily
-        self.ui_bind_components()
+        if components and second_color:
+            bmp = self._apply_hybrid_overlay(bmp, cx, cy, radius, second_color)
+            dc = wx.MemoryDC(bmp)
+            gctx = wx.GraphicsContext.Create(dc)
+            self._draw_hybrid_glyph(gctx, cx, cy, radius, components, text_font, text_color)
+            dc.SelectObject(wx.NullBitmap)
+        img = bmp.ConvertToImage()
+        img = img.Blur(1)
+        img = img.Scale(26, 26, wx.IMAGE_QUALITY_HIGH)
+        final = wx.Bitmap(img)
+        self._cache[symbol] = final
+        return final
 
-    def ui_create(self):
-        self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_rowconfigure(0, weight=1)
-        self.F_top = frame(self.root, "", color="bisque4")
-        self.F_top.grid(column=0, row=0, sticky="nsew")
-        self.F_top.grid_columnconfigure(0, weight=0)
-        self.F_top.grid_columnconfigure(1, weight=1)
-        self.F_top.grid_rowconfigure(1, weight=1)
-        self.F_top_left = frame(self.F_top, "Deck Browser", color=CS[1])
-        self.F_top_left.columnconfigure(0, weight=1)
-        self.F_top_left.columnconfigure(1, weight=0)
-        self.F_top_left.rowconfigure(5, weight=1)
-        self.F_top_left.grid(column=0, row=1, sticky="nsew")
-        self.F_top_right = frame(self.F_top, "Decklist", color=CS[1])
-        self.F_top_right.grid(column=1, row=1, sticky="nsew")
-        self.F_top_right.grid_columnconfigure(0, weight=1)
-        self.F_top_right.rowconfigure(3, weight=1)
-        self.F_top_right_top = frame(self.F_top_right, "", color=CS[2])
-        self.F_top_right_top.grid(column=0, row=1, sticky="nsew")
+    def _build_render_font(self, scale: int) -> wx.Font:
+        if self._FONT_LOADED:
+            return wx.Font(13 * scale, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, self._FONT_NAME)
+        font = wx.Font(wx.FontInfo(13 * scale).Family(wx.FONTFAMILY_SWISS))
+        font.MakeBold()
+        return font
 
-        # Add statistics panel
-        self.F_stats = frame(self.F_top_right, "Deck Statistics", color=CS[2])
-        self.F_stats.grid(column=0, row=0, sticky="nsew")
-        self.stats_label = label(self.F_stats, "", color=CS[2])
-        self.stats_label.config(font=("calibri", 12), justify="left", anchor="w")
-        self.stats_label.grid(column=0, row=0, sticky="nsew", padx=5, pady=5)
-        self.F_stats.grid_remove()  # Hidden by default
+    def _draw_component(
+        self,
+        gctx: wx.GraphicsContext,
+        cx: int,
+        cy: int,
+        radius: int,
+        key: Optional[str],
+        font: wx.Font,
+        text_color: wx.Colour,
+        outline: bool = True,
+    ) -> None:
+        color = self._color_for_key(key or "")
+        pen_color = wx.Colour(25, 25, 25, 160) if outline else wx.Colour(0, 0, 0, 0)
+        width = 2 if outline else 0
+        gctx.SetPen(wx.Pen(pen_color, width))
+        gctx.SetBrush(wx.Brush(wx.Colour(*color)))
+        gctx.DrawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
+        glyph = self._glyph_fallback(key)
+        if glyph:
+            gctx.SetFont(font, text_color)
+            tw, th = gctx.GetTextExtent(glyph)
+            gctx.DrawText(glyph, cx - tw / 2, cy - th / 2)
 
-        self.card_detail_frame = frame(self.F_top_right, "Card Details", color=CS[2])
-        self.card_detail_frame.grid(column=0, row=2, sticky="nsew")
-        self.card_detail_frame.grid_remove()
-        self.card_detail_frame.rowconfigure(0, weight=1)
-        self.card_detail_frame.columnconfigure(0, weight=1)
-        self.card_detail_text = tk.Text(self.card_detail_frame, height=8, wrap="word", background=CS[2], foreground="black", font=("calibri", 11))
-        self.card_detail_text.grid(column=0, row=0, sticky="nsew", padx=4, pady=4)
-        self.card_detail_text.config(state="disabled")
-        self.card_add_buttons = tk.Frame(self.card_detail_frame, background=CS[2], pady=4)
-        self.card_add_buttons.grid(column=0, row=1, sticky="ew")
-        self.builder_add_main_button = tk.Button(self.card_add_buttons, text="Add to Mainboard", command=lambda: self.builder_add_card("main"), state="disabled")
-        self.builder_add_main_button.pack(side="left", expand=True, fill="x", padx=(0, 4))
-        self.builder_add_side_button = tk.Button(self.card_add_buttons, text="Add to Sideboard", command=lambda: self.builder_add_card("side"), state="disabled")
-        self.builder_add_side_button.pack(side="left", expand=True, fill="x", padx=(4, 0))
+    def _draw_hybrid_circle(
+        self,
+        gctx: wx.GraphicsContext,
+        cx: int,
+        cy: int,
+        radius: int,
+        components: List[str],
+    ) -> tuple[int, int, int]:
+        rect = (cx - radius, cy - radius, radius * 2, radius * 2)
+        base = self._color_for_key(components[0])
+        second = self._color_for_key(components[1])
+        gctx.SetPen(wx.Pen(wx.Colour(25, 25, 25, 200), 2))
+        gctx.SetBrush(wx.Brush(wx.Colour(*base)))
+        gctx.DrawEllipse(*rect)
+        gctx.StrokeLine(cx - radius, cy + radius, cx + radius, cy - radius)
+        return second
 
-        self.F_tab = ttk.Notebook(self.F_top_right)
-        self.F_tab.grid(column=0, row=3, sticky="nsew")
-        deck_tab = tk.Frame(self.F_tab, background=CS[2])
-        deck_tab.grid_columnconfigure(0, weight=1)
-        deck_tab.grid_rowconfigure(0, weight=1)
-        self.F_tab.add(deck_tab, text="Deck Builder")
-        self.metagame_view = MetagameStatsView(self.F_tab)
-        self.F_tab.add(self.metagame_view, text="Metagame")
+    def _draw_hybrid_glyph(
+        self,
+        gctx: wx.GraphicsContext,
+        cx: int,
+        cy: int,
+        radius: int,
+        components: List[str],
+        font: wx.Font,
+        text_color: wx.Colour,
+    ) -> None:
+        offsets = [(-radius * 0.3, -radius * 0.3), (radius * 0.3, radius * 0.3)]
+        glyph_font = self._scaled_font(font, 0.52)
+        for idx, component in enumerate(components):
+            glyph = self._glyph_fallback(component)
+            if not glyph:
+                continue
+            gctx.SetFont(glyph_font, text_color)
+            dx, dy = offsets[idx] if idx < len(offsets) else (0, 0)
+            tw, th = gctx.GetTextExtent(glyph)
+            gctx.DrawText(glyph, cx - tw / 2 + dx, cy - th / 2 + dy)
+        # Restore original font to avoid surprising callers.
+        gctx.SetFont(font, text_color)
 
-        self.F_top_textbox = frame(deck_tab, "", color=CS[2])
-        self.F_top_textbox.grid(column=0, row=0, sticky="nsew")
-        self.F_top_textbox.rowconfigure(0, weight=1)
-        self.F_top_textbox.rowconfigure(1, weight=1)
+    def _apply_hybrid_overlay(
+        self,
+        bmp: wx.Bitmap,
+        cx: int,
+        cy: int,
+        radius: int,
+        color: tuple[int, int, int],
+    ) -> wx.Bitmap:
+        img = bmp.ConvertToImage()
+        width, height = img.GetWidth(), img.GetHeight()
+        limit = max(1, radius - 1)
+        limit_sq = limit * limit
+        cr, cg, cb = color
+        for x in range(width):
+            dx = x - cx
+            for y in range(height):
+                dy = y - cy
+                if dx * dx + dy * dy > limit_sq:
+                    continue
+                if dx + dy >= 0:
+                    img.SetRGB(x, y, cr, cg, cb)
+        return wx.Bitmap(img)
 
-        self.bottom_toolbar = tk.Frame(self.root, background=CS[3], padx=8, pady=6, relief="solid", borderwidth=1)
-        self.bottom_toolbar.grid(column=0, row=2, sticky="ew")
-        self.bottom_toolbar.columnconfigure(0, weight=0)
-        self.bottom_toolbar.columnconfigure(1, weight=1)
-        self.bottom_toolbar.columnconfigure(2, weight=0)
-        self.bottom_toolbar.columnconfigure(3, weight=0)
-        self.bottom_toolbar.columnconfigure(4, weight=0)
-        self.bottom_toolbar.columnconfigure(5, weight=0)
-        self.bottom_toolbar.columnconfigure(6, weight=0)
-        self.bottom_toolbar.columnconfigure(4, weight=0)
+    def _scaled_font(self, font: wx.Font, factor: float) -> wx.Font:
+        size = max(6, int(font.GetPointSize() * factor))
+        try:
+            return wx.Font(
+                size,
+                font.GetFamily(),
+                font.GetStyle(),
+                font.GetWeight(),
+                font.GetUnderlined(),
+                font.GetFaceName(),
+            )
+        except Exception:
+            return font
 
-        self.save_deck_button = button(self.F_top_right_top, "Save deck", self.save_deck_as)
-        self.save_deck_button.grid(column=0, row=0, sticky="nsew")
-        self.add_deck_to_buffer_button = button(self.F_top_right_top, "Add deck to buffer", self.add_deck_to_buffer)
-        self.add_deck_to_buffer_button.grid(column=1, row=0, sticky="nsew")
-        self.make_average_deck_button = button(self.F_top_right_top, "Mean of buffer", self.make_average_deck)
-        self.make_average_deck_button.grid(column=2, row=0, sticky="nsew")
-        self.copy_deck_button = button(self.F_top_right_top, "Copy to Clipboard", self.copy_deck_to_clipboard, color=CS[0])
-        self.copy_deck_button.grid(column=3, row=0, sticky="nsew")
+    def _glyph_fallback(self, key: Optional[str]) -> str:
+        if not key:
+            return ""
+        glyph = self._glyph_map.get(key)
+        if glyph:
+            _log_mana_event("_glyph_fallback", f"key={key}", "source=direct")
+            return glyph
+        compact = key.replace("/", "")
+        glyph = self._glyph_map.get(compact)
+        if glyph:
+            _log_mana_event("_glyph_fallback", f"key={key}", f"source=compact({compact})")
+            return glyph
+        if len(key) > 1:
+            tail = key[-1]
+            glyph = self._glyph_map.get(tail)
+            if glyph:
+                _log_mana_event("_glyph_fallback", f"key={key}", f"source=tail({tail})")
+                return glyph
+        fallback = key.upper()
+        _log_mana_event("_glyph_fallback", f"key={key}", f"source=default({fallback})")
+        return fallback
 
-        # Add visualize button (initially hidden, shown in saved decks mode)
-        self.visualize_button = button(self.F_top_right_top, "📊 Show Stats", self.toggle_statistics_panel, color=CS[1])
-        self.visualize_button.grid(column=5, row=0, sticky="nsew")
-        self.visualize_button.grid_remove()  # Hidden initially
-        self.load_saved_into_builder_button = button(self.F_top_right_top, "Load Saved ➜ Builder", self.load_selected_saved_into_builder, color=CS[1])
-        self.load_saved_into_builder_button.grid(column=6, row=0, sticky="nsew")
-        self.load_saved_into_builder_button.grid_remove()
+    def _color_for_key(self, key: Optional[str]) -> tuple[int, int, int]:
+        if not key:
+            return self.FALLBACK_COLORS["multicolor"]
+        if key in self._color_map:
+            return self._color_map[key]
+        if key.isdigit() or key in {"x", "y", "z"}:
+            return self._color_map.get("c", self.FALLBACK_COLORS["c"])
+        if "-" in key:
+            for part in key.split("-"):
+                if part in self._color_map:
+                    return self._color_map[part]
+        if key[0] in self._color_map:
+            return self._color_map[key[0]]
+        if len(key) >= 2 and key[0].isdigit() and key[1] in self._color_map:
+            return self._color_map[key[1]]
+        return self.FALLBACK_COLORS["multicolor"]
 
-        # Mode toggle buttons
-        self.browse_mode_button = button(self.F_top_left, "Browse MTGGoldfish", self.switch_to_browse_mode, color=CS[2])
-        self.browse_mode_button.grid(column=0, row=1, sticky="nsew")
-        self.saved_decks_button = button(self.F_top_left, "Saved Decks", self.switch_to_saved_mode, color=CS[0])
-        self.saved_decks_button.grid(column=0, row=2, sticky="nsew")
-        self.builder_mode_button = button(self.F_top_left, "Deck Builder", self.switch_to_builder_mode, color=CS[0])
-        self.builder_mode_button.grid(column=0, row=3, sticky="nsew")
-
-        self.listbox_button = button(self.F_top_left, "Select archetype", self.select_archetype)
-        self.listbox_button.grid(column=0, row=4, sticky="nsew")
-
-        self.builder_controls_frame = tk.Frame(self.F_top_left, background=CS[2], padx=4, pady=4, relief="solid", borderwidth=1)
-        self.builder_controls_frame.grid(column=0, row=4, sticky="nsew")
-        self.builder_controls_frame.grid_remove()
-        self.card_search_var = tk.StringVar()
-        self.card_search_entry = tk.Entry(self.builder_controls_frame, textvariable=self.card_search_var, font=("calibri", 12))
-        self.card_search_entry.grid(column=0, row=0, columnspan=2, sticky="ew", pady=(0, 4))
-        self.card_search_entry.bind("<Return>", lambda _: self.perform_card_search())
-        self.card_format_var = tk.StringVar(value=CARD_SEARCH_FORMATS[0])
-        self.card_type_var = tk.StringVar(value=CARD_TYPE_FILTERS[0])
-        self.card_format_menu = ttk.Combobox(self.builder_controls_frame, textvariable=self.card_format_var, values=CARD_SEARCH_FORMATS, state="readonly")
-        self.card_format_menu.grid(column=0, row=1, sticky="ew", padx=(0, 2))
-        self.card_type_menu = ttk.Combobox(self.builder_controls_frame, textvariable=self.card_type_var, values=CARD_TYPE_FILTERS, state="readonly")
-        self.card_type_menu.grid(column=1, row=1, sticky="ew", padx=(2, 0))
-        self.card_search_button = tk.Button(self.builder_controls_frame, text="Search", command=self.perform_card_search)
-        self.card_search_button.grid(column=0, row=2, columnspan=2, sticky="ew", pady=(4, 0))
-        self.open_saved_decks_button = tk.Button(self.builder_controls_frame, text="Open Saved Decks", command=self.open_saved_decks_dialog)
-        self.open_saved_decks_button.grid(column=0, row=3, columnspan=2, sticky="ew", pady=(4, 0))
-        self.builder_status_var = tk.StringVar(value="")
-        self.card_status_label = tk.Label(self.builder_controls_frame, textvariable=self.builder_status_var, anchor="w", background=CS[2], fg="#555")
-        self.card_status_label.grid(column=0, row=4, columnspan=2, sticky="ew", pady=(4, 0))
-        self.builder_controls_frame.columnconfigure(0, weight=1)
-        self.builder_controls_frame.columnconfigure(1, weight=1)
-        self.listbox = tk.Listbox(
-            self.F_top_left,
-            selectmode=tk.SINGLE,
-            background=CS[4],
-            foreground="black",
-            font=("calibri", 15, "bold"),
-            justify="left",
-            activestyle="none",
-        )
-        self.listbox.grid(column=0, row=5, sticky="nsew")
-        self.listbox_scrollbar = tk.Scrollbar(self.F_top_left, orient="vertical")
-        self.listbox_scrollbar.grid(column=1, row=5, sticky="nsew")
-        self.listbox.config(yscrollcommand=self.listbox_scrollbar.set)
-        self.listbox_scrollbar.config(command=self.listbox.yview)
-
-        self.listbox_font = tkfont.Font(root=self.root, font=self.listbox.cget("font"))
-        self.deck_row_font = tkfont.Font(root=self.root, family="calibri", size=15, weight="bold")
-        self._search_width_set = False
-        self.row_button_width = self._compute_row_button_width()
-
-        self.F_top_textbox.columnconfigure(0, weight=1)
-        self.F_top_textbox.rowconfigure(0, weight=1)
-        self.F_top_textbox.rowconfigure(1, weight=1)
-
-        self.main_deck_container = frame(self.F_top_textbox, "Mainboard", color=CS[2])
-        self.main_deck_container.grid(column=0, row=0, sticky="nsew", padx=4, pady=(4, 2))
-        self.main_deck_container.columnconfigure(0, weight=1)
-        self.main_deck_container.rowconfigure(1, weight=1)
-
-        self.side_deck_container = frame(self.F_top_textbox, "Sideboard", color=CS[2])
-        self.side_deck_container.grid(column=0, row=1, sticky="nsew", padx=4, pady=(2, 4))
-        self.side_deck_container.columnconfigure(0, weight=1)
-        self.side_deck_container.rowconfigure(1, weight=1)
-        self.zone_views = {}
-        self.zone_lines = {"main": [], "side": []}
-        self.q_btn_frames = {"main": [], "side": []}
-        self._init_zone_view(self.main_deck_container, "main")
-        self._init_zone_view(self.side_deck_container, "side")
-
-        tk.Label(
-            self.bottom_toolbar,
-            text="Format:",
-            background=CS[3],
-            font=("calibri", 12, "bold"),
-        ).grid(column=0, row=0, sticky="w")
-        self.choose_format_button = tk.OptionMenu(
-            self.bottom_toolbar,
-            self.format,
-            FORMAT_OPTIONS[0],
-            *FORMAT_OPTIONS[1:],
-            command=lambda x: self.choose_format_button_clicked(),
-        )
-        self.choose_format_button.grid(column=1, row=0, sticky="w")
-        choose_format_button_config(self.choose_format_button)
-
-        opp_btn = tk.Button(
-            self.bottom_toolbar,
-            text="Launch Opponent Tracker",
-            command=self.launch_opponent_tracker,
-            background=CS[2],
-        )
-        opp_btn.grid(column=2, row=0, sticky="ew", padx=(12, 6))
-
-        timer_btn = tk.Button(
-            self.bottom_toolbar,
-            text="Open Timer Alert",
-            command=self.open_timer_alert,
-            background=CS[2],
-        )
-        timer_btn.grid(column=3, row=0, sticky="ew")
-
-        match_btn = tk.Button(
-            self.bottom_toolbar,
-            text="Match History",
-            command=self.open_match_history,
-            background=CS[2],
-        )
-        match_btn.grid(column=4, row=0, sticky="ew", padx=(6, 0))
-
-        collection_btn = tk.Button(
-            self.bottom_toolbar,
-            text="Export Collection",
-            command=self.export_collection_snapshot,
-            background=CS[2],
-        )
-        collection_btn.grid(column=5, row=0, sticky="ew", padx=(6, 0))
-
-        status_label = tk.Label(self.bottom_toolbar, textvariable=self.sdk_status_var, background=CS[3], font=("calibri", 9, "italic"))
-        status_label.grid(column=6, row=0, sticky="e", padx=(10, 0))
-        self.set_mode_button_states("browse")
-
-    def _schedule_runtime_status_check(self, initial: bool = False):
-        def worker():
-            if initial:
-                ready, error = mtgo_bridge.ensure_runtime_ready()
+    def _normalize_symbol(self, symbol: str) -> Optional[str]:
+        token = symbol.strip().lower().replace("{", "").replace("}", "")
+        if not token:
+            return None
+        token = token.replace("½", "half")
+        if "/" in token:
+            parts = [part for part in token.split("/") if part]
+            if all(part.isdigit() for part in parts if part):
+                token = "-".join(filter(None, parts))
             else:
-                ready, error = mtgo_bridge.runtime_status()
+                token = "".join(parts)
+        aliases = {
+            "∞": "infinity",
+            "1/2": "1-2",
+            "half": "1-2",
+            "snow": "s",
+        }
+        return aliases.get(token, token)
 
-            def update():
-                if ready:
-                    self.sdk_status_var.set("MTGOSDK: ready")
-                else:
-                    message = error or "loading"
-                    self.sdk_status_var.set(f"MTGOSDK: {message}")
-                interval = 60000 if ready else 5000
-                self.root.after(interval, lambda: self._schedule_runtime_status_check(initial=False))
+    def _hybrid_components(self, key: Optional[str]) -> Optional[List[str]]:
+        if not key or len(key) < 2:
+            return None
+        base = set("wubrg")
+        first, second = key[0], key[1]
+        if first in base.union({"c"}) and second in base:
+            _log_mana_event("_hybrid_components", f"key={key}", "match=two-color")
+            return [first, second]
+        if first == "2" and second in base:
+            _log_mana_event("_hybrid_components", f"key={key}", "match=two-hybrid")
+            return ["c", second]
+        _log_mana_event("_hybrid_components", f"key={key}", "match=none")
+        return None
 
-            self.root.after(0, update)
+    def _ensure_font_loaded(self) -> None:
+        if ManaIconFactory._FONT_LOADED:
+            return
+        font_path = Path(__file__).resolve().parents[1] / "assets" / "mana" / "fonts" / "mana.ttf"
+        if not font_path.exists():
+            logger.debug("Mana font not found at %s; using fallback glyphs", font_path)
+            return
+        try:
+            wx.Font.AddPrivateFont(str(font_path))
+            ManaIconFactory._FONT_LOADED = True
+        except Exception as exc:  # pragma: no cover
+            logger.debug(f"Unable to load mana font: {exc}")
 
-        threading.Thread(target=worker, daemon=True).start()
-        if initial:
-            threading.Thread(target=lambda: mtgo_bridge.ensure_runtime_ready(), daemon=True).start()
+    def _load_css_resources(self) -> tuple[Dict[str, str], Dict[str, tuple[int, int, int]]]:
+        glyphs: Dict[str, str] = {}
+        colors: Dict[str, tuple[int, int, int]] = {}
+        css_path = Path(__file__).resolve().parents[1] / "assets" / "mana" / "css" / "mana.min.css"
+        if not css_path.exists():
+            return glyphs, {k: tuple(v) for k, v in self.FALLBACK_COLORS.items()}
+        css_text = css_path.read_text(encoding="utf-8")
+        color_re = re.compile(r"--ms-mana-([a-z0-9-]+):\s*#([0-9a-fA-F]{6})")
+        for match in color_re.finditer(css_text):
+            key = match.group(1).lower()
+            hex_value = match.group(2)
+            colors[key] = tuple(int(hex_value[i : i + 2], 16) for i in (0, 2, 4))
+        for block in css_text.split("}"):
+            if "content" not in block or "::" not in block:
+                continue
+            parts = block.split("{", 1)
+            if len(parts) != 2:
+                continue
+            selectors, body = parts
+            content_match = re.search(r'content:\s*"([^"]+)"', body)
+            if not content_match:
+                continue
+            glyph_char = content_match.group(1)
+            for raw_selector in selectors.split(","):
+                raw_selector = raw_selector.strip()
+                if not raw_selector.startswith(".ms-"):
+                    continue
+                cls = raw_selector.split("::", 1)[0].replace(".ms-", "").lower()
+                if cls:
+                    glyphs[cls] = glyph_char
+        for base, rgb in self.FALLBACK_COLORS.items():
+            colors.setdefault(base, rgb)
+        return glyphs, colors
+class CardCardPanel(wx.Panel):
+    def __init__(
+        self,
+        parent: wx.Window,
+        zone: str,
+        card: Dict[str, Any],
+        icon_factory: ManaIconFactory,
+        get_metadata: Callable[[str], Optional[Dict[str, Any]]],
+        owned_status: Callable[[str, int], tuple[str, wx.Colour]],
+        on_delta: Callable[[str, str, int], None],
+        on_remove: Callable[[str, str], None],
+        on_select: Callable[[str, Dict[str, Any], "CardCardPanel"], None],
+    ) -> None:
+        super().__init__(parent)
+        self.zone = zone
+        self.card = card
+        self._get_metadata = get_metadata
+        self._owned_status = owned_status
+        self._on_delta = on_delta
+        self._on_remove = on_remove
+        self._on_select = on_select
+        self._active = False
 
-    def _init_zone_view(self, container, zone):
-        canvas = tk.Canvas(
-            container,
-            background=CS[1],
-            highlightthickness=0,
-            bd=0,
-        )
-        canvas.grid(column=0, row=1, sticky="nsew")
-        scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        scrollbar.grid(column=1, row=1, sticky="ns")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        inner = tk.Frame(canvas, background=CS[1])
-        inner.grid_columnconfigure(0, weight=1)
-        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        self.SetBackgroundColour(DARK_ALT)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.SetSizer(row)
+        self.SetMinSize((-1, 34))
 
-        def _sync_scrollregion(_event, c=canvas):
-            c.configure(scrollregion=c.bbox("all"))
+        base_font = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
 
-        def _sync_width(event, c=canvas, wid=window_id, z=zone):
-            c.itemconfigure(wid, width=event.width)
-            self._request_zone_relayout(z)
+        self.qty_label = wx.StaticText(self, label=str(card["qty"]))
+        self.qty_label.SetForegroundColour(LIGHT_TEXT)
+        self.qty_label.SetFont(base_font)
+        row.Add(self.qty_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
 
-        inner.bind("<Configure>", _sync_scrollregion)
-        canvas.bind("<Configure>", _sync_width)
+        meta = get_metadata(card["name"]) or {}
+        mana_cost = meta.get("mana_cost", "")
 
-        self.zone_lines.setdefault(zone, [])
-        self.q_btn_frames.setdefault(zone, [])
-        self.zone_views[zone] = {
-            "canvas": canvas,
-            "frame": inner,
-            "scrollbar": scrollbar,
-            "window_id": window_id,
-            "rows": [],
-            "columns": 0,
-            "pending_layout": False,
+        owned_text, owned_colour = owned_status(card["name"], card["qty"])
+        self.name_label = wx.StaticText(self, label=card["name"], style=wx.ST_NO_AUTORESIZE)
+        self.name_label.SetForegroundColour(owned_colour)
+        self.name_label.SetFont(base_font)
+        self.name_label.Wrap(110)
+        row.Add(self.name_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        mana_panel = icon_factory.render(self, mana_cost)
+        row.Add(mana_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+
+        self.button_panel = wx.Panel(self)
+        self.button_panel.SetBackgroundColour(DARK_ALT)
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.button_panel.SetSizer(btn_sizer)
+        add_btn = wx.Button(self.button_panel, label="+", size=(24, 24))
+        add_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_delta(zone, card["name"], 1))
+        btn_sizer.Add(add_btn, 0)
+        sub_btn = wx.Button(self.button_panel, label="−", size=(24, 24))
+        sub_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_delta(zone, card["name"], -1))
+        btn_sizer.Add(sub_btn, 0, wx.LEFT, 2)
+        rem_btn = wx.Button(self.button_panel, label="×", size=(24, 24))
+        rem_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_remove(zone, card["name"]))
+        btn_sizer.Add(rem_btn, 0, wx.LEFT, 2)
+        row.Add(self.button_panel, 0, wx.ALIGN_CENTER_VERTICAL)
+        self.button_panel.Hide()
+
+        self._bind_click_targets([self, self.qty_label, self.name_label, mana_panel])
+
+    def update_quantity(self, qty: int, owned_text: str, owned_colour: wx.Colour) -> None:
+        self.qty_label.SetLabel(str(qty))
+        self.name_label.SetForegroundColour(owned_colour)
+        self.Layout()
+
+    def set_active(self, active: bool) -> None:
+        if self._active == active:
+            return
+        self._active = active
+        self.button_panel.Show(active)
+        self.button_panel.Enable(active)
+        self.button_panel.SetBackgroundColour(DARK_ACCENT if active else DARK_ALT)
+        self.SetBackgroundColour(DARK_ACCENT if active else DARK_ALT)
+        self.Refresh()
+        self.Layout()
+
+    def _bind_click_targets(self, targets: List[wx.Window]) -> None:
+        for target in targets:
+            target.Bind(wx.EVT_LEFT_DOWN, self._handle_click)
+            for child in target.GetChildren():
+                child.Bind(wx.EVT_LEFT_DOWN, self._handle_click)
+
+    def _handle_click(self, _event: wx.MouseEvent) -> None:
+        self._on_select(self.zone, self.card, self)
+
+
+class CardTablePanel(wx.Panel):
+    def __init__(
+        self,
+        parent: wx.Window,
+        zone: str,
+        icon_factory: ManaIconFactory,
+        get_metadata: Callable[[str], Optional[Dict[str, Any]]],
+        owned_status: Callable[[str, int], tuple[str, wx.Colour]],
+        on_delta: Callable[[str, str, int], None],
+        on_remove: Callable[[str, str], None],
+        on_add: Callable[[str], None],
+        on_select: Callable[[str, Optional[Dict[str, Any]]], None],
+    ) -> None:
+        super().__init__(parent)
+        self.zone = zone
+        self.icon_factory = icon_factory
+        self._get_metadata = get_metadata
+        self._owned_status = owned_status
+        self._on_delta = on_delta
+        self._on_remove = on_remove
+        self._on_add = on_add
+        self._on_select = on_select
+        self.cards: List[Dict[str, Any]] = []
+        self.card_widgets: List[CardCardPanel] = []
+        self.active_panel: Optional[CardCardPanel] = None
+        self.selected_name: Optional[str] = None
+
+        self.SetBackgroundColour(DARK_PANEL)
+        outer = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(outer)
+
+        header = wx.BoxSizer(wx.HORIZONTAL)
+        self.count_label = wx.StaticText(self, label="0 cards")
+        self.count_label.SetForegroundColour(SUBDUED_TEXT)
+        header.Add(self.count_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        header.AddStretchSpacer(1)
+        add_btn = wx.Button(self, label="Add Card")
+        add_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_add(self.zone))
+        header.Add(add_btn, 0)
+        outer.Add(header, 0, wx.EXPAND | wx.BOTTOM, 4)
+
+        self.scroller = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        self.scroller.SetBackgroundColour(DARK_PANEL)
+        self.scroller.SetScrollRate(5, 5)
+        self.grid_sizer = wx.GridSizer(0, 4, 8, 8)
+        self.scroller.SetSizer(self.grid_sizer)
+        outer.Add(self.scroller, 1, wx.EXPAND)
+
+    def set_cards(self, cards: List[Dict[str, Any]]) -> None:
+        self.cards = cards
+        self._rebuild_grid()
+
+    def _rebuild_grid(self) -> None:
+        self.grid_sizer.Clear(delete_windows=True)
+        self.card_widgets = []
+        self.active_panel = None
+        total = sum(card["qty"] for card in self.cards)
+        self.count_label.SetLabel(f"{total} card{'s' if total != 1 else ''}")
+        for card in self.cards:
+            cell = CardCardPanel(
+                self.scroller,
+                self.zone,
+                card,
+                self.icon_factory,
+                self._get_metadata,
+                self._owned_status,
+                self._on_delta,
+                self._on_remove,
+                self._handle_card_click,
+            )
+            self.grid_sizer.Add(cell, 0, wx.EXPAND)
+            self.card_widgets.append(cell)
+        remainder = len(self.cards) % 4
+        if remainder:
+            for _ in range(4 - remainder):
+                spacer = wx.Panel(self.scroller)
+                spacer.SetBackgroundColour(DARK_PANEL)
+                self.grid_sizer.Add(spacer, 0, wx.EXPAND)
+        self.grid_sizer.Layout()
+        self.scroller.Layout()
+        self.scroller.FitInside()
+        self._restore_selection()
+
+    def _handle_card_click(self, zone: str, card: Dict[str, Any], panel: CardCardPanel) -> None:
+        if self.active_panel is panel:
+            return
+        if self.active_panel:
+            self.active_panel.set_active(False)
+        self.active_panel = panel
+        self.selected_name = card["name"]
+        panel.set_active(True)
+        self._notify_selection(card)
+
+    def _restore_selection(self) -> None:
+        if not self.selected_name:
+            self._notify_selection(None)
+            return
+        for widget in self.card_widgets:
+            if widget.card["name"].lower() == self.selected_name.lower():
+                self.active_panel = widget
+                widget.set_active(True)
+                self._notify_selection(widget.card)
+                return
+        previously_had_selection = self.selected_name is not None
+        self.selected_name = None
+        if previously_had_selection:
+            self._notify_selection(None)
+
+    def clear_selection(self) -> None:
+        if self.active_panel:
+            self.active_panel.set_active(False)
+        self.active_panel = None
+        self.selected_name = None
+        self._notify_selection(None)
+
+    def collapse_active(self) -> None:
+        if self.active_panel:
+            self.active_panel.set_active(False)
+        self.active_panel = None
+        self.selected_name = None
+
+    def _notify_selection(self, card: Optional[Dict[str, Any]]) -> None:
+        if self._on_select:
+            self._on_select(self.zone, card)
+
+
+class GuideEntryDialog(wx.Dialog):
+    def __init__(self, parent: wx.Window, archetype_names: List[str], data: Optional[Dict[str, str]] = None) -> None:
+        super().__init__(parent, title="Sideboard Guide Entry", size=(420, 360))
+
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(main_sizer)
+
+        panel = wx.Panel(self)
+        panel.SetBackgroundColour(DARK_BG)
+        panel_sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(panel_sizer)
+        main_sizer.Add(panel, 1, wx.EXPAND | wx.ALL, 8)
+
+        archetype_label = wx.StaticText(panel, label="Archetype")
+        archetype_label.SetForegroundColour(LIGHT_TEXT)
+        panel_sizer.Add(archetype_label, 0, wx.TOP | wx.LEFT, 4)
+
+        initial_choices = sorted({name for name in archetype_names if name})
+        self.archetype_ctrl = wx.ComboBox(panel, choices=initial_choices, style=wx.CB_DROPDOWN)
+        self.archetype_ctrl.SetBackgroundColour(DARK_ALT)
+        self.archetype_ctrl.SetForegroundColour(LIGHT_TEXT)
+        if data and data.get("archetype"):
+            existing = {self.archetype_ctrl.GetString(i) for i in range(self.archetype_ctrl.GetCount())}
+            if data["archetype"] not in existing:
+                self.archetype_ctrl.Append(data["archetype"])
+            self.archetype_ctrl.SetValue(data["archetype"])
+        panel_sizer.Add(self.archetype_ctrl, 0, wx.EXPAND | wx.ALL, 4)
+
+        self.cards_in_ctrl = wx.TextCtrl(panel, value=(data or {}).get("cards_in", ""), style=wx.TE_MULTILINE)
+        self.cards_in_ctrl.SetBackgroundColour(DARK_ALT)
+        self.cards_in_ctrl.SetForegroundColour(LIGHT_TEXT)
+        self.cards_in_ctrl.SetHint("Cards to bring in")
+        panel_sizer.Add(self.cards_in_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+        self.cards_out_ctrl = wx.TextCtrl(panel, value=(data or {}).get("cards_out", ""), style=wx.TE_MULTILINE)
+        self.cards_out_ctrl.SetBackgroundColour(DARK_ALT)
+        self.cards_out_ctrl.SetForegroundColour(LIGHT_TEXT)
+        self.cards_out_ctrl.SetHint("Cards to take out")
+        panel_sizer.Add(self.cards_out_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+        self.notes_ctrl = wx.TextCtrl(panel, value=(data or {}).get("notes", ""), style=wx.TE_MULTILINE)
+        self.notes_ctrl.SetBackgroundColour(DARK_ALT)
+        self.notes_ctrl.SetForegroundColour(LIGHT_TEXT)
+        self.notes_ctrl.SetHint("Notes")
+        panel_sizer.Add(self.notes_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+        button_sizer = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
+        if button_sizer:
+            main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
+
+    def get_data(self) -> Dict[str, str]:
+        return {
+            "archetype": self.archetype_ctrl.GetValue().strip(),
+            "cards_in": self.cards_in_ctrl.GetValue().strip(),
+            "cards_out": self.cards_out_ctrl.GetValue().strip(),
+            "notes": self.notes_ctrl.GetValue().strip(),
         }
 
-    def _compute_row_button_width(self):
-        temp = tk.Frame(self.root)
-        widths = []
-        sample_buttons = []
-        for symbol in ("+", "-", "X"):
-            btn = b_button(temp, symbol, lambda: None, color=CS[2], font=("verdana", 9, "bold"), width=2)
-            btn.pack(side="left", padx=1)
-            sample_buttons.append(btn)
-        temp.update_idletasks()
-        for btn in sample_buttons:
-            widths.append(btn.winfo_reqwidth())
-            btn.destroy()
-        temp.destroy()
-        button_spacing = 6  # approximate total horizontal padding between buttons
-        label_padding = 12  # left/right padding before label text
-        return sum(widths) + button_spacing + label_padding
 
-    def choose_format_button_clicked(self):
-        self.lazy_load_archetypes()
-        self.ui_reset_to_archetype_selection()
-        self.save_config()
-
-    def lazy_load_archetypes(self):
-        """Load archetypes in background thread to avoid blocking UI"""
-        if self.loading:
-            logger.debug("Already loading archetypes, skipping")
-            return
-
-        self.loading = True
-        self.listbox.delete(0, tk.END)
-        self.listbox.insert(0, "⏳ Loading archetypes...")
-        self.listbox_button.config(state="disabled")
-
-        def load_in_background():
-            mtg_format = self.format.get()
-            attempts = 3
-            delay = 2
-            last_error_message = ""
-
-            for attempt in range(1, attempts + 1):
-                try:
-                    logger.info(f"Loading archetypes for {mtg_format} (attempt {attempt}/{attempts})...")
-                    archetypes = get_archetypes(mtg_format)
-                    archetype_stats = get_archetype_stats(mtg_format)
-                    self.root.after(0, lambda data=archetypes, stats=archetype_stats: self.on_archetypes_loaded(data, stats))
-                    return
-                except Exception as exc:  # Retry on all exceptions
-                    last_error_message = str(exc)
-                    logger.error(f"Failed to load archetypes (attempt {attempt}/{attempts}): {exc}")
-                    if attempt < attempts:
-                        retry_msg = f"Network error, retrying ({attempt}/{attempts})..."
-                        self.root.after(0, lambda msg=retry_msg: self._update_archetype_retry_status(msg))
-                        time.sleep(delay)
-                        delay = min(delay * 2, 10)
-                    else:
-                        break
-
-            self.root.after(0, lambda msg=last_error_message: self.on_archetypes_error(msg))
-
-        # Start background thread
-        thread = threading.Thread(target=load_in_background, daemon=True)
-        thread.start()
-
-    def on_archetypes_loaded(self, archetypes, archetype_stats):
-        """Called on main thread when archetypes are loaded"""
-        self.archetypes = archetypes
-        self.archetype_stats = archetype_stats
-        self.loading = False
-
-        # Only update if we're still in browse mode
-        if self.current_mode == "browse":
-            # Update listbox
-            self.listbox.delete(0, tk.END)
-            for index, archetype in enumerate(self.archetypes):
-                self.listbox.insert(index, archetype["name"])
-
-            self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
-
-        logger.info(f"Loaded {len(self.archetypes)} archetypes")
-
-    def on_archetypes_error(self, error_msg):
-        """Called on main thread if loading fails"""
-        self.loading = False
-
-        # Only update if we're still in browse mode
-        if self.current_mode == "browse":
-            self.listbox.delete(0, tk.END)
-            self.listbox.insert(0, f"❌ Error: {error_msg[:50]}")
-            self.listbox.insert(1, "Click 'Select archetype' to retry")
-            self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
-
-        self.builder_status_var.set("Failed to load archetypes. Check your connection and retry.")
-
-    def _update_archetype_retry_status(self, message):
-        if self.current_mode != "browse":
-            return
-        self.listbox.delete(0, tk.END)
-        self.listbox.insert(0, message)
-        self.listbox.insert(1, "")
-
-    def save_deck_as(self):
-        """Save deck to both database and file"""
-        logger.debug(self.currently_selected_deck)
-
-        # Get deck content
-        deck_content = self.get_deck_text().strip()
-        if not deck_content:
-            messagebox.showwarning("Empty Deck", "Cannot save an empty deck")
-            return
-
-        # Determine deck name and metadata
-        if not self.currently_selected_deck:
-            date = time.strftime("%Y-%m-%d-%H-%M-%S")
-            default_name = f"edited_deck_{date}"
-            deck_name = simpledialog.askstring("Save Deck", "Enter deck name:", initialvalue=default_name)
-            if not deck_name:
-                return  # User cancelled
-
-            metadata = {"date": date}
-            source = "manual"
-            archetype_name = None
-            player_name = None
-        else:
-            # Saving a deck from MTGGoldfish
-            deck_name = format_deck_name(self.currently_selected_deck)
-            archetype_name = self.currently_selected_deck.get("name")
-            player_name = self.currently_selected_deck.get("player")
-            source = "mtggoldfish"
-            metadata = {
-                "date": self.currently_selected_deck.get("date"),
-                "event": self.currently_selected_deck.get("event"),
-                "result": self.currently_selected_deck.get("result"),
-                "deck_number": self.currently_selected_deck.get("number"),
-            }
-
-        try:
-            # Save to database
-            deck_id = save_deck_to_db(
-                deck_name=deck_name,
-                deck_content=deck_content,
-                format_type=self.format.get(),
-                archetype=archetype_name,
-                player=player_name,
-                source=source,
-                metadata=metadata
-            )
-
-            # Also save to file (backup/export)
-            safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in deck_name).strip()
-            if not safe_name:
-                safe_name = "saved_deck"
-            file_name = f"{safe_name}.txt"
-            save_dir = self.deck_save_dir
-            try:
-                save_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                logger.warning(f"Failed to create deck save directory '{save_dir}': {exc}")
-            file_path = save_dir / file_name
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(deck_content)
-
-            messagebox.showinfo("Deck Saved", f"Deck saved successfully!\nDatabase ID: {deck_id}\nFile: {file_name}")
-            logger.info(f"Deck saved: {deck_name} (ID: {deck_id})")
-
-        except Exception as e:
-            logger.error(f"Failed to save deck: {e}", exc_info=True)
-            messagebox.showerror("Save Error", f"Failed to save deck:\n{str(e)}")
-
-    def copy_deck_to_clipboard(self):
-        deck_content = self.get_deck_text().strip()
-        if not deck_content:
-            messagebox.showinfo("Copy Deck", "Deck is empty.")
-            return
-        try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(deck_content)
-            messagebox.showinfo("Copy Deck", "Deck copied to clipboard.")
-        except Exception as exc:
-            logger.error(f"Failed to copy deck to clipboard: {exc}")
-            messagebox.showerror("Copy Deck", f"Failed to copy deck:\n{exc}")
-
-    def add_deck_to_buffer(self):
-        self.deck_buffer = add_dicts(self.deck_buffer, deck_to_dictionary(self.get_deck_text()))
-        self.decks_added += 1
-
-    def make_average_deck(self):
-        deck_string = ""
-        added_sideboard_blank_line = False
-        sorted_cards = sorted(self.deck_buffer.items(), key=lambda x: "Sideboard" in x[0])
-        for card in sorted_cards:
-            if "Sideboard" in card[0] and not added_sideboard_blank_line:
-                deck_string += "\n"
-                added_sideboard_blank_line = True
-            card_average = float(card[1]) / self.decks_added
-            if card_average.is_integer():
-                deck_string += f"{int(card_average)} {card[0].replace('Sideboard ', '')}\n"
-                continue
-            deck_string += f'{float(card[1])/self.decks_added:.2f} {card[0].replace("Sideboard ", "")}\n'
-        self.load_deck_text(deck_string)
-        self.decks_added = 0
-        self.deck_buffer = {}
-        if self.current_mode == "builder":
-            self.builder_sync_from_text(deck_string)
-
-    def ui_bind_components(self):
-        return
-
-    def select_archetype(self):
-        # If still loading or error, retry loading
-        if self.loading or not self.archetypes:
-            self.lazy_load_archetypes()
-            return
-
-        selected = self.listbox.curselection()
-        if not selected:
-            return
-        selected = selected[0]
-        archetype = self.archetypes[selected]["href"]
-
-        # Show loading message while fetching decks
-        self.listbox.delete(0, tk.END)
-        self.listbox.insert(0, "⏳ Loading decks...")
-        self.listbox_button.config(state="disabled")
-
-        def load_decks_in_background():
-            try:
-                decks = get_archetype_decks(archetype)
-                self.root.after(0, lambda: self.on_decks_loaded(decks))
-            except Exception as e:
-                logger.error(f"Failed to load decks: {e}")
-                self.root.after(0, lambda: self.on_decks_error(str(e)))
-
-        thread = threading.Thread(target=load_decks_in_background, daemon=True)
-        thread.start()
-
-    def on_decks_loaded(self, decks):
-        """Called when decks are loaded"""
-        self.decks = decks
-        repopulate_listbox(self.listbox, [format_deck_name(deck) for deck in self.decks])
-        self.listbox_button.config(text="Select deck", command=self.select_deck, state="normal")
-        self.listbox.bind("<<ListboxSelect>>", self.set_textbox)
-        self.reset_button = button(self.F_top_left, "Reset", self.ui_reset_to_archetype_selection)
-        self.reset_button.grid(column=0, row=0, sticky="nsew")
-        self.make_daily_average_deck_button = button(self.F_top_right_top, "Day's Average", self.set_daily_average_deck)
-        self.make_daily_average_deck_button.grid(column=4, row=0, sticky="nsew")
-        logger.info(f"Loaded {len(decks)} decks")
-
-    def on_decks_error(self, error_msg):
-        """Called if deck loading fails"""
-        self.listbox.delete(0, tk.END)
-        self.listbox.insert(0, f"❌ Error loading decks: {error_msg[:40]}")
-        self.listbox_button.config(state="normal")
-
-    def set_daily_average_deck(self):
-        # Prevent multiple simultaneous loads
-        if self.loading_daily_average:
-            logger.warning("Daily average already loading, ignoring click")
-            return
-
-        today = time.strftime("%Y-%m-%d")
-        decks_from_today = [d for d in self.decks if today.lower() in d["date"]]
-
-        if not decks_from_today:
-            logger.info("No decks from today found")
-            self.display_deck_message("No decks from today found in this archetype")
-            return
-
-        # Show loading in textbox
-        self.loading_daily_average = True
-        self.display_deck_message(f"⏳ Loading {len(decks_from_today)} decks from today...\n")
-        self.make_daily_average_deck_button.config(state="disabled")
-        logger.info(f"Starting to load {len(decks_from_today)} decks for daily average")
-
-        def update_progress(current, total):
-            """Thread-safe progress update"""
-            def _update():
-                self.display_deck_message(f"⏳ Loading deck {current}/{total}...\n")
-            self.root.after(0, _update)
-
-        def load_daily_average_in_background():
-            try:
-                deck_buffer = {}
-                decks_added = 0
-
-                for idx, deck in enumerate(decks_from_today, 1):
-                    logger.debug(f"Downloading deck {idx}/{len(decks_from_today)}: {deck['number']}")
-
-                    # Update progress before downloading
-                    update_progress(idx, len(decks_from_today))
-
-                    # Download deck
-                    download_deck(deck["number"])
-
-                    # Read deck content with proper file handling
-                    try:
-                        deck_str = self._read_curr_deck_file()
-                    except Exception as file_error:
-                        logger.error(f"Failed to read deck file: {file_error}")
-                        raise
-
-                    # Parse and add to buffer
-                    deck_buffer = add_dicts(deck_buffer, deck_to_dictionary(deck_str))
-                    decks_added += 1
-                    logger.debug(f"Successfully processed deck {idx}/{len(decks_from_today)}")
-
-                logger.info(f"Completed loading {decks_added} decks")
-                self.root.after(0, lambda: self.on_daily_average_loaded(deck_buffer, decks_added))
-
-            except Exception as e:
-                logger.error(f"Failed to load daily average: {e}", exc_info=True)
-                def _error():
-                    self.display_deck_message(f"❌ Error loading decks:\n{str(e)}")
-                    self.make_daily_average_deck_button.config(state="normal")
-                    self.loading_daily_average = False
-                self.root.after(0, _error)
-
-        thread = threading.Thread(target=load_daily_average_in_background, daemon=True)
-        thread.start()
-
-    def on_daily_average_loaded(self, deck_buffer, decks_added):
-        """Called when daily average is computed"""
-        try:
-            self.deck_buffer = deck_buffer
-            self.decks_added = decks_added
-            self.make_average_deck()
-            logger.info("Daily average deck created successfully")
-        except Exception as e:
-            logger.error(f"Error creating average deck: {e}")
-            self.display_deck_message(f"❌ Error creating average:\n{str(e)}")
-        finally:
-            self.make_daily_average_deck_button.config(state="normal")
-            self.loading_daily_average = False
-
-    def set_textbox(self, event):
-        selected = self.listbox.curselection()
-        if not selected:
-            return
-        selected = selected[0]
-        self.currently_selected_deck = self.decks[selected]
-        deck = self.decks[selected]
-
-        # Show loading message
-        self.display_deck_message("⏳ Loading deck...")
-        logger.debug(f"Loading deck: {deck['number']}")
-
-        def load_deck_in_background():
-            try:
-                download_deck(deck["number"])
-
-                # Read with proper file handling
-                try:
-                    deck_content = self._read_curr_deck_file()
-                except Exception as file_error:
-                    logger.error(f"Failed to read deck file: {file_error}")
-                    raise
-
-                logger.debug(f"Successfully loaded deck: {deck['number']}")
-                self.root.after(0, lambda: self.on_deck_content_loaded(deck_content))
-
-            except Exception as e:
-                logger.error(f"Failed to load deck: {e}", exc_info=True)
-                def _error():
-                    self.display_deck_message(f"❌ Error loading deck:\n{str(e)}")
-                self.root.after(0, _error)
-
-        thread = threading.Thread(target=load_deck_in_background, daemon=True)
-        thread.start()
-
-    def on_deck_content_loaded(self, deck_content):
-        """Called when deck content is downloaded"""
-        try:
-            self.load_deck_text(deck_content)
-            if self.current_mode == "builder":
-                self.builder_sync_from_text(deck_content)
-        except Exception as e:
-            logger.error(f"Error displaying deck: {e}")
-            self.display_deck_message(f"❌ Error displaying deck:\n{str(e)}")
-
-    def clear_deck_textboxes(self):
-        for zone in self.zone_views:
-            self._clear_zone_view(zone)
-            self.zone_lines[zone] = []
-            self.q_btn_frames.setdefault(zone, [])
-            self.q_btn_frames[zone] = []
-
-    def split_deck_text(self, deck_text):
-        main_lines = []
-        side_lines = []
-        is_side = False
-        for raw_line in deck_text.splitlines():
-            line = raw_line.strip()
-            if not line:
-                if main_lines or side_lines:
-                    is_side = True
-                continue
-            if line.lower().startswith("sideboard"):
-                is_side = True
-                continue
-            target = side_lines if is_side else main_lines
-            target.append(line)
-        return main_lines, side_lines
-
-    def _clear_zone_view(self, zone):
-        view = self.zone_views.get(zone)
-        if not view:
-            return
-        for child in view["frame"].winfo_children():
-            child.destroy()
-        view["rows"] = []
-        view["canvas"].yview_moveto(0)
-        view["frame"].update_idletasks()
-        bbox = view["canvas"].bbox("all")
-        if bbox:
-            view["canvas"].configure(scrollregion=bbox)
-        else:
-            view["canvas"].configure(scrollregion=(0, 0, 0, 0))
-        for col in range(view.get("columns", 0)):
-            view["frame"].grid_columnconfigure(col, weight=0, minsize=0)
-        view["columns"] = 0
-        view["pending_layout"] = False
-
-    def _layout_zone_rows(self, zone, frames=None):
-        view = self.zone_views.get(zone)
-        if not view:
-            return
-        frames = frames if frames is not None else view.get("rows", [])
-        if not frames:
-            return
-
-        for col in range(view.get("columns", 0)):
-            view["frame"].grid_columnconfigure(col, weight=0, minsize=0)
-        view["columns"] = 0
-
-        if view.get("rows"):
-            for frame in frames:
-                if hasattr(frame, "grid_forget"):
-                    frame.grid_forget()
-
-        if not frames:
-            return
-
-        if self.zone_lines.get(zone):
-            columns = min(DECK_GRID_COLUMNS, len(frames))
-            if columns <= 0:
-                columns = 1
-        else:
-            columns = 1
-
-        for col in range(columns):
-            view["frame"].grid_columnconfigure(col, weight=1, uniform=f"{zone}_cols")
-
-        view["columns"] = columns
-
-        for index, frame in enumerate(frames):
-            column = index % columns
-            row = index // columns
-            frame.grid(column=column, row=row, sticky="ew", padx=2, pady=(0, 1))
-
-        view["frame"].update_idletasks()
-        bbox = view["canvas"].bbox("all")
-        if bbox:
-            view["canvas"].configure(scrollregion=bbox)
-        else:
-            view["canvas"].configure(scrollregion=(0, 0, 0, 0))
-
-        per_column_width = max(120, (view["frame"].winfo_width() // max(1, columns)) - self.row_button_width)
-        for frame in frames:
-            if isinstance(frame, tk.Label):
-                frame.configure(wraplength=per_column_width + self.row_button_width)
-            else:
-                label = getattr(frame, "card_label", None)
-                if label:
-                    label.configure(wraplength=per_column_width)
-
-    def _request_zone_relayout(self, zone):
-        view = self.zone_views.get(zone)
-        if not view or not view.get("rows"):
-            return
-        if view.get("pending_layout"):
-            return
-        view["pending_layout"] = True
-
-        def _do_relayout(z=zone):
-            self._relayout_zone(z)
-
-        self.root.after_idle(_do_relayout)
-
-    def _relayout_zone(self, zone):
-        view = self.zone_views.get(zone)
-        if not view:
-            return
-        view["pending_layout"] = False
-        if not view.get("rows"):
-            return
-        self._layout_zone_rows(zone)
-
-    def _configure_card_search_panel(self, manager):
-        if getattr(self, "_search_width_set", False):
-            return
-        cards = getattr(manager, "_cards", None)
-        if not cards:
-            return
-
-        width_chars = CARD_SEARCH_LISTBOX_WIDTH
-        self.listbox.config(width=width_chars)
-
-        self.builder_controls_frame.update_idletasks()
-        controls_width = self.builder_controls_frame.winfo_reqwidth()
-        screen_width = self.root.winfo_screenwidth() or 1920
-        panel_width = max(controls_width + 20, min(CARD_SEARCH_PANEL_WIDTH, int(screen_width * 0.35)))
-
-        self.F_top_left.grid_propagate(False)
-        self.F_top_left.configure(width=panel_width)
-        self.F_top_left.update_idletasks()
-        self.F_top.grid_columnconfigure(0, minsize=panel_width)
-        self._search_width_set = True
-
-    @staticmethod
-    def _widget_exists(widget):
-        try:
-            return bool(widget) and widget.winfo_exists()
-        except Exception:
-            return False
-
-    def launch_opponent_tracker(self):
-        existing = getattr(self.opponent_tracker_window, "root", None) if self.opponent_tracker_window else None
-        if self._widget_exists(existing):
-            existing.deiconify()
-            existing.lift()
-            return
-        try:
-            self.opponent_tracker_window = MTGOpponentDeckSpy(master=self.root)
-            self.opponent_tracker_window.root.bind("<Destroy>", self._on_tracker_closed)
-        except Exception as exc:
-            logger.error(f"Failed to launch opponent tracker: {exc}")
-            messagebox.showerror("Opponent Tracker", f"Unable to launch opponent tracker:\n{exc}")
-
-    def open_timer_alert(self):
-        window = getattr(self.timer_alert_window, "window", None) if self.timer_alert_window else None
-        if self._widget_exists(window):
-            window.deiconify()
-            window.lift()
-            return
-        try:
-            self.timer_alert_window = TimerAlertWindow(self.root)
-            self.timer_alert_window.window.bind("<Destroy>", self._on_timer_closed)
-        except Exception as exc:
-            logger.error(f"Failed to open timer alert: {exc}")
-            messagebox.showerror("Timer Alert", f"Unable to open timer alert:\n{exc}")
-
-    def _on_tracker_closed(self, _event=None):
-        self.opponent_tracker_window = None
-
-    def _on_timer_closed(self, _event=None):
-        self.timer_alert_window = None
-
-    def export_collection_snapshot(self):
-        logger.debug("Collection export requested")
-        ready, error = mtgo_bridge.runtime_status()
-        if not ready:
-            logger.debug("MTGOSDK runtime not ready: %s", error)
-            messagebox.showwarning("Collection Export", f"MTGOSDK runtime unavailable: {error or 'still loading'}")
-            return
-
-        def worker():
-            logger.debug("Collection export worker started")
-            self.root.after(0, lambda: self.sdk_status_var.set("MTGOSDK: exporting collection…"))
-            ready, error = mtgo_bridge.ensure_runtime_ready()
-            if not ready:
-                logger.debug("Runtime became unavailable during export: %s", error)
-                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: unavailable"), messagebox.showerror("Collection Export", f"MTGOSDK runtime unavailable: {error or 'see logs'}")))
-                return
-            try:
-                logger.debug("Fetching Full Trade List binder from MTGOSDK")
-                cards = mtgo_bridge.get_full_collection()
-            except Exception as exc:
-                logger.exception("Failed to fetch collection binder", exc_info=True)
-                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showerror("Collection Export", f"Failed to fetch collection: {exc}")))
-                return
-            export_dir = self.deck_save_dir
-            export_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
-            export_path = export_dir / f"collection_full_trade_{timestamp}.json"
-            try:
-                export_path.write_text(json.dumps(cards, indent=2, ensure_ascii=False), encoding="utf-8")
-                logger.debug("Collection written to %s", export_path)
-            except OSError as exc:
-                logger.exception("Failed to write collection export", exc_info=True)
-                self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showerror("Collection Export", f"Failed to write file: {exc}")))
-                return
-            self.root.after(0, lambda: (self.sdk_status_var.set("MTGOSDK: ready"), messagebox.showinfo("Collection Export", f"Collection saved to {export_path}")))
-        threading.Thread(target=worker, daemon=True).start()
-
-    def open_match_history(self):
-        window = getattr(self.match_history_window, "window", None) if self.match_history_window else None
-        if window is not None and window.winfo_exists():
-            window.lift()
-            return
-        try:
-            self.match_history_window = MatchHistoryWindow(self.root)
-            self.match_history_window.window.bind("<Destroy>", self._on_match_history_closed)
-        except Exception as exc:
-            logger.error("Failed to open match history: {}", exc)
-            messagebox.showerror("Match History", f"Unable to open match history:\n{exc}")
-
-    def _on_match_history_closed(self, _event=None):
-        self.match_history_window = None
-
-    def render_deck_zone(self, zone, lines):
-        view = self.zone_views.get(zone)
-        if not view:
-            return
-
-        self._clear_zone_view(zone)
-        self.q_btn_frames.setdefault(zone, [])
-        self.q_btn_frames[zone] = []
-        self.zone_lines[zone] = list(lines)
-
-        if not lines:
-            placeholder = tk.Label(view["frame"], text="", background=CS[1])
-            placeholder.card_line = ""
-            view["rows"] = [placeholder]
-            self._layout_zone_rows(zone, view["rows"])
-            return
-
-        frames = []
-        for line in lines:
-            frame = self.create_F_edit_deck(view["frame"], line, zone)
-            frames.append(frame)
-            self.q_btn_frames[zone].append(frame)
-
-        view["rows"] = frames
-        self._layout_zone_rows(zone, frames)
-        self._request_zone_relayout(zone)
-
-    def get_zone_lines(self, zone):
-        return list(self.zone_lines.get(zone, []))
-
-    def get_deck_text(self):
-        main_lines = self.get_zone_lines("main")
-        side_lines = self.get_zone_lines("side")
-        parts = main_lines.copy()
-        if side_lines:
-            parts.append("")
-            parts.append("Sideboard")
-            parts.extend(side_lines)
-        return "\n".join(parts)
-
-    def load_deck_text(self, deck_text):
-        main_lines, side_lines = self.split_deck_text(deck_text)
-        self.render_deck_zone("main", main_lines)
-        self.render_deck_zone("side", side_lines)
-
-    def display_deck_message(self, message):
-        for zone in self.zone_views:
-            self._clear_zone_view(zone)
-            self.zone_lines[zone] = []
-            self.q_btn_frames.setdefault(zone, [])
-            self.q_btn_frames[zone] = []
-        view = self.zone_views.get("main")
-        if not view:
-            return
-        label = tk.Label(
-            view["frame"],
-            text=message,
-            font=self.deck_row_font,
-            background=CS[1],
-            anchor="nw",
-            justify="left",
-            wraplength=view["canvas"].winfo_width() or 400,
+class ManaKeyboardFrame(wx.Frame):
+    def __init__(
+        self,
+        parent: wx.Window,
+        create_button: Callable[[wx.Window, str, Callable[[str], None]], wx.Button],
+        on_symbol: Callable[[str], None],
+    ) -> None:
+        super().__init__(
+            parent,
+            title="Mana Keyboard",
+            size=(620, 330),
+            style=wx.CAPTION | wx.CLOSE_BOX | wx.FRAME_TOOL_WINDOW | wx.STAY_ON_TOP,
         )
-        label.card_line = message or ""
-        view["rows"] = [label]
-        self._layout_zone_rows("main", view["rows"])
+        panel = wx.Panel(self)
+        panel.SetBackgroundColour(DARK_BG)
+        root = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(root)
 
-    def _split_card_line(self, line):
-        parts = line.strip().split(" ", 1)
-        if len(parts) != 2:
-            return 0, ""
+        info = wx.StaticText(panel, label="Click a symbol to type it anywhere")
+        info.SetForegroundColour(LIGHT_TEXT)
+        root.Add(info, 0, wx.ALIGN_CENTER | wx.ALL, 8)
+
+        wrap = wx.WrapSizer(wx.HORIZONTAL)
+        for token in FULL_MANA_SYMBOLS:
+            btn = create_button(panel, token, on_symbol)
+            wrap.Add(btn, 0, wx.ALL, 4)
+        root.Add(wrap, 1, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 10)
+        self.CentreOnParent()
+
+
+class MTGDeckSelectionFrame(wx.Frame):
+    """wxPython-based metagame research + deck builder UI."""
+
+    def __init__(self, parent: Optional[wx.Window] = None):
+        super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
+
+        self.settings = self._load_window_settings()
+        self.current_format = self.settings.get("format", "Modern")
+        if self.current_format not in FORMAT_OPTIONS:
+            self.current_format = "Modern"
+
+        self.archetypes: List[Dict[str, Any]] = []
+        self.filtered_archetypes: List[Dict[str, Any]] = []
+        self.decks: List[Dict[str, Any]] = []
+        self.current_deck: Optional[Dict[str, Any]] = None
+        self.current_deck_text: str = ""
+        self.zone_cards: Dict[str, List[Dict[str, Any]]] = {"main": [], "side": [], "out": []}
+        self.collection_inventory: Dict[str, int] = {}
+        self.collection_path: Optional[Path] = None
+        self.card_manager: Optional[CardDataManager] = None
+        self.card_data_loading = False
+        self.card_data_ready = False
+
+        self.deck_notes_store = self._load_store(NOTES_STORE)
+        self.outboard_store = self._load_store(OUTBOARD_STORE)
+        self.guide_store = self._load_store(GUIDE_STORE)
+
+        self.sideboard_guide_entries: List[Dict[str, str]] = []
+        self.sideboard_exclusions: List[str] = []
+        self.active_inspector_zone: Optional[str] = None
+        self.left_mode = "builder" if self.settings.get("left_mode") == "builder" else "research"
+        self.builder_results_cache: List[Dict[str, Any]] = []
+        self.builder_inputs: Dict[str, wx.TextCtrl] = {}
+        self.builder_results_ctrl: Optional[wx.ListCtrl] = None
+        self.builder_status_label: Optional[wx.StaticText] = None
+        self.builder_mana_exact_cb: Optional[wx.CheckBox] = None
+        self.builder_mv_comparator: Optional[wx.Choice] = None
+        self.builder_mv_value: Optional[wx.TextCtrl] = None
+        self.builder_format_checks: List[wx.CheckBox] = []
+        self.builder_color_checks: Dict[str, wx.CheckBox] = {}
+        self.builder_color_mode_choice: Optional[wx.Choice] = None
+        self.left_stack: Optional[wx.Simplebook] = None
+        self.research_panel: Optional[wx.Panel] = None
+        self.builder_panel: Optional[wx.Panel] = None
+
+        self.deck_buffer: Dict[str, float] = {}
+        self.decks_added: int = 0
+        self.loading_archetypes = False
+        self.loading_decks = False
+        self.loading_daily_average = False
+
+        self._save_timer: Optional[wx.Timer] = None
+        self.mana_icons = ManaIconFactory()
+        self.tracker_window: Optional[MTGOpponentDeckSpy] = None
+        self.timer_window: Optional[TimerAlertFrame] = None
+        self.history_window: Optional[MatchHistoryFrame] = None
+        self.mana_keyboard_window: Optional[ManaKeyboardFrame] = None
+
+        self._build_ui()
+        self._apply_window_preferences()
+        self.SetMinSize((1260, 760))
+        self.Centre(wx.BOTH)
+
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+        self.Bind(wx.EVT_SIZE, self.on_window_change)
+        self.Bind(wx.EVT_MOVE, self.on_window_change)
+
+        wx.CallAfter(self._run_initial_loads)
+
+    # ------------------------------------------------------------------ UI ------------------------------------------------------------------
+    def _build_ui(self) -> None:
+        self.SetBackgroundColour(DARK_BG)
+
+        self.status_bar = self.CreateStatusBar()
+        self.status_bar.SetBackgroundColour(DARK_PANEL)
+        self.status_bar.SetForegroundColour(LIGHT_TEXT)
+        self._set_status("Ready")
+
+        root_panel = wx.Panel(self)
+        root_panel.SetBackgroundColour(DARK_BG)
+        root_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        root_panel.SetSizer(root_sizer)
+
+        left_panel = wx.Panel(root_panel)
+        left_panel.SetBackgroundColour(DARK_PANEL)
+        left_sizer = wx.BoxSizer(wx.VERTICAL)
+        left_panel.SetSizer(left_sizer)
+        root_sizer.Add(left_panel, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.left_stack = wx.Simplebook(left_panel)
+        self.left_stack.SetBackgroundColour(DARK_PANEL)
+        left_sizer.Add(self.left_stack, 1, wx.EXPAND)
+
+        self._create_research_panel()
+        self._create_builder_panel()
+        self._show_left_panel(self.left_mode, force=True)
+
+        right_panel = wx.Panel(root_panel)
+        right_panel.SetBackgroundColour(DARK_BG)
+        right_sizer = wx.BoxSizer(wx.VERTICAL)
+        right_panel.SetSizer(right_sizer)
+        root_sizer.Add(right_panel, 1, wx.EXPAND | wx.ALL, 10)
+
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        right_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 6)
+        tracker_btn = wx.Button(right_panel, label="Opponent Tracker")
+        tracker_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_opponent_tracker())
+        toolbar.Add(tracker_btn, 0, wx.RIGHT, 6)
+        timer_btn = wx.Button(right_panel, label="Timer Alert")
+        timer_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_timer_alert())
+        toolbar.Add(timer_btn, 0, wx.RIGHT, 6)
+        history_btn = wx.Button(right_panel, label="Match History")
+        history_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_match_history())
+        toolbar.Add(history_btn, 0, wx.RIGHT, 6)
+        reload_collection_btn = wx.Button(right_panel, label="Load Collection")
+        reload_collection_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._refresh_collection_inventory(force=True))
+        toolbar.Add(reload_collection_btn, 0, wx.RIGHT, 6)
+        download_images_btn = wx.Button(right_panel, label="Download Card Images")
+        download_images_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._show_image_download_dialog())
+        toolbar.Add(download_images_btn, 0)
+        toolbar.AddStretchSpacer(1)
+
+        upper_split = wx.BoxSizer(wx.HORIZONTAL)
+        right_sizer.Add(upper_split, 1, wx.EXPAND | wx.BOTTOM, 10)
+
+        summary_column = wx.BoxSizer(wx.VERTICAL)
+        upper_split.Add(summary_column, 1, wx.EXPAND | wx.RIGHT, 10)
+
+        summary_box = wx.StaticBox(right_panel, label="Archetype Summary")
+        summary_box.SetForegroundColour(LIGHT_TEXT)
+        summary_box.SetBackgroundColour(DARK_PANEL)
+        summary_sizer = wx.StaticBoxSizer(summary_box, wx.VERTICAL)
+        summary_column.Add(summary_sizer, 0, wx.EXPAND | wx.BOTTOM, 10)
+
+        self.summary_text = wx.TextCtrl(
+            summary_box,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.NO_BORDER,
+        )
+        self._stylize_textctrl(self.summary_text, multiline=True)
+        self.summary_text.SetMinSize((-1, 110))
+        summary_sizer.Add(self.summary_text, 1, wx.EXPAND | wx.ALL, 6)
+
+        deck_box = wx.StaticBox(right_panel, label="Deck Results")
+        deck_box.SetForegroundColour(LIGHT_TEXT)
+        deck_box.SetBackgroundColour(DARK_PANEL)
+        deck_sizer = wx.StaticBoxSizer(deck_box, wx.VERTICAL)
+        summary_column.Add(deck_sizer, 1, wx.EXPAND)
+
+        inspector_box = wx.StaticBox(right_panel, label="Card Inspector")
+        inspector_box.SetForegroundColour(LIGHT_TEXT)
+        inspector_box.SetBackgroundColour(DARK_PANEL)
+        inspector_sizer = wx.StaticBoxSizer(inspector_box, wx.VERTICAL)
+        upper_split.Add(inspector_sizer, 2, wx.EXPAND)
+
+        inspector_content = wx.BoxSizer(wx.HORIZONTAL)
+        inspector_sizer.Add(inspector_content, 1, wx.EXPAND | wx.ALL, 6)
+
+        image_column_panel = wx.Panel(inspector_box)
+        image_column_panel.SetBackgroundColour(DARK_PANEL)
+        image_column = wx.BoxSizer(wx.VERTICAL)
+        image_column_panel.SetSizer(image_column)
+        inspector_content.Add(image_column_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+
+        # Create the card image display widget (clean implementation)
+        self.card_image_display = CardImageDisplay(image_column_panel, width=260, height=360)
+        image_column.Add(self.card_image_display, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 4)
+
+        self.inspector_nav_panel = wx.Panel(image_column_panel)
+        self.inspector_nav_panel.SetBackgroundColour(DARK_PANEL)
+        nav_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.inspector_nav_panel.SetSizer(nav_sizer)
+
         try:
-            count = int(float(parts[0]))
-        except ValueError:
-            count = 0
-        return count, parts[1].strip()
+            nav_btn_size = self.FromDIP(wx.Size(38, 30))
+        except AttributeError:
+            nav_btn_size = wx.Size(38, 30)
 
-    def _find_line_index(self, lines, target):
-        for idx, value in enumerate(lines):
-            if value.strip() == target.strip():
-                return idx
-        return None
+        self.inspector_prev_btn = wx.Button(self.inspector_nav_panel, label="◀", size=nav_btn_size)
+        self._stylize_button(self.inspector_prev_btn)
+        self.inspector_prev_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_prev_printing())
+        nav_sizer.Add(self.inspector_prev_btn, 0, wx.RIGHT, 4)
 
-    def _is_descendant(self, widget, ancestor):
-        current = widget
-        while current:
-            if current is ancestor:
-                return True
-            current = getattr(current, "master", None)
-        return False
+        self.inspector_printing_label = wx.StaticText(self.inspector_nav_panel, label="")
+        self.inspector_printing_label.SetForegroundColour(SUBDUED_TEXT)
+        nav_sizer.Add(self.inspector_printing_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER)
 
-    def _zone_for_widget(self, widget):
-        for zone, view in self.zone_views.items():
-            if widget is view["canvas"] or self._is_descendant(widget, view["frame"]):
-                return zone
-        return None
+        self.inspector_next_btn = wx.Button(self.inspector_nav_panel, label="▶", size=nav_btn_size)
+        self._stylize_button(self.inspector_next_btn)
+        self.inspector_next_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_next_printing())
+        nav_sizer.Add(self.inspector_next_btn, 0, wx.LEFT, 4)
 
-    def _apply_zone_lines(self, zone, lines):
-        self.render_deck_zone(zone, lines)
-        deck_text = self.get_deck_text()
-        self.builder_sync_from_text(deck_text)
+        image_column.Add(self.inspector_nav_panel, 0, wx.EXPAND | wx.TOP, 6)
+        self.inspector_nav_panel.Hide()  # Hidden by default
 
+        inspector_details_panel = wx.Panel(inspector_box)
+        inspector_details_panel.SetBackgroundColour(DARK_PANEL)
+        inspector_details = wx.BoxSizer(wx.VERTICAL)
+        inspector_details_panel.SetSizer(inspector_details)
+        inspector_content.Add(inspector_details_panel, 1, wx.EXPAND)
 
-    def increment_card(self, zone, line):
-        lines = self.get_zone_lines(zone)
-        idx = self._find_line_index(lines, line)
-        if idx is None:
-            logger.debug(f"{line} not found in {zone} decklist")
+        self.inspector_name = wx.StaticText(inspector_details_panel, label="Select a card to inspect.")
+        name_font = self.inspector_name.GetFont()
+        name_font.SetPointSize(name_font.GetPointSize() + 2)
+        name_font.MakeBold()
+        self.inspector_name.SetFont(name_font)
+        self.inspector_name.SetForegroundColour(LIGHT_TEXT)
+        inspector_details.Add(self.inspector_name, 0, wx.BOTTOM, 4)
+
+        self.inspector_cost_container = wx.Panel(inspector_details_panel)
+        self.inspector_cost_container.SetBackgroundColour(DARK_PANEL)
+        self.inspector_cost_container.SetMinSize((-1, 36))
+        self.inspector_cost_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.inspector_cost_container.SetSizer(self.inspector_cost_sizer)
+        inspector_details.Add(self.inspector_cost_container, 0, wx.EXPAND | wx.BOTTOM, 4)
+
+        self.inspector_type = wx.StaticText(inspector_details_panel, label="")
+        self.inspector_type.SetForegroundColour(SUBDUED_TEXT)
+        inspector_details.Add(self.inspector_type, 0, wx.BOTTOM, 4)
+
+        self.inspector_stats = wx.StaticText(inspector_details_panel, label="")
+        self.inspector_stats.SetForegroundColour(LIGHT_TEXT)
+        inspector_details.Add(self.inspector_stats, 0, wx.BOTTOM, 4)
+
+        self.inspector_text = wx.TextCtrl(
+            inspector_details_panel,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.NO_BORDER,
+        )
+        self._stylize_textctrl(self.inspector_text, multiline=True)
+        self.inspector_text.SetMinSize((-1, 120))
+        inspector_details.Add(self.inspector_text, 1, wx.EXPAND | wx.TOP, 4)
+
+        # State for managing printings
+        self.inspector_printings: List[Dict[str, Any]] = []
+        self.inspector_current_printing: int = 0
+        self.inspector_current_card_name: Optional[str] = None
+        self.image_cache = get_cache()
+        self.image_downloader: Optional[BulkImageDownloader] = None
+
+        # Bulk data cache - loaded once in memory for fast lookups
+        self.bulk_data_by_name: Optional[Dict[str, List[Dict[str, Any]]]] = None
+        self.printing_index_loading: bool = False
+
+        self._reset_card_inspector()
+
+        self.deck_list = wx.ListBox(deck_box, style=wx.LB_SINGLE)
+        self._stylize_listbox(self.deck_list)
+        self.deck_list.Bind(wx.EVT_LISTBOX, self.on_deck_selected)
+        deck_sizer.Add(self.deck_list, 1, wx.EXPAND | wx.ALL, 6)
+
+        button_row = wx.BoxSizer(wx.HORIZONTAL)
+        deck_sizer.Add(button_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        self.load_button = wx.Button(deck_box, label="Load Deck")
+        self._stylize_button(self.load_button)
+        self.load_button.Disable()
+        self.load_button.Bind(wx.EVT_BUTTON, self.on_load_deck_clicked)
+        button_row.Add(self.load_button, 0, wx.RIGHT, 6)
+
+        self.daily_average_button = wx.Button(deck_box, label="Today's Average")
+        self._stylize_button(self.daily_average_button)
+        self.daily_average_button.Disable()
+        self.daily_average_button.Bind(wx.EVT_BUTTON, self.on_daily_average_clicked)
+        button_row.Add(self.daily_average_button, 0, wx.RIGHT, 6)
+
+        self.copy_button = wx.Button(deck_box, label="Copy")
+        self._stylize_button(self.copy_button)
+        self.copy_button.Disable()
+        self.copy_button.Bind(wx.EVT_BUTTON, self.on_copy_clicked)
+        button_row.Add(self.copy_button, 0, wx.RIGHT, 6)
+
+        self.save_button = wx.Button(deck_box, label="Save Deck")
+        self._stylize_button(self.save_button)
+        self.save_button.Disable()
+        self.save_button.Bind(wx.EVT_BUTTON, self.on_save_clicked)
+        button_row.Add(self.save_button, 0)
+
+        detail_box = wx.StaticBox(right_panel, label="Deck Workspace")
+        detail_box.SetForegroundColour(LIGHT_TEXT)
+        detail_box.SetBackgroundColour(DARK_PANEL)
+        detail_sizer = wx.StaticBoxSizer(detail_box, wx.VERTICAL)
+        right_sizer.Add(detail_sizer, 1, wx.EXPAND)
+
+        self.deck_tabs = wx.Notebook(detail_box)
+        detail_sizer.Add(self.deck_tabs, 1, wx.EXPAND | wx.ALL, 6)
+
+        self.deck_tables_page = wx.Panel(self.deck_tabs)
+        self.deck_tabs.AddPage(self.deck_tables_page, "Deck Tables")
+        tables_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.deck_tables_page.SetSizer(tables_sizer)
+
+        self.zone_notebook = wx.Notebook(self.deck_tables_page)
+        tables_sizer.Add(self.zone_notebook, 1, wx.EXPAND | wx.BOTTOM, 6)
+
+        self.main_table = CardTablePanel(
+            self.zone_notebook,
+            "main",
+            self.mana_icons,
+            self._get_card_metadata,
+            self._owned_status,
+            self._handle_zone_delta,
+            self._handle_zone_remove,
+            self._handle_zone_add,
+            self._handle_card_focus,
+        )
+        self.zone_notebook.AddPage(self.main_table, "Mainboard")
+
+        self.side_table = CardTablePanel(
+            self.zone_notebook,
+            "side",
+            self.mana_icons,
+            self._get_card_metadata,
+            self._owned_status,
+            self._handle_zone_delta,
+            self._handle_zone_remove,
+            self._handle_zone_add,
+            self._handle_card_focus,
+        )
+        self.zone_notebook.AddPage(self.side_table, "Sideboard")
+
+        self.out_table = CardTablePanel(
+            self.zone_notebook,
+            "out",
+            self.mana_icons,
+            self._get_card_metadata,
+            lambda name, qty: ("Out", wx.Colour(255, 255, 255)),
+            self._handle_zone_delta,
+            self._handle_zone_remove,
+            self._handle_zone_add,
+            self._handle_card_focus,
+        )
+        self.zone_notebook.AddPage(self.out_table, "Outboard")
+
+        self.collection_status_label = wx.StaticText(self.deck_tables_page, label="Collection inventory not loaded.")
+        self.collection_status_label.SetForegroundColour(SUBDUED_TEXT)
+        tables_sizer.Add(self.collection_status_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
+
+        self.stats_page = wx.Panel(self.deck_tabs)
+        self.deck_tabs.AddPage(self.stats_page, "Stats")
+        stats_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.stats_page.SetSizer(stats_sizer)
+
+        self.stats_summary = wx.StaticText(self.stats_page, label="No deck loaded.")
+        self.stats_summary.SetForegroundColour(LIGHT_TEXT)
+        stats_sizer.Add(self.stats_summary, 0, wx.ALL, 6)
+
+        stats_split = wx.BoxSizer(wx.HORIZONTAL)
+        stats_sizer.Add(stats_split, 1, wx.EXPAND | wx.ALL, 6)
+
+        self.curve_list = dv.DataViewListCtrl(self.stats_page)
+        self.curve_list.AppendTextColumn("CMC", width=80)
+        self.curve_list.AppendTextColumn("Count", width=80)
+        self.curve_list.SetBackgroundColour(DARK_ALT)
+        self.curve_list.SetForegroundColour(LIGHT_TEXT)
+        stats_split.Add(self.curve_list, 0, wx.RIGHT, 12)
+
+        self.color_list = dv.DataViewListCtrl(self.stats_page)
+        self.color_list.AppendTextColumn("Color", width=120)
+        self.color_list.AppendTextColumn("Share", width=100)
+        self.color_list.SetBackgroundColour(DARK_ALT)
+        self.color_list.SetForegroundColour(LIGHT_TEXT)
+        stats_split.Add(self.color_list, 0)
+
+        self.guide_page = wx.Panel(self.deck_tabs)
+        self.deck_tabs.AddPage(self.guide_page, "Sideboard Guide")
+        guide_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.guide_page.SetSizer(guide_sizer)
+
+        self.guide_view = dv.DataViewListCtrl(self.guide_page, style=dv.DV_ROW_LINES)
+        self.guide_view.AppendTextColumn("Archetype", width=200)
+        self.guide_view.AppendTextColumn("Cards In", width=200)
+        self.guide_view.AppendTextColumn("Cards Out", width=200)
+        self.guide_view.AppendTextColumn("Notes", width=220)
+        self.guide_view.SetBackgroundColour(DARK_ALT)
+        self.guide_view.SetForegroundColour(LIGHT_TEXT)
+        guide_sizer.Add(self.guide_view, 1, wx.EXPAND | wx.ALL, 6)
+
+        guide_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        guide_sizer.Add(guide_buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        add_guide_btn = wx.Button(self.guide_page, label="Add Entry")
+        add_guide_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_add_guide_entry())
+        guide_buttons.Add(add_guide_btn, 0, wx.RIGHT, 6)
+        edit_guide_btn = wx.Button(self.guide_page, label="Edit Entry")
+        edit_guide_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_edit_guide_entry())
+        guide_buttons.Add(edit_guide_btn, 0, wx.RIGHT, 6)
+        remove_guide_btn = wx.Button(self.guide_page, label="Remove Entry")
+        remove_guide_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_remove_guide_entry())
+        guide_buttons.Add(remove_guide_btn, 0, wx.RIGHT, 6)
+        exclusions_btn = wx.Button(self.guide_page, label="Exclude Archetypes")
+        exclusions_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_edit_exclusions())
+        guide_buttons.Add(exclusions_btn, 0)
+        guide_buttons.AddStretchSpacer(1)
+
+        self.guide_exclusions_label = wx.StaticText(self.guide_page, label="Exclusions: —")
+        self.guide_exclusions_label.SetForegroundColour(SUBDUED_TEXT)
+        guide_sizer.Add(self.guide_exclusions_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        self.notes_page = wx.Panel(self.deck_tabs)
+        self.deck_tabs.AddPage(self.notes_page, "Deck Notes")
+        notes_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.notes_page.SetSizer(notes_sizer)
+
+        self.deck_notes_text = wx.TextCtrl(self.notes_page, style=wx.TE_MULTILINE)
+        self._stylize_textctrl(self.deck_notes_text, multiline=True)
+        notes_sizer.Add(self.deck_notes_text, 1, wx.EXPAND | wx.ALL, 6)
+
+        notes_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        notes_sizer.Add(notes_buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        save_notes_btn = wx.Button(self.notes_page, label="Save Notes")
+        save_notes_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._save_current_notes())
+        notes_buttons.Add(save_notes_btn, 0, wx.RIGHT, 6)
+        notes_buttons.AddStretchSpacer(1)
+
+    # ------------------------------------------------------------------ Left panel helpers -------------------------------------------------
+    def _create_research_panel(self) -> None:
+        if not self.left_stack:
             return
-        count, card_name = self._split_card_line(lines[idx])
-        count += 1
-        lines[idx] = f"{count} {card_name}"
-        self._apply_zone_lines(zone, lines)
+        panel = wx.Panel(self.left_stack)
+        panel.SetBackgroundColour(DARK_PANEL)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(sizer)
 
-    def decrement_card(self, zone, line):
-        lines = self.get_zone_lines(zone)
-        idx = self._find_line_index(lines, line)
-        if idx is None:
-            logger.debug(f"{line} not found in {zone} decklist")
+        format_label = wx.StaticText(panel, label="Format")
+        self._stylize_label(format_label)
+        sizer.Add(format_label, 0, wx.TOP | wx.LEFT | wx.RIGHT, 6)
+
+        self.format_choice = wx.Choice(panel, choices=FORMAT_OPTIONS)
+        self.format_choice.SetStringSelection(self.current_format)
+        self._stylize_choice(self.format_choice)
+        self.format_choice.Bind(wx.EVT_CHOICE, self.on_format_changed)
+        sizer.Add(self.format_choice, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.search_ctrl = wx.SearchCtrl(panel, style=wx.TE_PROCESS_ENTER)
+        self.search_ctrl.ShowSearchButton(True)
+        self.search_ctrl.SetHint("Search archetypes…")
+        self.search_ctrl.Bind(wx.EVT_TEXT, self.on_archetype_filter)
+        self._stylize_textctrl(self.search_ctrl)
+        sizer.Add(self.search_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        self.archetype_list = wx.ListBox(panel, style=wx.LB_SINGLE)
+        self._stylize_listbox(self.archetype_list)
+        self.archetype_list.Bind(wx.EVT_LISTBOX, self.on_archetype_selected)
+        sizer.Add(self.archetype_list, 1, wx.EXPAND | wx.ALL, 6)
+
+        refresh_button = wx.Button(panel, label="Reload Archetypes")
+        self._stylize_button(refresh_button)
+        refresh_button.Bind(wx.EVT_BUTTON, lambda evt: self.fetch_archetypes(force=True))
+        sizer.Add(refresh_button, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.left_stack.AddPage(panel, "Research")
+        self.research_panel = panel
+
+    def _create_builder_panel(self) -> None:
+        if not self.left_stack:
             return
-        count, card_name = self._split_card_line(lines[idx])
-        if count <= 1:
-            lines.pop(idx)
+        panel = wx.Panel(self.left_stack)
+        panel.SetBackgroundColour(DARK_PANEL)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(sizer)
+
+        back_btn = wx.Button(panel, label="Deck Research")
+        self._stylize_button(back_btn)
+        back_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._show_left_panel("research"))
+        sizer.Add(back_btn, 0, wx.EXPAND | wx.ALL, 6)
+
+        info = wx.StaticText(panel, label="Deck Builder: search MTG cards by property.")
+        self._stylize_label(info, subtle=True)
+        sizer.Add(info, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        field_specs = [
+            ("name", "Card Name", "e.g. Ragavan"),
+            ("type", "Type Line", "Artifact Creature"),
+            ("mana", "Mana Cost", "Curly braces like {1}{G} or shorthand (e.g. GGG)"),
+            ("text", "Oracle Text", "Keywords or abilities"),
+        ]
+        for key, label_text, hint in field_specs:
+            lbl = wx.StaticText(panel, label=label_text)
+            self._stylize_label(lbl, subtle=True)
+            sizer.Add(lbl, 0, wx.LEFT | wx.RIGHT, 6)
+            ctrl = wx.TextCtrl(panel)
+            self._stylize_textctrl(ctrl)
+            ctrl.SetHint(hint)
+            sizer.Add(ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+            self.builder_inputs[key] = ctrl
+            if key == "mana":
+                match_row = wx.BoxSizer(wx.HORIZONTAL)
+                match_label = wx.StaticText(panel, label="Match")
+                self._stylize_label(match_label, subtle=True)
+                match_row.Add(match_label, 0, wx.RIGHT, 6)
+                exact_cb = wx.CheckBox(panel, label="Exact symbols")
+                exact_cb.SetForegroundColour(LIGHT_TEXT)
+                exact_cb.SetBackgroundColour(DARK_PANEL)
+                match_row.Add(exact_cb, 0)
+                self.builder_mana_exact_cb = exact_cb
+                match_row.AddStretchSpacer(1)
+                sizer.Add(match_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+                keyboard_row = wx.BoxSizer(wx.HORIZONTAL)
+                keyboard_row.AddStretchSpacer(1)
+                for token in ["W", "U", "B", "R", "G", "C", "X"]:
+                    btn = self._create_mana_button(panel, token, self._append_mana_symbol)
+                    keyboard_row.Add(btn, 0, wx.ALL, 2)
+                all_btn = wx.Button(panel, label="All", size=(52, 28))
+                self._stylize_button(all_btn)
+                all_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._open_full_mana_keyboard())
+                keyboard_row.Add(all_btn, 0, wx.ALL, 2)
+                keyboard_row.AddStretchSpacer(1)
+                sizer.Add(keyboard_row, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
+
+        mv_row = wx.BoxSizer(wx.HORIZONTAL)
+        mv_label = wx.StaticText(panel, label="Mana Value Filter")
+        self._stylize_label(mv_label, subtle=True)
+        mv_row.Add(mv_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        mv_choice = wx.Choice(panel, choices=["Any", "<", "≤", "=", "≥", ">"])
+        mv_choice.SetSelection(0)
+        self._stylize_choice(mv_choice)
+        self.builder_mv_comparator = mv_choice
+        mv_row.Add(mv_choice, 0, wx.RIGHT, 6)
+        mv_value = wx.TextCtrl(panel)
+        self._stylize_textctrl(mv_value)
+        mv_value.SetHint("e.g. 3")
+        self.builder_mv_value = mv_value
+        mv_row.Add(mv_value, 1)
+        sizer.Add(mv_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        formats_label = wx.StaticText(panel, label="Formats")
+        self._stylize_label(formats_label, subtle=True)
+        sizer.Add(formats_label, 0, wx.LEFT | wx.RIGHT, 6)
+        formats_grid = wx.FlexGridSizer(0, 2, 4, 8)
+        for fmt in FORMAT_OPTIONS:
+            cb = wx.CheckBox(panel, label=fmt)
+            cb.SetForegroundColour(LIGHT_TEXT)
+            cb.SetBackgroundColour(DARK_PANEL)
+            formats_grid.Add(cb, 0, wx.RIGHT, 6)
+            self.builder_format_checks.append(cb)
+        sizer.Add(formats_grid, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        color_label = wx.StaticText(panel, label="Color Identity Filter")
+        self._stylize_label(color_label, subtle=True)
+        sizer.Add(color_label, 0, wx.LEFT | wx.RIGHT, 6)
+
+        color_mode = wx.Choice(panel, choices=["Any", "At least", "Exactly", "Not these"])
+        color_mode.SetSelection(0)
+        self._stylize_choice(color_mode)
+        self.builder_color_mode_choice = color_mode
+        sizer.Add(color_mode, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        colors_row = wx.BoxSizer(wx.HORIZONTAL)
+        for code, label in [
+            ("W", "White"),
+            ("U", "Blue"),
+            ("B", "Black"),
+            ("R", "Red"),
+            ("G", "Green"),
+            ("C", "Colorless"),
+        ]:
+            cb = wx.CheckBox(panel, label=label)
+            cb.SetForegroundColour(LIGHT_TEXT)
+            cb.SetBackgroundColour(DARK_PANEL)
+            colors_row.Add(cb, 0, wx.RIGHT, 6)
+            self.builder_color_checks[code] = cb
+        sizer.Add(colors_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        controls = wx.BoxSizer(wx.HORIZONTAL)
+        search_btn = wx.Button(panel, label="Search Cards")
+        self._stylize_button(search_btn)
+        search_btn.Bind(wx.EVT_BUTTON, self.on_builder_search)
+        controls.Add(search_btn, 0, wx.RIGHT, 6)
+        clear_btn = wx.Button(panel, label="Clear Filters")
+        self._stylize_button(clear_btn)
+        clear_btn.Bind(wx.EVT_BUTTON, self.on_builder_clear)
+        controls.Add(clear_btn, 0)
+        controls.AddStretchSpacer(1)
+        sizer.Add(controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        results = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_NONE)
+        results.InsertColumn(0, "Name", width=220)
+        results.InsertColumn(1, "Mana", width=110)
+        self._stylize_listctrl(results)
+        results.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_builder_result_selected)
+        sizer.Add(results, 1, wx.EXPAND | wx.ALL, 6)
+        self.builder_results_ctrl = results
+
+        status = wx.StaticText(panel, label="Search for cards to populate this list.")
+        status.SetForegroundColour(SUBDUED_TEXT)
+        sizer.Add(status, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        self.builder_status_label = status
+
+        self.left_stack.AddPage(panel, "Builder")
+        self.builder_panel = panel
+
+    def _show_left_panel(self, mode: str, force: bool = False) -> None:
+        target = "builder" if mode == "builder" else "research"
+        if self.left_stack:
+            index = 1 if target == "builder" else 0
+            if force or self.left_stack.GetSelection() != index:
+                self.left_stack.ChangeSelection(index)
+        if target == "builder":
+            self.ensure_card_data_loaded()
+        if force or self.left_mode != target:
+            self.left_mode = target
+            self._schedule_settings_save()
+
+    def _get_mana_font(self, size: int = 14) -> wx.Font:
+        if ManaIconFactory._FONT_LOADED:
+            return wx.Font(size, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, False, ManaIconFactory._FONT_NAME)
+        font = self.GetFont()
+        font.SetPointSize(size)
+        font.MakeBold()
+        return font
+
+    def _create_mana_button(self, parent: wx.Window, token: str, handler: Callable[[str], None]) -> wx.Button:
+        bmp: Optional[wx.Bitmap] = None
+        try:
+            bmp = self.mana_icons.bitmap_for_symbol(token)
+        except Exception:
+            bmp = None
+        if bmp:
+            btn: wx.Button = wx.BitmapButton(parent, bitmap=bmp, size=(bmp.GetWidth() + 10, bmp.GetHeight() + 10), style=wx.BU_EXACTFIT)
         else:
-            lines[idx] = f"{count - 1} {card_name}"
-        self._apply_zone_lines(zone, lines)
+            btn = wx.Button(parent, label=token, size=(44, 28))
+            btn.SetFont(self._get_mana_font(15))
+        btn.SetBackgroundColour(DARK_ALT)
+        btn.SetForegroundColour(LIGHT_TEXT)
+        btn.SetToolTip(token)
+        btn.Bind(wx.EVT_BUTTON, lambda _evt, sym=token: handler(sym))
+        return btn
 
-    def create_F_edit_deck(self, parent, line, zone):
-        frame = b_frame(parent, color=CS[1])
-        frame.configure(borderwidth=0, highlightthickness=0)
-        frame.grid_columnconfigure(3, weight=1)
-        frame.bind("<Button-1>", lambda _event, z=zone, l=line: self.on_deck_row_click(z, l))
-        FONT = ("verdana", 9, "bold")
-        plus_btn = b_button(frame, "+", lambda l=line, z=zone: self.increment_card(z, l), font=FONT, color=CS[2], width=2)
-        minus_btn = b_button(frame, "-", lambda l=line, z=zone: self.decrement_card(z, l), font=FONT, color=CS[2], width=2)
-        remove_btn = b_button(frame, "X", lambda l=line, z=zone: self.remove_card(z, l), font=FONT, color=CS[2], width=2)
-        plus_btn.grid(column=0, row=0, padx=(0, 2), sticky="w")
-        minus_btn.grid(column=1, row=0, padx=(0, 2), sticky="w")
-        remove_btn.grid(column=2, row=0, padx=(0, 4), sticky="w")
-        label = tk.Label(frame, text=line, font=self.deck_row_font, background=CS[1], anchor="w")
-        label.grid(column=3, row=0, sticky="w", padx=(4, 0))
-        label.bind("<Button-1>", lambda _event, z=zone, l=line: self.on_deck_row_click(z, l))
-        frame.card_line = line
-        frame.card_label = label
-        return frame
-
-    def on_deck_row_click(self, zone, line):
-        if self.current_mode != "builder":
+    def _open_full_mana_keyboard(self) -> None:
+        if self.mana_keyboard_window and self.mana_keyboard_window.IsShown():
+            self.mana_keyboard_window.Raise()
             return
+        frame = ManaKeyboardFrame(self, self._create_mana_button, self._type_global_mana_symbol)
+        frame.Bind(wx.EVT_CLOSE, self._on_mana_keyboard_closed)
+        frame.Show()
+        self.mana_keyboard_window = frame
+
+    def _on_mana_keyboard_closed(self, event: wx.CloseEvent) -> None:
+        self.mana_keyboard_window = None
+        event.Skip()
+
+    def _restore_session_state(self) -> None:
+        saved_mode = self.settings.get("left_mode")
+        if saved_mode in {"research", "builder"}:
+            self.left_mode = saved_mode
+            self._show_left_panel(self.left_mode, force=True)
+        saved_zones = self.settings.get("saved_zone_cards") or {}
+        changed = False
+        for zone in ("main", "side", "out"):
+            entries = saved_zones.get(zone, [])
+            if not isinstance(entries, list):
+                continue
+            sanitized: List[Dict[str, Any]] = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                name = entry.get("name")
+                qty = entry.get("qty", 0)
+                if not name:
+                    continue
+                try:
+                    qty_int = max(0, int(qty))
+                except (TypeError, ValueError):
+                    continue
+                if qty_int <= 0:
+                    continue
+                sanitized.append({"name": name, "qty": qty_int})
+            if sanitized:
+                self.zone_cards[zone] = sanitized
+                changed = True
+        if changed:
+            self.main_table.set_cards(self.zone_cards["main"])
+            self.side_table.set_cards(self.zone_cards["side"])
+            self.out_table.set_cards(self.zone_cards["out"])
+        saved_text = self.settings.get("saved_deck_text", "")
+        if saved_text:
+            self.current_deck_text = saved_text
+            self._update_stats(saved_text)
+            self.copy_button.Enable(True)
+            self.save_button.Enable(True)
+        saved_deck = self.settings.get("saved_deck_info")
+        if isinstance(saved_deck, dict):
+            self.current_deck = saved_deck
+
+    def _run_initial_loads(self) -> None:
+        self._restore_session_state()
+        self.fetch_archetypes()
+        self._load_collection_from_cache()  # Fast cache-only load on startup
+        self._check_and_download_bulk_data()  # Download card image bulk data if needed
+
+    # ------------------------------------------------------------------ Styling helpers ------------------------------------------------------
+    def _stylize_label(self, label: wx.StaticText, subtle: bool = False) -> None:
+        label.SetForegroundColour(SUBDUED_TEXT if subtle else LIGHT_TEXT)
+        label.SetBackgroundColour(DARK_PANEL if subtle else DARK_BG)
+        font = label.GetFont()
+        if not subtle:
+            font.MakeBold()
+        label.SetFont(font)
+
+    def _stylize_textctrl(self, ctrl: wx.TextCtrl, multiline: bool = False) -> None:
+        ctrl.SetBackgroundColour(DARK_ALT)
+        ctrl.SetForegroundColour(LIGHT_TEXT)
+        font = ctrl.GetFont()
+        if multiline:
+            font.SetPointSize(font.GetPointSize() + 1)
+        ctrl.SetFont(font)
+
+    def _stylize_choice(self, ctrl: wx.Choice) -> None:
+        ctrl.SetBackgroundColour(DARK_ALT)
+        ctrl.SetForegroundColour(LIGHT_TEXT)
+
+    def _stylize_listbox(self, ctrl: wx.ListBox) -> None:
+        ctrl.SetBackgroundColour(DARK_ALT)
+        ctrl.SetForegroundColour(LIGHT_TEXT)
+        if hasattr(ctrl, "SetSelectionBackground"):
+            ctrl.SetSelectionBackground(DARK_ACCENT)
+            ctrl.SetSelectionForeground(wx.Colour(15, 17, 22))
+
+    def _stylize_listctrl(self, ctrl: wx.ListCtrl) -> None:
+        ctrl.SetBackgroundColour(DARK_ALT)
+        ctrl.SetTextColour(LIGHT_TEXT)
+        if hasattr(ctrl, "SetHighlightColour"):
+            ctrl.SetHighlightColour(DARK_ACCENT)
+        if hasattr(ctrl, "SetSelectionBackground"):
+            ctrl.SetSelectionBackground(DARK_ACCENT)
+        if hasattr(ctrl, "SetSelectionForeground"):
+            ctrl.SetSelectionForeground(wx.Colour(10, 12, 16))
+
+    def _stylize_button(self, button: wx.Button) -> None:
+        button.SetBackgroundColour(DARK_ACCENT)
+        button.SetForegroundColour(wx.Colour(12, 14, 18))
+        font = button.GetFont()
+        font.MakeBold()
+        button.SetFont(font)
+
+    def _set_status(self, message: str) -> None:
+        if self.status_bar:
+            self.status_bar.SetStatusText(message)
+        logger.info(message)
+
+    # ------------------------------------------------------------------ Window persistence ---------------------------------------------------
+    def _load_window_settings(self) -> Dict[str, Any]:
+        if not DECK_SELECTOR_SETTINGS_FILE.exists():
+            return {}
+        try:
+            with DECK_SELECTOR_SETTINGS_FILE.open("r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
+            logger.warning(f"Failed to load deck selector settings: {exc}")
+            return {}
+
+    def _save_window_settings(self) -> None:
+        data = dict(self.settings)
+        pos = self.GetPosition()
+        size = self.GetSize()
+        data.update(
+            {
+                "format": self.current_format,
+                "window_size": [size.width, size.height],
+                "screen_pos": [pos.x, pos.y],
+                "left_mode": self.left_mode,
+                "saved_deck_text": self.current_deck_text,
+                "saved_zone_cards": self._serialize_zone_cards(),
+            }
+        )
+        if self.current_deck:
+            data["saved_deck_info"] = self.current_deck
+        elif "saved_deck_info" in data:
+            data.pop("saved_deck_info")
+        try:
+            with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except OSError as exc:  # pragma: no cover - defensive logging
+            logger.warning(f"Unable to persist deck selector settings: {exc}")
+        self.settings = data
+
+    def _serialize_zone_cards(self) -> Dict[str, List[Dict[str, Any]]]:
+        serialized: Dict[str, List[Dict[str, Any]]] = {}
+        for zone, cards in self.zone_cards.items():
+            cleaned: List[Dict[str, Any]] = []
+            for entry in cards:
+                name = entry.get("name")
+                qty = entry.get("qty", 0)
+                if not name:
+                    continue
+                try:
+                    qty_int = max(0, int(qty))
+                except (TypeError, ValueError):
+                    qty_int = 0
+                if qty_int <= 0:
+                    continue
+                cleaned.append({"name": name, "qty": qty_int})
+            serialized[zone] = cleaned
+        return serialized
+
+    def _apply_window_preferences(self) -> None:
+        size = self.settings.get("window_size")
+        if isinstance(size, list) and len(size) == 2:
+            try:
+                self.SetSize(wx.Size(int(size[0]), int(size[1])))
+            except (TypeError, ValueError):
+                logger.debug("Ignoring invalid saved window size")
+        pos = self.settings.get("screen_pos")
+        if isinstance(pos, list) and len(pos) == 2:
+            try:
+                self.SetPosition(wx.Point(int(pos[0]), int(pos[1])))
+            except (TypeError, ValueError):
+                logger.debug("Ignoring invalid saved window position")
+
+    def _schedule_settings_save(self) -> None:
+        if self._save_timer is None:
+            self._save_timer = wx.Timer(self)
+            self.Bind(wx.EVT_TIMER, self._flush_pending_settings, self._save_timer)
+        if self._save_timer.IsRunning():
+            self._save_timer.Stop()
+        self._save_timer.StartOnce(600)
+
+    def on_window_change(self, event: wx.Event) -> None:
+        self._schedule_settings_save()
+        event.Skip()
+
+    def _flush_pending_settings(self, _event: wx.TimerEvent) -> None:
+        self._save_window_settings()
+
+    # ------------------------------------------------------------------ Event handlers -------------------------------------------------------
+    def on_format_changed(self, _event: wx.CommandEvent) -> None:
+        self.current_format = self.format_choice.GetStringSelection()
+        self.fetch_archetypes(force=True)
+
+    def on_archetype_filter(self, _event: wx.CommandEvent) -> None:
+        query = self.search_ctrl.GetValue().strip().lower()
+        if not query:
+            self.filtered_archetypes = list(self.archetypes)
+        else:
+            self.filtered_archetypes = [entry for entry in self.archetypes if query in entry.get("name", "").lower()]
+        self._populate_archetype_list()
+
+    def on_archetype_selected(self, _event: wx.CommandEvent) -> None:
+        if self.loading_archetypes or self.loading_decks:
+            return
+        idx = self.archetype_list.GetSelection()
+        if idx == wx.NOT_FOUND:
+            return
+        archetype = self.filtered_archetypes[idx]
+        self._load_decks_for_archetype(archetype)
+
+    def on_builder_search(self, _event: wx.CommandEvent) -> None:
         if not self.card_manager:
             if not self.card_data_loading:
                 self.ensure_card_data_loaded()
+            wx.MessageBox(
+                "Card database is still loading. Please try again in a moment.",
+                "Card Search",
+                wx.OK | wx.ICON_INFORMATION,
+            )
             return
-        card_name = self.extract_card_name_from_line(line)
-        if not card_name:
+        filters = {key: ctrl.GetValue().strip() for key, ctrl in self.builder_inputs.items()}
+        mana_query = self._normalize_mana_query(filters.get("mana", ""))
+        mana_mode = "exact" if (self.builder_mana_exact_cb and self.builder_mana_exact_cb.IsChecked()) else "contains"
+        mv_cmp = self.builder_mv_comparator.GetStringSelection() if self.builder_mv_comparator else "Any"
+        mv_value = None
+        if self.builder_mv_value:
+            text = self.builder_mv_value.GetValue().strip()
+            if text:
+                try:
+                    mv_value = float(text)
+                except ValueError:
+                    wx.MessageBox("Mana value must be numeric.", "Card Search", wx.OK | wx.ICON_WARNING)
+                    return
+        selected_formats = [cb.GetLabel().lower() for cb in self.builder_format_checks if cb.IsChecked()]
+        color_mode = self.builder_color_mode_choice.GetStringSelection() if self.builder_color_mode_choice else "Any"
+        selected_colors = [code for code, cb in self.builder_color_checks.items() if cb.IsChecked()]
+        query = filters.get("name") or filters.get("text") or ""
+        results = self.card_manager.search_cards(query=query, format_filter=None)
+        filtered: List[Dict[str, Any]] = []
+        for card in results:
+            name_lower = card.get("name_lower", "")
+            if filters.get("name") and filters["name"].lower() not in name_lower:
+                continue
+            type_line = (card.get("type_line") or "").lower()
+            if filters.get("type") and filters["type"].lower() not in type_line:
+                continue
+            mana_cost = (card.get("mana_cost") or "").upper()
+            if mana_query and not self._matches_mana_cost(mana_cost, mana_query, mana_mode):
+                continue
+            oracle_text = (card.get("oracle_text") or "").lower()
+            if filters.get("text") and filters["text"].lower() not in oracle_text:
+                continue
+            if selected_formats:
+                legalities = card.get("legalities", {}) or {}
+                if not all(legalities.get(fmt) == "Legal" for fmt in selected_formats):
+                    continue
+            if mv_value is not None and mv_cmp != "Any":
+                if not self._matches_mana_value(card.get("mana_value"), mv_value, mv_cmp):
+                    continue
+            if selected_colors and color_mode != "Any":
+                if not self._matches_color_filter(card.get("color_identity") or [], selected_colors, color_mode):
+                    continue
+            filtered.append(card)
+            if len(filtered) >= 300:
+                break
+        self.builder_results_cache = filtered
+        self._populate_builder_results()
+
+    def on_builder_clear(self, _event: wx.CommandEvent) -> None:
+        for ctrl in self.builder_inputs.values():
+            ctrl.ChangeValue("")
+        self.builder_results_cache = []
+        self._populate_builder_results()
+        if self.builder_status_label:
+            self.builder_status_label.SetLabel("Filters cleared.")
+        if self.builder_mana_exact_cb:
+            self.builder_mana_exact_cb.SetValue(False)
+        if self.builder_mv_comparator:
+            self.builder_mv_comparator.SetSelection(0)
+        if self.builder_mv_value:
+            self.builder_mv_value.ChangeValue("")
+        for cb in self.builder_format_checks:
+            cb.SetValue(False)
+        if self.builder_color_mode_choice:
+            self.builder_color_mode_choice.SetSelection(0)
+        for cb in self.builder_color_checks.values():
+            cb.SetValue(False)
+
+    def on_builder_result_selected(self, event: wx.ListEvent) -> None:
+        idx = event.GetIndex()
+        if idx < 0 or idx >= len(self.builder_results_cache):
             return
-        card = self.card_manager.get_card(card_name)
-        if not card:
-            self.builder_status_var.set(f"No card data for '{card_name}'")
+        meta = self.builder_results_cache[idx]
+        faux_card = {"name": meta.get("name", "Unknown"), "qty": 1}
+        self._update_card_inspector(None, faux_card, meta)
+
+    def _populate_builder_results(self) -> None:
+        if not self.builder_results_ctrl:
             return
-        self.display_card_detail(card)
-        self.builder_add_main_button.config(state="disabled")
-        self.builder_add_side_button.config(state="disabled")
+        self.builder_results_ctrl.DeleteAllItems()
+        for idx, card in enumerate(self.builder_results_cache):
+            name = card.get("name", "Unknown")
+            mana = card.get("mana_cost") or "—"
+            item_index = self.builder_results_ctrl.InsertItem(idx, name)
+            self.builder_results_ctrl.SetItem(item_index, 1, mana)
+        if self.builder_status_label:
+            count = len(self.builder_results_cache)
+            self.builder_status_label.SetLabel(f"Showing {count} card{'s' if count != 1 else ''}.")
 
-    def remove_card(self, zone, line):
-        lines = self.get_zone_lines(zone)
-        idx = self._find_line_index(lines, line)
-        if idx is None:
+    def _normalize_mana_query(self, raw: str) -> str:
+        text = (raw or "").strip()
+        if not text:
+            return ""
+        if "{" in text and "}" in text:
+            return text
+        upper_text = text.upper()
+        tokens: List[str] = []
+        i = 0
+        length = len(upper_text)
+        while i < length:
+            ch = upper_text[i]
+            if ch.isspace() or ch in {',', ';'}:
+                i += 1
+                continue
+            if ch.isdigit():
+                num = ch
+                i += 1
+                while i < length and upper_text[i].isdigit():
+                    num += upper_text[i]
+                    i += 1
+                tokens.append(num)
+                continue
+            if ch == '{':
+                end = upper_text.find('}', i + 1)
+                if end != -1:
+                    tokens.append(upper_text[i + 1 : end])
+                    i = end + 1
+                    continue
+                i += 1
+                continue
+            if ch in {"/", "}"}:
+                i += 1
+                continue
+            if ch.isalpha() or ch in {"∞", "½"}:
+                token = ch
+                i += 1
+                while i < length and (upper_text[i].isalpha() or upper_text[i] in {"/", "½"}):
+                    token += upper_text[i]
+                    i += 1
+                if "/" in token:
+                    tokens.append(token)
+                elif len(token) > 1:
+                    tokens.extend(token)
+                else:
+                    tokens.append(token)
+                continue
+            i += 1
+        return "".join(f"{{{tok}}}" for tok in tokens if tok)
+
+    def _tokenize_mana_symbols(self, cost: str) -> List[str]:
+        tokens: List[str] = []
+        if not cost:
+            return tokens
+        for part in cost.replace("}", "").split("{"):
+            token = part.strip().upper()
+            if token:
+                tokens.append(token)
+        return tokens
+
+    def _matches_mana_cost(self, card_cost: str, query: str, mode: str) -> bool:
+        query_tokens = self._tokenize_mana_symbols(query)
+        if not query_tokens:
+            return True
+        card_tokens = self._tokenize_mana_symbols(card_cost)
+        card_counts = Counter(card_tokens)
+        query_counts = Counter(query_tokens)
+        if mode == "exact":
+            return card_counts == query_counts
+        for symbol, needed in query_counts.items():
+            if card_counts.get(symbol, 0) < needed:
+                return False
+        return True
+
+    def _matches_mana_value(self, card_value: Any, target: float, comparator: str) -> bool:
+        try:
+            value = float(card_value)
+        except (TypeError, ValueError):
+            return False
+        if comparator == "<":
+            return value < target
+        if comparator == "≤":
+            return value <= target
+        if comparator == "=":
+            return value == target
+        if comparator == "≥":
+            return value >= target
+        if comparator == ">":
+            return value > target
+        return True
+
+    def _matches_color_filter(self, card_colors: List[str], selected: List[str], mode: str) -> bool:
+        if not selected or mode == "Any":
+            return True
+        selected_set = {c.upper() for c in selected}
+        card_set = {c.upper() for c in card_colors if c}
+        if not card_set:
+            card_set = {"C"}
+        if mode == "At least":
+            return selected_set.issubset(card_set)
+        if mode == "Exactly":
+            return card_set == selected_set
+        if mode == "Not these":
+            return selected_set.isdisjoint(card_set)
+        return True
+
+    def _append_mana_symbol(self, token: str) -> None:
+        ctrl = self.builder_inputs.get("mana")
+        if not ctrl:
             return
-        lines.pop(idx)
-        self._apply_zone_lines(zone, lines)
-
-    def select_deck(self):
-        # Simply displays the selected deck without any automation
-        selected = self.listbox.curselection()
-        logger.debug(selected)
-        if not selected:
+        symbol = token.strip().upper()
+        if not symbol:
             return
-        selected = selected[0]
-        logger.debug(selected)
-        self.currently_selected_deck = self.decks[selected]
+        text = symbol if symbol.startswith("{") else f"{{{symbol}}}"
+        ctrl.ChangeValue(ctrl.GetValue() + text)
+        ctrl.SetFocus()
 
-    def set_mode_button_states(self, active_mode: str):
-        buttons = {
-            "browse": self.browse_mode_button,
-            "saved": self.saved_decks_button,
-            "builder": self.builder_mode_button,
-        }
-        for mode, btn in buttons.items():
-            btn.config(background=CS[2] if mode == active_mode else CS[0])
+    def _type_global_mana_symbol(self, token: str) -> None:
+        text = self._normalize_mana_query(token)
+        if not text:
+            return
+        simulator = wx.UIActionSimulator()
+        for ch in text:
+            simulator.Char(ord(ch))
 
-    def disable_builder_ui(self):
-        self.builder_controls_frame.grid_remove()
-        if not self.listbox_button.winfo_ismapped():
-            self.listbox_button.grid()
-        self.card_detail_frame.grid_remove()
-        self.builder_add_main_button.config(state="disabled")
-        self.builder_add_side_button.config(state="disabled")
-        self.builder_status_var.set("")
-        self.listbox.unbind("<<ListboxSelect>>")
+    def on_deck_selected(self, _event: wx.CommandEvent) -> None:
+        if self.loading_decks:
+            return
+        idx = self.deck_list.GetSelection()
+        if idx == wx.NOT_FOUND:
+            return
+        deck = self.decks[idx]
+        self.current_deck = deck
+        self.load_button.Enable()
+        self.copy_button.Enable(self._has_deck_loaded())
+        self.save_button.Enable(self._has_deck_loaded())
+        self._set_status(f"Selected deck {format_deck_name(deck)}")
+        self._show_left_panel("builder")
+        self._schedule_settings_save()
 
-    def enable_builder_ui(self):
-        if self.listbox_button.winfo_ismapped():
-            self.listbox_button.grid_remove()
-        self.builder_controls_frame.grid()
-        self.card_detail_frame.grid()
-        self.builder_add_main_button.config(state="disabled")
-        self.builder_add_side_button.config(state="disabled")
-        self.listbox.bind("<<ListboxSelect>>", self.on_card_result_selected)
+    def on_load_deck_clicked(self, _event: wx.CommandEvent) -> None:
+        if not self.current_deck or self.loading_decks:
+            return
+        self._download_and_display_deck(self.current_deck)
 
-    def ensure_card_data_loaded(self):
+    def on_daily_average_clicked(self, _event: wx.CommandEvent) -> None:
+        if self.loading_daily_average or not self.decks:
+            return
+        self._build_daily_average_deck()
+
+    def on_copy_clicked(self, _event: wx.CommandEvent) -> None:
+        deck_content = self._build_deck_text().strip()
+        if not deck_content:
+            wx.MessageBox("No deck to copy.", "Copy Deck", wx.OK | wx.ICON_INFORMATION)
+            return
+        if wx.TheClipboard.Open():
+            try:
+                wx.TheClipboard.SetData(wx.TextDataObject(deck_content))
+            finally:
+                wx.TheClipboard.Close()
+            self._set_status("Deck copied to clipboard.")
+        else:  # pragma: no cover
+            wx.MessageBox("Could not access clipboard.", "Copy Deck", wx.OK | wx.ICON_WARNING)
+
+    def on_save_clicked(self, _event: wx.CommandEvent) -> None:
+        deck_content = self._build_deck_text().strip()
+        if not deck_content:
+            wx.MessageBox("Load a deck first.", "Save Deck", wx.OK | wx.ICON_INFORMATION)
+            return
+        default_name = "saved_deck"
+        if self.current_deck:
+            default_name = format_deck_name(self.current_deck).replace(" | ", "_")
+        dlg = wx.TextEntryDialog(self, "Deck name:", "Save Deck", default_name=default_name)
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        deck_name = dlg.GetValue().strip() or default_name
+        dlg.Destroy()
+
+        safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in deck_name).strip()
+        if not safe_name:
+            safe_name = "saved_deck"
+        file_path = DECK_SAVE_DIR / f"{safe_name}.txt"
+        try:
+            with file_path.open("w", encoding="utf-8") as fh:
+                fh.write(deck_content)
+        except OSError as exc:  # pragma: no cover
+            wx.MessageBox(f"Failed to write deck file:\n{exc}", "Save Deck", wx.OK | wx.ICON_ERROR)
+            return
+
+        try:
+            deck_id = save_deck_to_db(
+                deck_name=deck_name,
+                deck_content=deck_content,
+                format_type=self.current_format,
+                archetype=self.current_deck.get("name") if self.current_deck else None,
+                player=self.current_deck.get("player") if self.current_deck else None,
+                source="mtggoldfish" if self.current_deck else "manual",
+                metadata=(self.current_deck or {}),
+            )
+            logger.info(f"Deck saved to database: {deck_name} (ID: {deck_id})")
+        except Exception as exc:  # pragma: no cover
+            logger.warning(f"Deck saved to file but not database: {exc}")
+            deck_id = None
+
+        message = f"Deck saved to {file_path}"
+        if deck_id:
+            message += f"\nDatabase ID: {deck_id}"
+        wx.MessageBox(message, "Deck Saved", wx.OK | wx.ICON_INFORMATION)
+        self._set_status("Deck saved successfully.")
+
+    # ------------------------------------------------------------------ Data loading ---------------------------------------------------------
+    def fetch_archetypes(self, force: bool = False) -> None:
+        if self.loading_archetypes:
+            return
+        self.loading_archetypes = True
+        self._set_status(f"Loading archetypes for {self.current_format}…")
+        self.archetype_list.Clear()
+        self.archetype_list.Append("Loading…")
+        self.archetype_list.Disable()
+        self.decks.clear()
+        self.deck_list.Clear()
+        self._clear_deck_display()
+        self.daily_average_button.Disable()
+        self.load_button.Disable()
+        self.copy_button.Disable()
+        self.save_button.Disable()
+
+        def loader(fmt: str):
+            return get_archetypes(fmt.lower(), allow_stale=not force)
+
+        _Worker(loader, self.current_format, on_success=self._on_archetypes_loaded, on_error=self._on_archetypes_error).start()
+
+    def _clear_deck_display(self) -> None:
+        self.current_deck = None
+        self.summary_text.ChangeValue("Select an archetype to view decks.")
+        self.zone_cards = {"main": [], "side": [], "out": []}
+        self.main_table.set_cards([])
+        self.side_table.set_cards([])
+        self.out_table.set_cards(self.zone_cards["out"])
+        self.current_deck_text = ""
+        self._update_stats("")
+        self.deck_notes_text.ChangeValue("")
+        self.guide_view.DeleteAllItems()
+        self.guide_exclusions_label.SetLabel("Exclusions: —")
+
+    def _on_archetypes_loaded(self, items: List[Dict[str, Any]]) -> None:
+        self.loading_archetypes = False
+        self.archetypes = sorted(items, key=lambda entry: entry.get("name", "").lower())
+        self.filtered_archetypes = list(self.archetypes)
+        self._populate_archetype_list()
+        self.archetype_list.Enable()
+        count = len(self.archetypes)
+        self._set_status(f"Loaded {count} archetypes for {self.current_format}.")
+        self.summary_text.ChangeValue(f"Select an archetype to view decks.\nLoaded {count} archetypes.")
+
+    def _on_archetypes_error(self, error: Exception) -> None:
+        self.loading_archetypes = False
+        self.archetype_list.Clear()
+        self.archetype_list.Append("Failed to load archetypes.")
+        self._set_status(f"Error: {error}")
+        wx.MessageBox(f"Unable to load archetypes:\n{error}", "Archetype Error", wx.OK | wx.ICON_ERROR)
+
+    def _populate_archetype_list(self) -> None:
+        self.archetype_list.Clear()
+        if not self.filtered_archetypes:
+            self.archetype_list.Append("No archetypes found.")
+            self.archetype_list.Disable()
+            return
+        for item in self.filtered_archetypes:
+            self.archetype_list.Append(item.get("name", "Unknown"))
+        self.archetype_list.Enable()
+
+    def _load_decks_for_archetype(self, archetype: Dict[str, Any]) -> None:
+        if self.loading_decks:
+            return
+        self.loading_decks = True
+        name = archetype.get("name", "Unknown")
+        href = archetype.get("href")
+        self._set_status(f"Loading decks for {name}…")
+        self.deck_list.Clear()
+        self.deck_list.Append("Loading…")
+        self.deck_list.Disable()
+        self.summary_text.ChangeValue(f"{name}\n\nFetching deck results…")
+
+        def loader(identifier: str):
+            return get_archetype_decks(identifier)
+
+        _Worker(loader, href, on_success=lambda decks: self._on_decks_loaded(name, decks), on_error=self._on_decks_error).start()
+
+    def _on_decks_loaded(self, archetype_name: str, decks: List[Dict[str, Any]]) -> None:
+        self.loading_decks = False
+        self.decks = decks
+        self.deck_list.Clear()
+        if not decks:
+            self.deck_list.Append("No decks found.")
+            self.deck_list.Disable()
+            self._set_status(f"No decks for {archetype_name}.")
+            self.summary_text.ChangeValue(f"{archetype_name}\n\nNo deck data available.")
+            return
+        for deck in decks:
+            self.deck_list.Append(format_deck_name(deck))
+        self.deck_list.Enable()
+        self.daily_average_button.Enable()
+        self._present_archetype_summary(archetype_name, decks)
+        self._set_status(f"Loaded {len(decks)} decks for {archetype_name}. Select one to inspect.")
+
+    def _on_decks_error(self, error: Exception) -> None:
+        self.loading_decks = False
+        self.deck_list.Clear()
+        self.deck_list.Append("Failed to load decks.")
+        self._set_status(f"Error loading decks: {error}")
+        wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
+
+    def _present_archetype_summary(self, archetype_name: str, decks: List[Dict[str, Any]]) -> None:
+        by_date: Dict[str, int] = {}
+        for deck in decks:
+            date = deck.get("date", "").lower()
+            by_date[date] = by_date.get(date, 0) + 1
+        latest_dates = sorted(by_date.items(), reverse=True)[:7]
+        lines = [archetype_name, "", f"Total decks loaded: {len(decks)}", ""]
+        if latest_dates:
+            lines.append("Recent activity:")
+            for day, count in latest_dates:
+                lines.append(f"  {day}: {count} deck(s)")
+        else:
+            lines.append("No recent deck activity.")
+        self.summary_text.ChangeValue("\n".join(lines))
+
+    def _download_and_display_deck(self, deck: Dict[str, Any]) -> None:
+        deck_number = deck.get("number")
+        if not deck_number:
+            wx.MessageBox("Deck identifier missing.", "Deck Error", wx.OK | wx.ICON_ERROR)
+            return
+        self._set_status("Downloading deck…")
+        self.load_button.Disable()
+        self.copy_button.Disable()
+        self.save_button.Disable()
+
+        def worker(number: str):
+            download_deck(number)
+            return self._read_curr_deck_file()
+
+        def on_success(content: str):
+            self._on_deck_content_ready(content, source="mtggoldfish")
+            self.load_button.Enable()
+
+        _Worker(worker, deck_number, on_success=on_success, on_error=self._on_deck_download_error).start()
+
+    def _on_deck_download_error(self, error: Exception) -> None:
+        self.load_button.Enable()
+        self._set_status(f"Deck download failed: {error}")
+        wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
+
+    def _on_deck_content_ready(self, deck_text: str, source: str = "manual") -> None:
+        self.current_deck_text = deck_text
+        stats = analyze_deck(deck_text)
+        self.zone_cards["main"] = [{"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]]
+        self.zone_cards["side"] = [{"name": name, "qty": qty} for name, qty in stats["sideboard_cards"]]
+        self.zone_cards["out"] = self._load_outboard_for_current()
+        self.main_table.set_cards(self.zone_cards["main"])
+        self.side_table.set_cards(self.zone_cards["side"])
+        self.out_table.set_cards(self.zone_cards["out"])
+        self._update_stats(deck_text)
+        self.copy_button.Enable(True)
+        self.save_button.Enable(True)
+        self._load_notes_for_current()
+        self._load_guide_for_current()
+        self._set_status(f"Deck ready ({source}).")
+        self._show_left_panel("builder")
+        self._schedule_settings_save()
+
+    def _has_deck_loaded(self) -> bool:
+        return bool(self.zone_cards["main"] or self.zone_cards["side"])
+
+    # ------------------------------------------------------------------ Collection + card data -----------------------------------------------
+    def ensure_card_data_loaded(self) -> None:
         if self.card_data_ready or self.card_data_loading:
             return
         self.card_data_loading = True
-        self.builder_status_var.set("Loading card database...")
 
-        def worker():
+        def worker() -> None:
             try:
-                from utils.card_data import CardDataManager
-
                 manager = CardDataManager()
                 manager.ensure_latest()
-                formats = manager.available_formats()
-                self.root.after(0, lambda: self.on_card_data_ready(manager, formats))
             except Exception as exc:
                 logger.warning(f"Card data preload failed: {exc}")
-                self.root.after(0, lambda: self.on_card_data_failed(exc))
+                wx.CallAfter(self._on_card_data_failed, exc)
+                return
+            wx.CallAfter(self._on_card_data_ready, manager)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def on_card_data_ready(self, manager, formats):
+    def _on_card_data_ready(self, manager: CardDataManager) -> None:
         self.card_manager = manager
         self.card_data_ready = True
         self.card_data_loading = False
-        available_formats = ["Any"] + sorted({fmt.lower() for fmt in formats}) if formats else CARD_SEARCH_FORMATS
-        self.card_format_menu.configure(values=available_formats)
-        if self.card_format_var.get() not in available_formats:
-            self.card_format_var.set("Any")
-        self.card_search_button.config(state="normal")
-        self.card_search_entry.config(state="normal")
-        self.open_saved_decks_button.config(state="normal")
-        self.builder_status_var.set("Card data ready. Type to search.")
-        self._configure_card_search_panel(manager)
+        self._set_status("Card database loaded.")
+        self._update_stats(self.current_deck_text)
 
-    def on_card_data_failed(self, error):
+    def _on_card_data_failed(self, error: Exception) -> None:
+        self.card_data_ready = False
         self.card_data_loading = False
         self.card_manager = None
-        self.builder_status_var.set(f"Card data unavailable: {error}")
-        self.card_data_ready = False
-        self.card_search_button.config(state="disabled")
-        self.card_search_entry.config(state="disabled")
+        logger.warning(f"Card data unavailable: {error}")
 
-    def switch_to_builder_mode(self):
-        """Switch to deck builder mode"""
-        self.current_mode = "builder"
-        self.set_mode_button_states("builder")
-        self.disable_builder_ui()  # Reset bindings, then enable builder UI
-        self.enable_builder_ui()
-        self.load_saved_into_builder_button.grid(column=6, row=0, sticky="nsew")
-        self.load_saved_into_builder_button.config(state="normal")
-        self.hide_deck_statistics()
-        if hasattr(self, "visualize_button"):
-            self.visualize_button.grid_remove()
-        if hasattr(self, "reset_button"):
-            self.reset_button.grid_forget()
-        if getattr(self, "delete_deck_button", None):
-            self.delete_deck_button.grid_forget()
-            self.delete_deck_button = None
-        if hasattr(self, "make_daily_average_deck_button"):
-            self.make_daily_average_deck_button.grid_forget()
+    def _load_collection_from_cache(self) -> bool:
+        """Load collection from cached file without calling bridge. Returns True if loaded."""
+        files = sorted(DECK_SAVE_DIR.glob("collection_full_trade_*.json"))
+        if not files:
+            self.collection_inventory = {}
+            self.collection_status_label.SetLabel("No collection found. Click 'Refresh Collection' to fetch from MTGO.")
+            return False
 
-        existing = self.get_deck_text()
-        self.builder_sync_from_text(existing)
-        self.builder_render_deck()
-        self.card_search_results = []
-        self.listbox.delete(0, tk.END)
-        self.builder_status_var.set("Loading card database...")
-        if self.card_data_ready:
-            self.card_search_button.config(state="normal")
-            self.card_search_entry.config(state="normal")
-        else:
-            self.card_search_button.config(state="disabled")
-            self.card_search_entry.config(state="disabled")
-        self.open_saved_decks_button.config(state="normal")
-        self.card_detail_text.config(state="normal")
-        self.card_detail_text.delete("1.0", tk.END)
-        self.card_detail_text.config(state="disabled")
-        self.ensure_card_data_loaded()
-
-    def perform_card_search(self):
-        if self.current_mode != "builder":
-            return
-        if not self.card_data_ready:
-            if not self.card_data_loading:
-                self.ensure_card_data_loaded()
-            self.builder_status_var.set("Card data still loading...")
-            return
-        query = self.card_search_var.get()
-        fmt = self.card_format_var.get()
-        type_filter = self.card_type_var.get()
-        fmt_value = None if fmt == "Any" else fmt.lower()
-        type_value = None if type_filter == "Any" else type_filter.lower()
-        self.listbox.delete(0, tk.END)
+        latest = files[-1]
         try:
-            matches = self.card_manager.search_cards(query=query, format_filter=fmt_value, type_filter=type_value)
-            self.card_search_results = matches
-            for card in matches:
-                cost = card.get("mana_cost") or ""
-                display = f"{card['name']} {cost}".strip()
-                self.listbox.insert(tk.END, display)
-            if matches:
-                self.builder_status_var.set(f"Found {len(matches)} cards.")
-            else:
-                self.builder_status_var.set("No matches found.")
+            data = json.loads(latest.read_text(encoding="utf-8"))
+            mapping = {entry.get("name", "").lower(): int(entry.get("quantity", 0)) for entry in data if isinstance(entry, dict)}
+            self.collection_inventory = mapping
+            self.collection_path = latest
+
+            # Show file age in status
+            from datetime import datetime
+            file_age_seconds = (datetime.now().timestamp() - latest.stat().st_mtime)
+            age_hours = int(file_age_seconds / 3600)
+            age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
+
+            self.collection_status_label.SetLabel(f"Collection: {latest.name} ({len(mapping)} entries, {age_str})")
+            self.main_table.set_cards(self.zone_cards["main"])
+            self.side_table.set_cards(self.zone_cards["side"])
+            logger.info(f"Loaded collection from cache: {len(mapping)} unique cards")
+            return True
         except Exception as exc:
-            logger.exception("Card search failed")
-            self.builder_status_var.set(f"Search failed: {exc}")
+            logger.warning(f"Failed to load cached collection {latest}: {exc}")
+            self.collection_inventory = {}
+            self.collection_status_label.SetLabel(f"Collection cache load failed: {exc}")
+            return False
 
-    def on_card_result_selected(self, event=None):
-        if self.current_mode != "builder":
-            return
-        selection = self.listbox.curselection()
-        if not selection:
-            self.builder_add_main_button.config(state="disabled")
-            self.builder_add_side_button.config(state="disabled")
-            return
-        card = self.card_search_results[selection[0]]
-        self.display_card_detail(card)
-        self.builder_add_main_button.config(state="normal")
-        self.builder_add_side_button.config(state="normal")
+    def _refresh_collection_inventory(self, force: bool = False) -> None:
+        """Fetch collection from MTGO Bridge and export to JSON."""
+        from datetime import datetime
+        from utils import mtgo_bridge
 
-    def display_card_detail(self, card):
-        mana_value = card.get('mana_value')
-        if isinstance(mana_value, float) and mana_value.is_integer():
-            mana_value_display = int(mana_value)
+        # Check if we already have a recent collection export (unless forced)
+        if not force:
+            files = sorted(DECK_SAVE_DIR.glob("collection_full_trade_*.json"))
+            if files:
+                latest = files[-1]
+                # Check if file is less than 1 hour old
+                try:
+                    file_age_seconds = (datetime.now().timestamp() - latest.stat().st_mtime)
+                    if file_age_seconds < 3600:  # Less than 1 hour
+                        # Load from cache
+                        if self._load_collection_from_cache():
+                            return
+                except Exception as exc:
+                    logger.warning(f"Failed to check collection file age: {exc}")
+
+        # Fetch fresh collection from MTGO Bridge
+        self.collection_status_label.SetLabel("Fetching collection from MTGO...")
+        logger.info("Fetching collection from MTGO Bridge")
+
+        def worker():
+            try:
+                # Call the bridge to get collection
+                collection_data = mtgo_bridge.get_collection_snapshot(timeout=60.0)
+
+                if not collection_data:
+                    wx.CallAfter(self._on_collection_fetch_failed, "Bridge returned empty collection")
+                    return
+
+                # Export to JSON file with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"collection_full_trade_{timestamp}.json"
+                filepath = DECK_SAVE_DIR / filename
+
+                # Convert collection data to list format expected by the UI
+                # The bridge returns: {"cards": [{"name": "...", "quantity": ...}, ...]}
+                cards = collection_data.get("cards", [])
+                if not cards:
+                    wx.CallAfter(self._on_collection_fetch_failed, "No cards in collection data")
+                    return
+
+                # Write to file
+                try:
+                    with filepath.open("w", encoding="utf-8") as f:
+                        json.dump(cards, f, indent=2)
+                    logger.info(f"Exported collection to {filepath} ({len(cards)} cards)")
+                except Exception as exc:
+                    wx.CallAfter(self._on_collection_fetch_failed, f"Failed to write file: {exc}")
+                    return
+
+                # Load the newly created file
+                wx.CallAfter(self._on_collection_fetched, filepath, cards)
+
+            except FileNotFoundError as exc:
+                wx.CallAfter(self._on_collection_fetch_failed, "MTGO Bridge not found. Build the bridge executable.")
+                logger.error(f"Bridge not found: {exc}")
+            except Exception as exc:
+                wx.CallAfter(self._on_collection_fetch_failed, str(exc))
+                logger.exception("Failed to fetch collection from bridge")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_collection_fetched(self, filepath: Path, cards: list) -> None:
+        """Handle successful collection fetch."""
+        try:
+            mapping = {entry.get("name", "").lower(): int(entry.get("quantity", 0)) for entry in cards if isinstance(entry, dict)}
+            self.collection_inventory = mapping
+            self.collection_path = filepath
+            self.collection_status_label.SetLabel(f"Collection: {filepath.name} ({len(mapping)} entries)")
+            self.main_table.set_cards(self.zone_cards["main"])
+            self.side_table.set_cards(self.zone_cards["side"])
+            logger.info(f"Collection loaded: {len(mapping)} unique cards")
+        except Exception as exc:
+            logger.exception(f"Failed to process collection data: {exc}")
+            self.collection_status_label.SetLabel(f"Collection load failed: {exc}")
+
+    def _on_collection_fetch_failed(self, error_msg: str) -> None:
+        """Handle collection fetch failure."""
+        self.collection_inventory = {}
+        self.collection_status_label.SetLabel(f"Collection fetch failed: {error_msg}")
+        logger.warning(f"Collection fetch failed: {error_msg}")
+
+    def _check_and_download_bulk_data(self) -> None:
+        """Check if bulk data exists, and download/load in background if needed."""
+        from datetime import datetime
+
+        needs_download = False
+
+        if BULK_DATA_CACHE.exists():
+            # Check age - if older than 24 hours, download in background
+            try:
+                age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
+                if age_seconds < 86400:  # Less than 24 hours
+                    logger.info(f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)")
+                    # Still need to load into memory
+                    self._load_bulk_data_into_memory()
+                    return
+                else:
+                    logger.info(f"Bulk data cache is stale ({age_seconds/3600:.1f}h old), updating...")
+                    needs_download = True
+            except Exception as exc:
+                logger.warning(f"Failed to check bulk data age: {exc}")
+                return
         else:
-            mana_value_display = mana_value if mana_value is not None else '-'
-        details = [
-            card["name"],
-            f"Mana Cost: {card.get('mana_cost') or '-'}",
-            f"Mana Value: {mana_value_display}",
-            f"Type: {card.get('type_line') or '-'}",
-        ]
-        identity = "".join(card.get("color_identity") or [])
-        if identity:
-            details.append(f"Color Identity: {identity}")
-        text = card.get("oracle_text") or ""
-        if text:
-            details.append("")
-            details.append(text)
-        legal = sorted(fmt for fmt, state in (card.get("legalities") or {}).items() if state == "Legal")
-        if legal:
-            details.append("")
-            details.append("Legal in: " + ", ".join(legal))
-        self.card_detail_text.config(state="normal")
-        self.card_detail_text.delete("1.0", tk.END)
-        self.card_detail_text.insert("1.0", "\n".join(details))
-        self.card_detail_text.config(state="disabled")
+            needs_download = True
 
-    def builder_add_card(self, zone: str):
-        if self.current_mode != "builder":
-            return
-        selection = self.listbox.curselection()
-        if not selection:
-            return
-        card = self.card_search_results[selection[0]]
-        name = card["name"]
-        zone_dict = self.builder_deck[zone]
-        zone_dict[name] = zone_dict.get(name, 0) + 1
-        self.builder_render_deck()
+        if needs_download:
+            # Attempt to use any cached printings index while we refresh metadata
+            if not self.bulk_data_by_name:
+                self._load_bulk_data_into_memory()
 
-    def builder_render_deck(self):
-        main_lines = [f"{self.builder_deck['main'][name]} {name}" for name in sorted(self.builder_deck['main'])]
-        side_lines = [f"{self.builder_deck['side'][name]} {name}" for name in sorted(self.builder_deck['side'])]
-        self.render_deck_zone("main", main_lines)
-        self.render_deck_zone("side", side_lines)
-        self.builder_update_status_counts()
+            logger.info("Bulk data not found or stale, downloading in background...")
+            self._set_status("Downloading card image database...")
 
-    def builder_sync_from_text(self, content: str | None = None):
-        deck_text = (content if content is not None else self.get_deck_text()).strip()
-        if not deck_text:
-            self.builder_deck = {"main": {}, "side": {}}
-            self.builder_render_deck()
-            self.builder_update_status_counts()
+            def worker():
+                try:
+                    if self.image_downloader is None:
+                        self.image_downloader = BulkImageDownloader(self.image_cache)
+
+                    success, msg = self.image_downloader.download_bulk_metadata(force=True)
+
+                    if success:
+                        wx.CallAfter(self._on_bulk_data_downloaded, msg)
+                    else:
+                        wx.CallAfter(self._on_bulk_data_failed, msg)
+
+                except Exception as exc:
+                    wx.CallAfter(self._on_bulk_data_failed, str(exc))
+                    logger.exception("Failed to download bulk data")
+
+            threading.Thread(target=worker, daemon=True).start()
+
+    def _load_bulk_data_into_memory(self, force: bool = False) -> None:
+        """Load the compact card printings index in the background."""
+        if self.printing_index_loading and not force:
             return
-        deck_dict = deck_to_dictionary(deck_text)
-        main = {}
-        side = {}
-        for card_name, count in deck_dict.items():
-            if card_name.startswith("Sideboard "):
-                side[card_name.replace("Sideboard ", "")] = count
+        if self.bulk_data_by_name and not force:
+            return
+        self.printing_index_loading = True
+        self._set_status("Preparing card printings cache…")
+
+        def worker() -> None:
+            try:
+                payload = ensure_printing_index_cache(force=force)
+                data = payload.get("data", {})
+                stats = {
+                    "unique_names": payload.get("unique_names", len(data)),
+                    "total_printings": payload.get("total_printings", sum(len(v) for v in data.values())),
+                }
+                wx.CallAfter(self._on_bulk_data_loaded, data, stats)
+            except Exception as exc:
+                wx.CallAfter(self._on_bulk_data_load_failed, str(exc))
+                logger.exception("Failed to prepare card printings index")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_bulk_data_loaded(self, by_name: Dict[str, List[Dict[str, Any]]], stats: Dict[str, Any]) -> None:
+        """Handle successful printings index load."""
+        self.printing_index_loading = False
+        self.bulk_data_by_name = by_name
+        self._set_status("Ready")
+        logger.info(
+            "Printings index ready: %s names / %s printings",
+            stats.get("unique_names"),
+            stats.get("total_printings"),
+        )
+
+    def _on_bulk_data_load_failed(self, error_msg: str) -> None:
+        """Handle printings index loading failure."""
+        self.printing_index_loading = False
+        self._set_status("Ready")
+        logger.warning(f"Card printings index load failed: {error_msg}")
+
+    def _on_bulk_data_downloaded(self, msg: str) -> None:
+        """Handle successful bulk data download."""
+        self._set_status("Card image database downloaded, indexing printings…")
+        logger.info(f"Bulk data downloaded: {msg}")
+        # Now rebuild the printings index
+        self._load_bulk_data_into_memory(force=True)
+
+    def _on_bulk_data_failed(self, error_msg: str) -> None:
+        """Handle bulk data download failure."""
+        self._set_status("Ready")
+        logger.warning(f"Bulk data download failed: {error_msg}")
+
+    def _show_image_download_dialog(self) -> None:
+        """Show dialog for downloading card images with quality selection."""
+        dialog = wx.Dialog(self, title="Download Card Images", size=(450, 320))
+        dialog.SetBackgroundColour(DARK_BG)
+
+        panel = wx.Panel(dialog)
+        panel.SetBackgroundColour(DARK_BG)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(sizer)
+
+        # Title
+        title = wx.StaticText(panel, label="Download Card Images from Scryfall")
+        title.SetForegroundColour(LIGHT_TEXT)
+        title_font = title.GetFont()
+        title_font.PointSize += 2
+        title_font = title_font.Bold()
+        title.SetFont(title_font)
+        sizer.Add(title, 0, wx.ALL, 10)
+
+        # Image quality selection
+        quality_label = wx.StaticText(panel, label="Image Quality:")
+        quality_label.SetForegroundColour(LIGHT_TEXT)
+        sizer.Add(quality_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        quality_choice = wx.Choice(panel, choices=[
+            "Small (146x204, ~100KB/card, ~8GB total)",
+            "Normal (488x680, ~300KB/card, ~25GB total)",
+            "Large (672x936, ~500KB/card, ~40GB total)",
+            "PNG (745x1040, ~700KB/card, ~55GB total)"
+        ])
+        quality_choice.SetSelection(1)  # Default to Normal
+        sizer.Add(quality_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        # Download amount selection
+        amount_label = wx.StaticText(panel, label="Download Amount:")
+        amount_label.SetForegroundColour(LIGHT_TEXT)
+        sizer.Add(amount_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        amount_choice = wx.Choice(panel, choices=[
+            "Test mode (first 100 cards)",
+            "First 1,000 cards",
+            "First 5,000 cards",
+            "First 10,000 cards",
+            "All cards (~80,000+)"
+        ])
+        amount_choice.SetSelection(0)  # Default to Test mode
+        sizer.Add(amount_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        # Info text
+        info_text = wx.StaticText(panel, label=(
+            "Note: Images are downloaded from Scryfall's CDN (no rate limits).\n"
+            "This may take 30-60 minutes for all cards depending on your connection.\n"
+            "You can use the app while downloading."
+        ))
+        info_text.SetForegroundColour(SUBDUED_TEXT)
+        info_text.Wrap(420)
+        sizer.Add(info_text, 0, wx.ALL, 10)
+
+        # Buttons
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        button_sizer.AddStretchSpacer(1)
+
+        cancel_btn = wx.Button(panel, wx.ID_CANCEL, label="Cancel")
+        button_sizer.Add(cancel_btn, 0, wx.RIGHT, 6)
+
+        download_btn = wx.Button(panel, wx.ID_OK, label="Download")
+        download_btn.SetDefault()
+        button_sizer.Add(download_btn, 0)
+
+        sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 10)
+
+        panel.SetSizerAndFit(sizer)
+        dialog.SetClientSize(panel.GetBestSize())
+        dialog.Centre()
+
+        if dialog.ShowModal() == wx.ID_OK:
+            # Get selected quality
+            quality_map = {0: "small", 1: "normal", 2: "large", 3: "png"}
+            quality = quality_map[quality_choice.GetSelection()]
+
+            # Get selected amount
+            amount_map = {0: 100, 1: 1000, 2: 5000, 3: 10000, 4: None}
+            max_cards = amount_map[amount_choice.GetSelection()]
+
+            # Start download
+            self._start_image_download(quality, max_cards)
+
+        dialog.Destroy()
+
+    def _start_image_download(self, size: str, max_cards: Optional[int]) -> None:
+        """Start downloading card images with progress dialog."""
+        # Create progress dialog
+        max_value = max_cards if max_cards else 80000
+        progress_dialog = wx.ProgressDialog(
+            "Downloading Card Images",
+            "Preparing download...",
+            maximum=max_value,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT | wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME
+        )
+
+        # Track cancellation
+        download_cancelled = [False]
+
+        def progress_callback(completed: int, total: int, message: str):
+            """Update progress dialog from worker thread."""
+            wx.CallAfter(self._update_download_progress, progress_dialog, completed, total, message, download_cancelled)
+
+        def worker():
+            """Background download worker."""
+            try:
+                if self.image_downloader is None:
+                    self.image_downloader = BulkImageDownloader(self.image_cache)
+
+                # Ensure bulk data is downloaded
+                if not BULK_DATA_CACHE.exists():
+                    wx.CallAfter(progress_dialog.Update, 0, "Downloading bulk metadata first...")
+                    success, msg = self.image_downloader.download_bulk_metadata(force=False)
+                    if not success:
+                        wx.CallAfter(self._on_image_download_failed, progress_dialog, f"Failed to download metadata: {msg}")
+                        return
+
+                # Download images
+                result = self.image_downloader.download_all_images(
+                    size=size,
+                    max_cards=max_cards,
+                    progress_callback=progress_callback
+                )
+
+                # Check if cancelled
+                if download_cancelled[0]:
+                    wx.CallAfter(self._on_image_download_cancelled, progress_dialog)
+                elif result.get("success"):
+                    wx.CallAfter(self._on_image_download_complete, progress_dialog, result)
+                else:
+                    wx.CallAfter(self._on_image_download_failed, progress_dialog, result.get("error", "Unknown error"))
+
+            except Exception as exc:
+                logger.exception("Image download failed")
+                wx.CallAfter(self._on_image_download_failed, progress_dialog, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_download_progress(self, dialog: wx.ProgressDialog, completed: int, total: int, message: str, cancelled_flag: list):
+        """Update progress dialog (called from main thread via wx.CallAfter)."""
+        if not dialog:
+            return
+
+        try:
+            # Check if dialog still exists
+            _ = dialog.GetTitle()
+        except RuntimeError:
+            # Dialog was destroyed
+            cancelled_flag[0] = True
+            return
+
+        # Update progress
+        continue_download, skip = dialog.Update(completed, message)
+        if not continue_download:
+            # User clicked cancel
+            cancelled_flag[0] = True
+            dialog.Destroy()
+
+    def _on_image_download_complete(self, dialog: wx.ProgressDialog, result: Dict[str, Any]):
+        """Handle successful image download."""
+        try:
+            dialog.Destroy()
+        except RuntimeError:
+            pass
+
+        msg = (
+            f"Download complete!\n\n"
+            f"Total processed: {result.get('total', 0)}\n"
+            f"Downloaded: {result.get('downloaded', 0)}\n"
+            f"Already cached: {result.get('skipped', 0)}\n"
+            f"Failed: {result.get('failed', 0)}"
+        )
+        wx.MessageBox(msg, "Download Complete", wx.OK | wx.ICON_INFORMATION)
+        self._set_status("Card image download complete")
+
+    def _on_image_download_failed(self, dialog: wx.ProgressDialog, error_msg: str):
+        """Handle image download failure."""
+        try:
+            dialog.Destroy()
+        except RuntimeError:
+            pass
+
+        wx.MessageBox(f"Download failed: {error_msg}", "Download Error", wx.OK | wx.ICON_ERROR)
+        self._set_status("Ready")
+
+    def _on_image_download_cancelled(self, dialog: wx.ProgressDialog):
+        """Handle image download cancellation."""
+        try:
+            dialog.Destroy()
+        except RuntimeError:
+            pass
+
+        self._set_status("Card image download cancelled")
+
+    def _get_card_metadata(self, name: str) -> Optional[Dict[str, Any]]:
+        if not self.card_manager:
+            return None
+        return self.card_manager.get_card(name)
+
+    def _owned_status(self, name: str, required: int) -> tuple[str, wx.Colour]:
+        if not self.collection_inventory:
+            return ("Owned —", SUBDUED_TEXT)
+        have = self.collection_inventory.get(name.lower(), 0)
+        if have >= required:
+            return (f"Owned {have}/{required}", wx.Colour(120, 200, 120))
+        if have > 0:
+            return (f"Owned {have}/{required}", wx.Colour(230, 200, 90))
+        return ("Owned 0", wx.Colour(230, 120, 120))
+
+    # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
+    def _handle_zone_delta(self, zone: str, name: str, delta: int) -> None:
+        cards = self.zone_cards.get(zone, [])
+        for entry in cards:
+            if entry["name"].lower() == name.lower():
+                entry["qty"] = max(0, entry["qty"] + delta)
+                if entry["qty"] == 0:
+                    cards.remove(entry)
+                break
+        else:
+            if delta > 0:
+                cards.append({"name": name, "qty": delta})
+        cards.sort(key=lambda item: item["name"].lower())
+        self.zone_cards[zone] = cards
+        self._after_zone_change(zone)
+
+    def _handle_zone_remove(self, zone: str, name: str) -> None:
+        cards = self.zone_cards.get(zone, [])
+        self.zone_cards[zone] = [entry for entry in cards if entry["name"].lower() != name.lower()]
+        self._after_zone_change(zone)
+
+    def _handle_zone_add(self, zone: str) -> None:
+        if zone == "out":
+            main_cards = [entry["name"] for entry in self.zone_cards.get("main", [])]
+            existing = {entry["name"].lower() for entry in self.zone_cards.get("out", [])}
+            candidates = [name for name in main_cards if name.lower() not in existing]
+            if not candidates:
+                wx.MessageBox("All mainboard cards are already in the outboard list.", "Outboard", wx.OK | wx.ICON_INFORMATION)
+                return
+            dlg = wx.SingleChoiceDialog(self, "Select a mainboard card eligible for sideboarding.", "Outboard", candidates)
+            if dlg.ShowModal() != wx.ID_OK:
+                dlg.Destroy()
+                return
+            selection = dlg.GetStringSelection()
+            dlg.Destroy()
+            qty = next((entry["qty"] for entry in self.zone_cards["main"] if entry["name"] == selection), 1)
+            self.zone_cards.setdefault("out", []).append({"name": selection, "qty": qty})
+            self.zone_cards["out"].sort(key=lambda item: item["name"].lower())
+            self._after_zone_change("out")
+            return
+
+        dlg = wx.TextEntryDialog(self, f"Add card to {ZONE_TITLES.get(zone, zone)} (format: 'Qty Card Name')", "Add Card")
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        value = dlg.GetValue().strip()
+        dlg.Destroy()
+        if not value:
+            return
+        parts = value.split(" ", 1)
+        try:
+            qty = int(parts[0]) if len(parts) > 1 else 1
+        except ValueError:
+            qty = 1
+        name = parts[1].strip() if len(parts) > 1 else value
+        if not name:
+            return
+        self.zone_cards.setdefault(zone, []).append({"name": name, "qty": max(1, qty)})
+        self.zone_cards[zone].sort(key=lambda item: item["name"].lower())
+        self._after_zone_change(zone)
+
+    def _after_zone_change(self, zone: str) -> None:
+        if zone == "main":
+            self.main_table.set_cards(self.zone_cards["main"])
+        elif zone == "side":
+            self.side_table.set_cards(self.zone_cards["side"])
+        else:
+            self.out_table.set_cards(self.zone_cards["out"])
+            self._persist_outboard_for_current()
+        self.current_deck_text = self._build_deck_text()
+        self._update_stats(self.current_deck_text)
+        self.copy_button.Enable(self._has_deck_loaded())
+        self.save_button.Enable(self._has_deck_loaded())
+        self._schedule_settings_save()
+
+    # ------------------------------------------------------------------ Card inspector -----------------------------------------------------
+    def _handle_card_focus(self, zone: str, card: Optional[Dict[str, Any]]) -> None:
+        if card is None:
+            if self.active_inspector_zone == zone:
+                self._reset_card_inspector()
+            return
+        self._collapse_other_zone_tables(zone)
+        self._update_card_inspector(zone, card)
+
+    def _collapse_other_zone_tables(self, active_zone: str) -> None:
+        tables = {
+            "main": self.main_table,
+            "side": self.side_table,
+            "out": self.out_table,
+        }
+        for zone, table in tables.items():
+            if zone == active_zone:
+                continue
+            table.collapse_active()
+
+    def _reset_card_inspector(self) -> None:
+        self.active_inspector_zone = None
+        self.inspector_name.SetLabel("Select a card to inspect.")
+        self.inspector_type.SetLabel("")
+        self.inspector_stats.SetLabel("")
+        self.inspector_text.ChangeValue("")
+        self._render_inspector_cost("")
+        # Show placeholder with new widget
+        self.card_image_display.show_placeholder("Select a card")
+        self.inspector_nav_panel.Hide()
+        self.inspector_printings = []
+        self.inspector_current_printing = 0
+        self.inspector_current_card_name = None
+        _log_card_inspector("reset")
+
+    def _update_card_inspector(self, zone: Optional[str], card: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> None:
+        self.active_inspector_zone = zone
+        zone_title = ZONE_TITLES.get(zone, zone.title()) if zone else "Card Search"
+        header = f"{card['name']}  ×{card['qty']}  ({zone_title})"
+        self.inspector_name.SetLabel(header)
+        meta = meta or self._get_card_metadata(card["name"]) or {}
+        mana_cost = meta.get("mana_cost") or ""
+        self._render_inspector_cost(mana_cost)
+        type_line = meta.get("type_line") or "Type data unavailable."
+        self.inspector_type.SetLabel(type_line)
+        stats_bits: List[str] = []
+        if meta.get("mana_value") is not None:
+            stats_bits.append(f"MV {meta['mana_value']}")
+        if meta.get("power") or meta.get("toughness"):
+            stats_bits.append(f"P/T {meta.get('power', '?')}/{meta.get('toughness', '?')}")
+        if meta.get("loyalty"):
+            stats_bits.append(f"Loyalty {meta['loyalty']}")
+        colors = meta.get("color_identity") or []
+        stats_bits.append(f"Colors: {'/'.join(colors) if colors else 'Colorless'}")
+        stats_bits.append(f"Zone: {zone_title}")
+        self.inspector_stats.SetLabel("  |  ".join(stats_bits))
+        oracle_text = meta.get("oracle_text") or "No rules text available."
+        self.inspector_text.ChangeValue(oracle_text)
+
+        # Load card image and printings
+        self._load_card_image_and_printings(card["name"])
+
+    def _render_inspector_cost(self, mana_cost: str) -> None:
+        self.inspector_cost_sizer.Clear(delete_windows=True)
+        if mana_cost:
+            panel = self.mana_icons.render(self.inspector_cost_container, mana_cost)
+            panel.SetMinSize((max(32, panel.GetBestSize().width), 32))
+        else:
+            panel = wx.StaticText(self.inspector_cost_container, label="—")
+            panel.SetForegroundColour(SUBDUED_TEXT)
+        self.inspector_cost_sizer.Add(panel, 0)
+        self.inspector_cost_container.Layout()
+
+    def _load_card_image_and_printings(self, card_name: str) -> None:
+        """Load card image and populate printings list (uses in-memory cache)."""
+        self.inspector_current_card_name = card_name
+        self.inspector_printings = []
+        self.inspector_current_printing = 0
+        _log_card_inspector("load_card", card_name, f"bulk_loaded={bool(self.bulk_data_by_name)}")
+
+        # Query in-memory bulk data for all printings of this card (non-blocking)
+        if self.bulk_data_by_name:
+            # Fast O(1) lookup from pre-indexed dictionary
+            printings = self.bulk_data_by_name.get(card_name.lower(), [])
+            self.inspector_printings = printings
+            _log_card_inspector("printings_found", card_name, f"count={len(printings)}")
+        elif BULK_DATA_CACHE.exists():
+            # Fallback: bulk data not loaded yet, show placeholder
+            logger.debug(f"Bulk data not loaded yet for {card_name}, showing placeholder")
+            _log_card_inspector("bulk_missing_in_memory", card_name)
+
+        # Try to load an image
+        self._load_current_printing_image()
+
+    def _load_current_printing_image(self) -> None:
+        """Load and display the current printing's image."""
+        if not self.inspector_printings:
+            # No printings found, try to load any cached image for this card name
+            image_path = get_card_image(self.inspector_current_card_name, "normal")
+            exists = image_path.exists() if image_path else False
+            _log_card_inspector(
+                "fallback_by_name",
+                self.inspector_current_card_name or "<unknown>",
+                f"path={image_path}",
+                f"exists={exists}",
+            )
+            if image_path:
+                self.card_image_display.show_image(image_path)
+                self.inspector_nav_panel.Hide()
             else:
-                main[card_name] = count
-        self.builder_deck = {"main": main, "side": side}
-        if content is None:
-            self.builder_render_deck()
-        self.builder_update_status_counts()
+                # No image available, show placeholder
+                self.card_image_display.show_placeholder("Not cached")
+                self.inspector_nav_panel.Hide()
+            return
 
-    def builder_update_status_counts(self):
-        main_total = sum(self.builder_deck["main"].values())
-        side_total = sum(self.builder_deck["side"].values())
-        if self.current_mode == "builder":
-            self.builder_status_var.set(f"Deck size: {main_total} main / {side_total} side")
+        # Get current printing
+        printing = self.inspector_printings[self.inspector_current_printing]
+        uuid = printing.get("id")
+        _log_card_inspector(
+            "printing_selected",
+            self.inspector_current_card_name or "<unknown>",
+            f"index={self.inspector_current_printing}",
+            f"uuid={uuid}",
+        )
+
+        # Try to load from cache
+        image_path = self.image_cache.get_image_by_uuid(uuid, "normal")
+        _log_card_inspector(
+            "uuid_lookup",
+            self.inspector_current_card_name or "<unknown>",
+            f"uuid={uuid}",
+            f"path={image_path}",
+        )
+
+        if image_path:
+            self.card_image_display.show_image(image_path)
+        else:
+            # Image not cached, show placeholder
+            self.card_image_display.show_placeholder("Not cached")
+
+        # Update navigation controls
+        if len(self.inspector_printings) > 1:
+            set_code = printing.get("set", "").upper()
+            set_name = printing.get("set_name", "")
+            printing_info = f"{self.inspector_current_printing + 1} of {len(self.inspector_printings)}"
+            if set_code:
+                printing_info += f" - {set_code}"
+            if set_name:
+                printing_info += f" ({set_name})"
+            self.inspector_printing_label.SetLabel(printing_info)
+            self.inspector_prev_btn.Enable(self.inspector_current_printing > 0)
+            self.inspector_next_btn.Enable(self.inspector_current_printing < len(self.inspector_printings) - 1)
+            self.inspector_nav_panel.Show()
+        else:
+            self.inspector_nav_panel.Hide()
+
+    def _on_prev_printing(self) -> None:
+        """Navigate to previous printing."""
+        if self.inspector_current_printing > 0:
+            self.inspector_current_printing -= 1
+            self._load_current_printing_image()
+
+    def _on_next_printing(self) -> None:
+        """Navigate to next printing."""
+        if self.inspector_current_printing < len(self.inspector_printings) - 1:
+            self.inspector_current_printing += 1
+            self._load_current_printing_image()
+
+    # ------------------------------------------------------------------ Stats + notes --------------------------------------------------------
+    def _update_stats(self, deck_text: str) -> None:
+        if not deck_text.strip():
+            self.stats_summary.SetLabel("No deck loaded.")
+            self.curve_list.DeleteAllItems()
+            self.color_list.DeleteAllItems()
+            return
+        stats = analyze_deck(deck_text)
+        summary = (
+            f"Mainboard: {stats['mainboard_count']} cards ({stats['unique_mainboard']} unique)  |  "
+            f"Sideboard: {stats['sideboard_count']} cards ({stats['unique_sideboard']} unique)  |  "
+            f"Estimated lands: {stats['estimated_lands']}"
+        )
+        self.stats_summary.SetLabel(summary)
+        self._render_curve()
+        self._render_color_concentration()
+
+    def _render_curve(self) -> None:
+        self.curve_list.DeleteAllItems()
+        if not self.card_manager:
+            return
+        counts: Counter[str] = Counter()
+        for entry in self.zone_cards.get("main", []):
+            meta = self.card_manager.get_card(entry["name"])
+            mana_value = meta.get("mana_value") if meta else None
+            bucket: str
+            if isinstance(mana_value, (int, float)):
+                value = int(mana_value)
+                bucket = "7+" if value >= 7 else str(value)
+            else:
+                bucket = "X"
+            counts[bucket] += entry["qty"]
+        def curve_key(bucket: str) -> int:
+            if bucket == "X":
+                return 99
+            if bucket.endswith("+") and bucket[:-1].isdigit():
+                return int(bucket[:-1]) + 10
+            if bucket.isdigit():
+                return int(bucket)
+            return 98
+
+        for bucket in sorted(counts.keys(), key=curve_key):
+            self.curve_list.AppendItem([bucket, str(counts[bucket])])
+
+    def _render_color_concentration(self) -> None:
+        self.color_list.DeleteAllItems()
+        if not self.card_manager:
+            return
+        totals: Counter[str] = Counter()
+        for entry in self.zone_cards.get("main", []):
+            meta = self.card_manager.get_card(entry["name"])
+            identity = meta.get("color_identity") if meta else []
+            if not identity:
+                totals["Colorless"] += entry["qty"]
+            else:
+                for color in identity:
+                    totals[color.upper()] += entry["qty"]
+        grand_total = sum(totals.values())
+        if not grand_total:
+            return
+        for color, count in sorted(totals.items(), key=lambda item: item[0]):
+            pct = (count / grand_total) * 100
+            label = f"{pct:.1f}% ({count})"
+            self.color_list.AppendItem([color, label])
+
+    def _load_notes_for_current(self) -> None:
+        key = self._current_deck_key()
+        note = self.deck_notes_store.get(key, "")
+        self.deck_notes_text.ChangeValue(note)
+
+    def _save_current_notes(self) -> None:
+        key = self._current_deck_key()
+        self.deck_notes_store[key] = self.deck_notes_text.GetValue()
+        self._save_store(NOTES_STORE, self.deck_notes_store)
+        self._set_status("Deck notes saved.")
+
+    # ------------------------------------------------------------------ Outboard + guide persistence -----------------------------------------
+    def _persist_outboard_for_current(self) -> None:
+        key = self._current_deck_key()
+        self.outboard_store[key] = self.zone_cards.get("out", [])
+        self._save_store(OUTBOARD_STORE, self.outboard_store)
+
+    def _load_outboard_for_current(self) -> List[Dict[str, Any]]:
+        key = self._current_deck_key()
+        data = self.outboard_store.get(key, [])
+        cleaned: List[Dict[str, Any]] = []
+        for entry in data:
+            name = entry.get("name")
+            qty = int(entry.get("qty", 0))
+            if name and qty > 0:
+                cleaned.append({"name": name, "qty": qty})
+        return cleaned
+
+    def _load_guide_for_current(self) -> None:
+        key = self._current_deck_key()
+        payload = self.guide_store.get(key) or {}
+        self.sideboard_guide_entries = payload.get("entries", [])
+        self.sideboard_exclusions = payload.get("exclusions", [])
+        self._refresh_guide_view()
+
+    def _persist_guide_for_current(self) -> None:
+        key = self._current_deck_key()
+        self.guide_store[key] = {
+            "entries": self.sideboard_guide_entries,
+            "exclusions": self.sideboard_exclusions,
+        }
+        self._save_store(GUIDE_STORE, self.guide_store)
+
+    def _refresh_guide_view(self) -> None:
+        self.guide_view.DeleteAllItems()
+        for entry in self.sideboard_guide_entries:
+            if entry.get("archetype") in self.sideboard_exclusions:
+                continue
+            self.guide_view.AppendItem(
+                [
+                    entry.get("archetype", ""),
+                    entry.get("cards_in", ""),
+                    entry.get("cards_out", ""),
+                    entry.get("notes", ""),
+                ]
+            )
+        if self.sideboard_exclusions:
+            text = ", ".join(self.sideboard_exclusions)
+        else:
+            text = "—"
+        self.guide_exclusions_label.SetLabel(f"Exclusions: {text}")
+
+    def _on_add_guide_entry(self) -> None:
+        names = [item.get("name", "") for item in self.archetypes]
+        dlg = GuideEntryDialog(self, names)
+        if dlg.ShowModal() == wx.ID_OK:
+            data = dlg.get_data()
+            if data.get("archetype"):
+                self.sideboard_guide_entries.append(data)
+                self._persist_guide_for_current()
+                self._refresh_guide_view()
+        dlg.Destroy()
+
+    def _on_edit_guide_entry(self) -> None:
+        item = self.guide_view.GetSelection()
+        if not item.IsOk():
+            wx.MessageBox("Select an entry to edit.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION)
+            return
+        index = self.guide_view.ItemToRow(item)
+        data = self.sideboard_guide_entries[index]
+        names = [item.get("name", "") for item in self.archetypes]
+        dlg = GuideEntryDialog(self, names, data=data)
+        if dlg.ShowModal() == wx.ID_OK:
+            updated = dlg.get_data()
+            if updated.get("archetype"):
+                self.sideboard_guide_entries[index] = updated
+                self._persist_guide_for_current()
+                self._refresh_guide_view()
+        dlg.Destroy()
+
+    def _on_remove_guide_entry(self) -> None:
+        item = self.guide_view.GetSelection()
+        if not item.IsOk():
+            wx.MessageBox("Select an entry to remove.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION)
+            return
+        index = self.guide_view.ItemToRow(item)
+        del self.sideboard_guide_entries[index]
+        self._persist_guide_for_current()
+        self._refresh_guide_view()
+
+    def _on_edit_exclusions(self) -> None:
+        archetype_names = [item.get("name", "") for item in self.archetypes]
+        dlg = wx.MultiChoiceDialog(
+            self,
+            "Select archetypes to exclude from the printed guide.",
+            "Sideboard Guide",
+            archetype_names,
+        )
+        selected_indices = [archetype_names.index(name) for name in self.sideboard_exclusions if name in archetype_names]
+        dlg.SetSelections(selected_indices)
+        if dlg.ShowModal() == wx.ID_OK:
+            selections = dlg.GetSelections()
+            self.sideboard_exclusions = [archetype_names[idx] for idx in selections]
+            self._persist_guide_for_current()
+            self._refresh_guide_view()
+        dlg.Destroy()
+
+    # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
+    def _load_store(self, path: Path) -> Dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid JSON at {path}; ignoring store")
+            return {}
+
+    def _save_store(self, path: Path, data: Dict[str, Any]) -> None:
+        try:
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            logger.warning(f"Failed to write {path}: {exc}")
+
+    # ------------------------------------------------------------------ Daily average --------------------------------------------------------
+    def _build_daily_average_deck(self) -> None:
+        today = time.strftime("%Y-%m-%d").lower()
+        todays_decks = [deck for deck in self.decks if today in deck.get("date", "").lower()]
+
+        if not todays_decks:
+            wx.MessageBox("No decks from today found for this archetype.", "Daily Average", wx.OK | wx.ICON_INFORMATION)
+            return
+
+        self.loading_daily_average = True
+        self.daily_average_button.Disable()
+        self._set_status("Building daily average deck…")
+        progress_dialog = wx.ProgressDialog(
+            "Daily Average",
+            "Downloading decks…",
+            maximum=len(todays_decks),
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME,
+        )
+
+        def worker(rows: List[Dict[str, Any]]):
+            buffer: Dict[str, float] = {}
+            for index, deck in enumerate(rows, start=1):
+                download_deck(deck["number"])
+                deck_content = self._read_curr_deck_file()
+                buffer = add_dicts(buffer, deck_to_dictionary(deck_content))
+                wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{len(rows)} decks…")
+            return buffer
+
+        def on_success(buffer: Dict[str, float]):
+            progress_dialog.Destroy()
+            self.loading_daily_average = False
+            self.daily_average_button.Enable()
+            deck_text = self._render_average_deck(buffer, len(todays_decks))
+            self._on_deck_content_ready(deck_text, source="average")
+
+        def on_error(error: Exception):
+            progress_dialog.Destroy()
+            self.loading_daily_average = False
+            self.daily_average_button.Enable()
+            wx.MessageBox(f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR)
+            self._set_status(f"Daily average failed: {error}")
+
+        _Worker(worker, todays_decks, on_success=on_success, on_error=on_error).start()
+
+    def _render_average_deck(self, buffer: Dict[str, float], decks_added: int) -> str:
+        if not buffer or decks_added <= 0:
+            return ""
+        lines: List[str] = []
+        sideboard_lines: List[str] = []
+        for card, total in sorted(buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0])):
+            display_name = card.replace("Sideboard ", "")
+            average = float(total) / decks_added
+            value = f"{average:.2f}" if not average.is_integer() else str(int(average))
+            output = f"{value} {display_name}"
+            if card.lower().startswith("sideboard"):
+                sideboard_lines.append(output)
+            else:
+                lines.append(output)
+        if sideboard_lines:
+            lines.append("")
+            lines.extend(sideboard_lines)
+        return "\n".join(lines)
 
     def _read_curr_deck_file(self) -> str:
         candidates = [CURR_DECK_FILE, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
@@ -1575,537 +3153,99 @@ class MTGDeckSelectionWidget:
                             candidate.unlink()
                         except OSError:
                             logger.debug(f"Unable to remove legacy deck file {candidate}")
-                    except OSError as exc:
+                    except OSError as exc:  # pragma: no cover
                         logger.debug(f"Failed to migrate curr_deck.txt from {candidate}: {exc}")
                 return contents
         raise FileNotFoundError("Current deck file not found")
 
-    def open_saved_decks_dialog(self):
-        """Open a modal list of saved decks for loading into the builder."""
-        if self.saved_decks_popup and self.saved_decks_popup.winfo_exists():
-            self.saved_decks_popup.lift()
-            return
+    # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
+    def _build_deck_text(self) -> str:
+        if not self.zone_cards["main"] and not self.zone_cards["side"]:
+            return ""
+        lines: List[str] = []
+        for entry in self.zone_cards["main"]:
+            lines.append(f"{entry['qty']} {entry['name']}")
+        if self.zone_cards["side"]:
+            lines.append("")
+            lines.append("Sideboard")
+            for entry in self.zone_cards["side"]:
+                lines.append(f"{entry['qty']} {entry['name']}")
+        return "\n".join(lines).strip()
 
-        self.saved_decks_popup = tk.Toplevel(self.root)
-        self.saved_decks_popup.title("Load Saved Deck")
-        self.saved_decks_popup.geometry("420x360")
-        self.saved_decks_popup.transient(self.root)
-        self.saved_decks_popup.grab_set()
+    def _current_deck_key(self) -> str:
+        if self.current_deck:
+            return self.current_deck.get("href") or self.current_deck.get("name", "manual").lower()
+        return "manual"
 
-        container = tk.Frame(self.saved_decks_popup, padx=8, pady=8)
-        container.pack(fill="both", expand=True)
-        tk.Label(container, text=f"Saved decks ({self.format.get()}):", font=("calibri", 12, "bold")).pack(anchor="w")
-
-        list_frame = tk.Frame(container)
-        list_frame.pack(fill="both", expand=True, pady=6)
-        listbox = tk.Listbox(list_frame, font=("calibri", 11), height=12)
-        listbox.pack(side="left", fill="both", expand=True)
-        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
-        scrollbar.pack(side="right", fill="y")
-        listbox.config(yscrollcommand=scrollbar.set)
-        status = tk.Label(container, text="Loading saved decks...", anchor="w")
-        status.pack(fill="x", pady=(4, 0))
-        button_bar = tk.Frame(container)
-        button_bar.pack(fill="x", pady=(8, 0))
-        load_btn = tk.Button(button_bar, text="Load Selected Deck", command=lambda: self.load_saved_deck_from_popup())
-        load_btn.pack(side="left", expand=True, fill="x")
-        cancel_btn = tk.Button(button_bar, text="Cancel", command=self.close_saved_decks_dialog)
-        cancel_btn.pack(side="right", expand=True, fill="x", padx=(8, 0))
-
-        self.saved_decks_popup_listbox = listbox
-        self.saved_decks_popup_status = status
-        self.saved_decks_popup_data = []
-        self.saved_decks_popup.protocol("WM_DELETE_WINDOW", self.close_saved_decks_dialog)
-        self.populate_saved_decks_dialog()
-
-    def close_saved_decks_dialog(self):
-        if self.saved_decks_popup and self.saved_decks_popup.winfo_exists():
-            self.saved_decks_popup.grab_release()
-            self.saved_decks_popup.destroy()
-        self.saved_decks_popup = None
-        self.saved_decks_popup_listbox = None
-        self.saved_decks_popup_status = None
-        self.saved_decks_popup_data = []
-
-    def populate_saved_decks_dialog(self):
-        if not self.saved_decks_popup or not self.saved_decks_popup.winfo_exists():
-            return
-        self.saved_decks_popup_listbox.delete(0, tk.END)
-        self.saved_decks_popup_status.config(text="Loading saved decks...")
-
-        def load():
-            try:
-                decks = get_saved_decks(format_type=self.format.get())
-            except Exception as exc:
-                self.root.after(0, lambda: self.saved_decks_popup_status.config(text=f"Error: {exc}"))
-                return
-
-            def finish():
-                if not (self.saved_decks_popup and self.saved_decks_popup.winfo_exists()):
-                    return
-                self.saved_decks_popup_data = decks
-                self.saved_decks_popup_listbox.delete(0, tk.END)
-                if not decks:
-                    self.saved_decks_popup_listbox.insert(tk.END, "No saved decks found")
-                    self.saved_decks_popup_status.config(text="No saved decks available.")
-                    return
-                for deck in decks:
-                    display = deck.get("name", "Unnamed deck")
-                    if deck.get("date_saved"):
-                        display = f"[{deck['date_saved'].strftime('%Y-%m-%d')}] {display}"
-                    self.saved_decks_popup_listbox.insert(tk.END, display)
-                self.saved_decks_popup_status.config(text=f"{len(decks)} decks loaded.")
-
-            self.root.after(0, finish)
-
-        threading.Thread(target=load, daemon=True).start()
-
-    def load_saved_deck_from_popup(self):
-        if not (self.saved_decks_popup and self.saved_decks_popup_listbox):
-            return
-        selection = self.saved_decks_popup_listbox.curselection()
-        if not selection:
-            messagebox.showwarning("No Selection", "Please select a deck to load.")
-            return
-        if not self.saved_decks_popup_data:
-            messagebox.showwarning("Unavailable", "Deck data not available.")
-            return
-        deck_doc = self.saved_decks_popup_data[selection[0]]
-        self.apply_saved_deck_to_builder(deck_doc)
-        self.close_saved_decks_dialog()
-
-    def apply_saved_deck_to_builder(self, deck_doc: dict):
-        deck_content = deck_doc.get("content", "")
-        if not deck_content:
-            messagebox.showwarning("Empty Deck", "Selected deck has no content.")
-            return
-        self.load_deck_text(deck_content)
-        if self.current_mode != "builder":
-            self.switch_to_builder_mode()
-        else:
-            self.builder_sync_from_text(deck_content)
-            self.builder_render_deck()
-        deck_name = deck_doc.get("name", "Saved Deck")
-        self.builder_status_var.set(f"Loaded saved deck: {deck_name}")
-
-    def load_selected_saved_into_builder(self):
-        if self.current_mode != "saved":
-            self.open_saved_decks_dialog()
-            return
-        if not self.saved_decks:
-            messagebox.showwarning("No Decks", "No saved decks available.")
-            return
-        selection = self.listbox.curselection()
-        if not selection:
-            messagebox.showwarning("No Selection", "Please select a deck to load.")
-            return
-        deck_doc = self.saved_decks[selection[0]]
-        self.apply_saved_deck_to_builder(deck_doc)
-
-    def extract_card_name_from_line(self, line: str) -> str | None:
-        line = (line or "").strip()
-        if not line or line.lower() == "sideboard":
-            return None
-        parts = line.split(" ", 1)
-        if len(parts) < 2:
-            return None
+    def _widget_exists(self, window: Optional[wx.Window]) -> bool:
+        if window is None:
+            return False
         try:
-            float(parts[0])
-        except ValueError:
-            return None
-        card_name = parts[1].strip()
-        if card_name.lower().startswith("sideboard "):
-            card_name = card_name[len("sideboard "):].strip()
-        return card_name or None
+            return bool(window.IsShown())
+        except wx.PyDeadObjectError:
+            return False
 
-    def switch_to_browse_mode(self):
-        """Switch to MTGGoldfish browsing mode"""
-        self.current_mode = "browse"
-        self.set_mode_button_states("browse")
-        self.disable_builder_ui()
-        self.load_saved_into_builder_button.grid_remove()
-        self.close_saved_decks_dialog()
-        if getattr(self, "delete_deck_button", None):
-            self.delete_deck_button.grid_forget()
-            self.delete_deck_button = None
-        self.hide_deck_statistics()  # Hide stats when switching to browse mode
-        if hasattr(self, 'visualize_button'):
-            self.visualize_button.grid_remove()  # Hide visualize button in browse mode
-        self.listbox_button.config(text="Select archetype", command=self.select_archetype, state="normal")
-        self.ui_reset_to_archetype_selection()
-
-    def switch_to_saved_mode(self):
-        """Switch to saved decks mode"""
-        self.current_mode = "saved"
-        self.set_mode_button_states("saved")
-        self.disable_builder_ui()
-        self.load_saved_into_builder_button.grid(column=6, row=0, sticky="nsew")
-        self.load_saved_into_builder_button.config(state="disabled")
-        self.close_saved_decks_dialog()
-        if getattr(self, "delete_deck_button", None):
-            self.delete_deck_button.grid_forget()
-            self.delete_deck_button = None
-
-        # Clean up browse mode UI elements
-        self.clear_deck_textboxes()
-        self.display_deck_message("Select a saved deck from the list")
-        if hasattr(self, "reset_button"):
-            self.reset_button.grid_forget()
-        if hasattr(self, "make_daily_average_deck_button"):
-            self.make_daily_average_deck_button.grid_forget()
-
-        # Unbind any browse mode listbox events
-        self.listbox.unbind("<<ListboxSelect>>")
-
-        self.load_saved_decks_list()
-
-    def load_saved_decks_list(self):
-        """Load saved decks from database"""
-        self.clear_deck_textboxes()
-        self.listbox.delete(0, tk.END)
-        self.listbox.insert(0, "⏳ Loading saved decks...")
-        self.listbox_button.config(state="disabled")
-        self.saved_decks = []
-
-        # Remove any existing reset button
-        if hasattr(self, "reset_button"):
-            self.reset_button.grid_forget()
-        if getattr(self, "delete_deck_button", None):
-            self.delete_deck_button.grid_forget()
-            self.delete_deck_button = None
-
-        def load_in_background():
-            try:
-                # Get decks from database, filtered by format
-                decks = get_saved_decks(format_type=self.format.get())
-                self.root.after(0, lambda: self.on_saved_decks_loaded(decks))
-            except Exception as e:
-                logger.error(f"Failed to load saved decks: {e}", exc_info=True)
-                self.root.after(0, lambda: self.on_saved_decks_error(str(e)))
-
-        thread = threading.Thread(target=load_in_background, daemon=True)
-        thread.start()
-
-    def on_saved_decks_loaded(self, decks):
-        """Called when saved decks are loaded from database"""
-        self.saved_decks = decks
-        self.listbox.delete(0, tk.END)
-
-        if not decks:
-            self.listbox.insert(0, "No saved decks found")
-            self.listbox.insert(1, f"Format: {self.format.get()}")
-            self.listbox_button.config(text="Load Deck", command=self.load_selected_saved_deck, state="disabled")
-            self.load_saved_into_builder_button.config(state="disabled")
-            self.delete_deck_button = None
-            self.display_deck_message("No saved decks available")
+    def open_opponent_tracker(self) -> None:
+        if self._widget_exists(self.tracker_window):
+            self.tracker_window.Raise()
             return
-
-        # Format deck names for display with more info
-        for deck in decks:
-            # Create a more detailed display
-            display_name = f"{deck['name']}"
-
-            # Add date if available
-            if deck.get('date_saved'):
-                date_str = deck['date_saved'].strftime('%m/%d')
-                display_name = f"[{date_str}] {display_name}"
-
-            self.listbox.insert(tk.END, display_name)
-
-        self.listbox_button.config(text="Load Deck", command=self.load_selected_saved_deck, state="normal")
-        self.listbox.bind("<<ListboxSelect>>", self.display_saved_deck)
-        self.load_saved_into_builder_button.config(state="normal")
-
-        # Add delete button
-        self.delete_deck_button = button(self.F_top_left, "❌ Delete Deck", self.delete_selected_saved_deck, color="red")
-        self.delete_deck_button.grid(column=0, row=0, sticky="nsew")
-
-        # Show visualize button in saved decks mode
-        if hasattr(self, 'visualize_button'):
-            self.visualize_button.grid()
-
-        logger.info(f"Loaded {len(decks)} saved decks")
-
-    def on_saved_decks_error(self, error_msg):
-        """Called if loading saved decks fails"""
-        self.listbox.delete(0, tk.END)
-        self.listbox.insert(0, f"❌ Error: {error_msg[:50]}")
-        self.listbox.insert(1, "Click 'Saved Decks' to retry")
-        self.listbox_button.config(state="normal")
-        self.load_saved_into_builder_button.config(state="disabled")
-        self.saved_decks = []
-        if getattr(self, "delete_deck_button", None):
-            self.delete_deck_button.grid_forget()
-            self.delete_deck_button = None
-        self.display_deck_message(f"❌ Error loading decks:\n{error_msg}")
-
-    def display_saved_deck(self, event):
-        """Display selected saved deck in textbox"""
-        selected = self.listbox.curselection()
-        if not selected:
-            return
-        selected = selected[0]
-
-        deck_doc = self.saved_decks[selected]
-        deck_content = deck_doc.get('content', '')
-        self.load_deck_text(deck_content)
-
-        # Show deck statistics
-        self.update_deck_statistics(deck_content, deck_doc)
-
-        # Show deck info in log
-        info_lines = []
-        if deck_doc.get('archetype'):
-            info_lines.append(f"Archetype: {deck_doc['archetype']}")
-        if deck_doc.get('player'):
-            info_lines.append(f"Player: {deck_doc['player']}")
-        if deck_doc.get('source'):
-            info_lines.append(f"Source: {deck_doc['source']}")
-        if deck_doc.get('date_saved'):
-            info_lines.append(f"Saved: {deck_doc['date_saved'].strftime('%Y-%m-%d %H:%M')}")
-
-        if info_lines:
-            logger.info(" | ".join(info_lines))
-
-    def update_deck_statistics(self, deck_content: str, deck_doc: dict = None):
-        """Update the statistics panel with deck metadata"""
         try:
-            # Build statistics text - metadata only
-            stats_text = ""
+            self.tracker_window = MTGOpponentDeckSpy(self)
+            self.tracker_window.Bind(wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "tracker_window"))
+            self.tracker_window.Show()
+        except Exception as exc:
+            logger.error(f"Failed to launch opponent tracker: {exc}")
+            wx.MessageBox(f"Unable to launch opponent tracker:\n{exc}", "Opponent Tracker", wx.OK | wx.ICON_ERROR)
 
-            # Deck metadata
-            if deck_doc:
-                if deck_doc.get('archetype'):
-                    stats_text += f"📦 Archetype: {deck_doc['archetype']}\n"
-                if deck_doc.get('player'):
-                    stats_text += f"👤 Player: {deck_doc['player']}\n"
-                if deck_doc.get('format'):
-                    stats_text += f"🎯 Format: {deck_doc['format']}\n"
-                if deck_doc.get('source'):
-                    stats_text += f"📍 Source: {deck_doc['source'].title()}\n"
-                if deck_doc.get('date_saved'):
-                    stats_text += f"💾 Saved: {deck_doc['date_saved'].strftime('%Y-%m-%d %H:%M')}\n"
-
-                # Add metadata if available
-                metadata = deck_doc.get('metadata', {})
-                if metadata.get('event'):
-                    stats_text += f"🏆 Event: {metadata['event']}\n"
-                if metadata.get('result'):
-                    stats_text += f"🎖️ Result: {metadata['result']}\n"
-
-            if stats_text:
-                self.stats_label.config(text=stats_text)
-                self.F_stats.grid()  # Show the stats panel
-            else:
-                self.F_stats.grid_remove()  # Hide if no metadata
-
-        except Exception as e:
-            logger.error(f"Failed to display deck metadata: {e}")
-            self.F_stats.grid_remove()  # Hide stats panel on error
-
-    def hide_deck_statistics(self):
-        """Hide the statistics panel"""
-        self.F_stats.grid_remove()
-        if hasattr(self, 'visualize_button'):
-            self.visualize_button.config(text="📊 Show Stats")
-
-    def toggle_statistics_panel(self):
-        """Toggle the visibility of the statistics panel"""
-        if self.F_stats.winfo_viewable():
-            self.F_stats.grid_remove()
-            self.visualize_button.config(text="📊 Show Stats")
-        else:
-            # Re-analyze current deck if available
-            deck_content = self.get_deck_text().strip()
-            if deck_content:
-                # Get current deck doc if in saved mode
-                deck_doc = None
-                if self.current_mode == "saved" and self.saved_decks:
-                    selected = self.listbox.curselection()
-                    if selected:
-                        deck_doc = self.saved_decks[selected[0]]
-
-                self.update_deck_statistics(deck_content, deck_doc)
-                self.visualize_button.config(text="📊 Hide Stats")
-            else:
-                messagebox.showinfo("No Deck", "Please select a deck to view statistics")
-
-    def _load_window_settings(self) -> dict:
-        if not DECK_SELECTOR_SETTINGS_FILE.exists():
-            return {}
+    def open_timer_alert(self) -> None:
+        if self._widget_exists(self.timer_window):
+            self.timer_window.Raise()
+            return
         try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            if isinstance(data, dict):
-                return data
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning(f"Failed to read deck selector settings: {exc}")
-        return {}
+            self.timer_window = TimerAlertFrame(self)
+            self.timer_window.Bind(wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "timer_window"))
+            self.timer_window.Show()
+        except Exception as exc:
+            logger.error(f"Failed to open timer alert: {exc}")
+            wx.MessageBox(f"Unable to open timer alert:\n{exc}", "Timer Alert", wx.OK | wx.ICON_ERROR)
 
-    def _normalize_window_size(self, size_data):
-        if isinstance(size_data, dict):
-            try:
-                width = int(size_data.get("width"))
-                height = int(size_data.get("height"))
-            except (TypeError, ValueError):
-                return None
-            if width > 0 and height > 0:
-                return {"width": width, "height": height}
-        return None
-
-    def _normalize_window_position(self, position_data):
-        if isinstance(position_data, (list, tuple)) and len(position_data) == 2:
-            try:
-                x = int(position_data[0])
-                y = int(position_data[1])
-            except (TypeError, ValueError):
-                return None
-            return (x, y)
-        return None
-
-    def _apply_window_preferences(self):
-        geometry = ""
-        if self.window_size:
-            width = self.window_size.get("width")
-            height = self.window_size.get("height")
-            if width and height:
-                geometry = f"{width}x{height}"
-        if self.window_position:
-            x, y = self.window_position
-            if geometry:
-                geometry = f"{geometry}+{x}+{y}"
-            else:
-                geometry = f"+{x}+{y}"
-        if geometry:
-            try:
-                self.root.geometry(geometry)
-            except tk.TclError as exc:
-                logger.debug(f"Unable to apply saved geometry '{geometry}': {exc}")
-
-    def on_window_configure(self, event):
-        if event.widget is not self.root:
+    def open_match_history(self) -> None:
+        if self._widget_exists(self.history_window):
+            self.history_window.Raise()
             return
-        if getattr(self.root, "state", lambda: "normal")() == "iconic":
-            return
-        if event.width <= 1 or event.height <= 1:
-            return
-        self.window_size = {"width": int(event.width), "height": int(event.height)}
-        self.window_position = (int(self.root.winfo_x()), int(self.root.winfo_y()))
-
-    def on_close(self):
         try:
-            if self.timer_alert_window:
-                window = getattr(self.timer_alert_window, "window", None)
-                if self._widget_exists(window):
-                    try:
-                        self.timer_alert_window.close()
-                    except Exception:
-                        window.destroy()
-                self.timer_alert_window = None
-            if self.match_history_window:
-                window = getattr(self.match_history_window, "window", None)
-                if self._widget_exists(window):
-                    try:
-                        self.match_history_window.close()
-                    except Exception:
-                        window.destroy()
-                self.match_history_window = None
-            if self.opponent_tracker_window:
-                tracker_root = getattr(self.opponent_tracker_window, "root", None)
-                if self._widget_exists(tracker_root):
-                    tracker_root.destroy()
-                self.opponent_tracker_window = None
-            self.save_config()
-        finally:
-            self.root.destroy()
+            self.history_window = MatchHistoryFrame(self)
+            self.history_window.Bind(wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "history_window"))
+            self.history_window.Show()
+        except Exception as exc:
+            logger.error(f"Failed to open match history: {exc}")
+            wx.MessageBox(f"Unable to open match history:\n{exc}", "Match History", wx.OK | wx.ICON_ERROR)
 
-    def load_selected_saved_deck(self):
-        """Load the selected saved deck (same as display, but explicit action)"""
-        selected = self.listbox.curselection()
-        if not selected:
-            messagebox.showwarning("No Selection", "Please select a deck to load")
-            return
+    def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
+        setattr(self, attr, None)
+        event.Skip()
 
-        selected = selected[0]
-        deck_doc = self.saved_decks[selected]
-        deck_content = deck_doc.get("content", "")
-        if not deck_content:
-            messagebox.showwarning("Empty Deck", "Selected deck has no content.")
-            self.display_deck_message("Selected saved deck is empty.")
-            return
-
-        self.currently_selected_deck = deck_doc
-        self.load_deck_text(deck_content)
-        self.update_deck_statistics(deck_content, deck_doc)
-
-        if self.current_mode == "builder":
-            self.builder_sync_from_text(deck_content)
-            self.builder_render_deck()
-            deck_name = deck_doc.get("name", "Saved Deck")
-            self.builder_status_var.set(f"Loaded saved deck: {deck_name}")
-
-        logger.info(f"Loaded saved deck: {deck_doc.get('name', 'Unnamed Deck')}")
-
-    def delete_selected_saved_deck(self):
-        """Delete the selected saved deck"""
-        selected = self.listbox.curselection()
-        if not selected:
-            messagebox.showwarning("No Selection", "Please select a deck to delete")
-            return
-
-        selected = selected[0]
-        deck_doc = self.saved_decks[selected]
-
-        # Confirm deletion
-        confirm = messagebox.askyesno(
-            "Confirm Delete",
-            f"Are you sure you want to delete:\n{deck_doc['name']}?\n\nThis cannot be undone."
-        )
-
-        if not confirm:
-            return
-
-        try:
-            delete_saved_deck(deck_doc['_id'])
-            messagebox.showinfo("Deck Deleted", f"Deleted: {deck_doc['name']}")
-            # Reload the list
-            self.load_saved_decks_list()
-        except Exception as e:
-            logger.error(f"Failed to delete deck: {e}", exc_info=True)
-            messagebox.showerror("Delete Error", f"Failed to delete deck:\n{str(e)}")
-
-    def save_config(self):
-        current_settings = dict(self.window_settings)
-        position = self.window_position or (self.root.winfo_x(), self.root.winfo_y())
-        size = self.window_size or {
-            "width": max(int(self.root.winfo_width()), 1),
-            "height": max(int(self.root.winfo_height()), 1),
-        }
-        try:
-            screen_pos = [int(position[0]), int(position[1])]
-        except Exception:
-            screen_pos = [self.root.winfo_x(), self.root.winfo_y()]
-        normalized_size = {
-            "width": max(int(size.get("width", self.root.winfo_width())), 1),
-            "height": max(int(size.get("height", self.root.winfo_height())), 1),
-        }
-        current_settings.update(
-            {
-                "format": self.format.get(),
-                "screen_pos": screen_pos,
-                "window_size": normalized_size,
-            }
-        )
-        try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
-                json.dump(current_settings, fh, indent=4)
-            self.window_settings = current_settings
-        except OSError as exc:
-            logger.warning(f"Failed to write deck selector settings: {exc}")
+    # ------------------------------------------------------------------ Lifecycle ------------------------------------------------------------
+    def on_close(self, event: wx.CloseEvent) -> None:
+        if self._save_timer and self._save_timer.IsRunning():
+            self._save_timer.Stop()
+        self._save_window_settings()
+        for attr in ("tracker_window", "timer_window", "history_window"):
+            window = getattr(self, attr)
+            if self._widget_exists(window):
+                window.Destroy()
+                setattr(self, attr, None)
+        if self.mana_keyboard_window and self.mana_keyboard_window.IsShown():
+            self.mana_keyboard_window.Destroy()
+            self.mana_keyboard_window = None
+        event.Skip()
 
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    root.attributes("-topmost", "true")
-    monitor = MTGDeckSelectionWidget(root)
-    root.mainloop()
+def launch_app() -> None:
+    app = wx.App(False)
+    frame = MTGDeckSelectionFrame()
+    frame.Show()
+    app.MainLoop()
+
+
+__all__ = ["MTGDeckSelectionFrame", "launch_app"]

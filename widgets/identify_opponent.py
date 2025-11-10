@@ -1,28 +1,22 @@
+"""wxPython variant of the MTGO opponent tracker overlay."""
+
+from __future__ import annotations
+
 import json
 import time
-import tkinter as tk
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
+import wx
 from loguru import logger
 
+from utils.find_opponent_names import find_opponent_names
 from utils.metagame import get_latest_deck
-from utils.mtgo_bridge import accept_pending_trades, start_watch
-from utils.mtgo_bridge_client import BridgeWatcher
 from utils.paths import (
     CONFIG_DIR,
     DECK_MONITOR_CACHE_FILE,
     DECK_MONITOR_CONFIG_FILE,
 )
-
-COLOR_SCHEME = "bisque"
-CS = [
-    COLOR_SCHEME + "1",
-    COLOR_SCHEME + "2",
-    COLOR_SCHEME + "3",
-    COLOR_SCHEME + "4",
-    COLOR_SCHEME,
-]
 
 FORMAT_OPTIONS = [
     "Modern",
@@ -32,373 +26,222 @@ FORMAT_OPTIONS = [
     "Vintage",
     "Pauper",
     "Commander",
+    "Brawl",
+    "Historic",
 ]
 
 LEGACY_DECK_MONITOR_CONFIG = Path("deck_monitor_config.json")
 LEGACY_DECK_MONITOR_CACHE = Path("deck_monitor_cache.json")
 LEGACY_DECK_MONITOR_CACHE_CONFIG = CONFIG_DIR / "deck_monitor_cache.json"
 
-
-def default_label(root, text=" ", color=CS[0]):
-    return tk.Label(
-        root,
-        text=text,
-        font=("calibri", 9, "bold"),
-        background=color,
-        foreground="black",
-        borderwidth=2,
-        justify="left",
-        relief="solid",
-        wraplength=240,
-        anchor="w",
-        padx=6,
-        pady=4,
-    )
+DARK_BG = wx.Colour(20, 22, 27)
+DARK_PANEL = wx.Colour(34, 39, 46)
+DARK_ALT = wx.Colour(40, 46, 54)
+DARK_ACCENT = wx.Colour(59, 130, 246)
+LIGHT_TEXT = wx.Colour(236, 236, 236)
+SUBDUED_TEXT = wx.Colour(185, 191, 202)
 
 
-def default_button(root, text, command, color=CS[0], font=("calibri", 9, "bold")):
-    return tk.Button(root, text=text, font=font, background=color, command=command, relief="solid", borderwidth=2)
+class MTGOpponentDeckSpy(wx.Frame):
+    """Always-on-top overlay that detects opponents from MTGO window titles."""
 
-
-def default_frame(root, name, color=CS[3]):
-    frame = tk.Frame(
-        root,
-        relief="solid",
-        padx=4,
-        pady=4,
-        background=color,
-        borderwidth=2,
-        highlightbackground=color,
-        highlightthickness=1,
-    )
-    frame_title = None
-    if name:
-        frame_title = tk.Label(
-            frame,
-            text=name,
-            font=("calibri", 9, "bold"),
-            background=CS[2],
-            foreground="black",
-            relief="solid",
-        )
-        frame_title.pack(anchor="center", expand=False, fill="both")
-    return frame, frame_title
-
-
-class MTGOpponentDeckSpy:
-    TRADE_INTERVAL_MS = 7_500
     CACHE_TTL = 60 * 30  # 30 minutes
+    POLL_INTERVAL_MS = 2000  # Check for opponent every 2 seconds
 
-    def __init__(self, master: tk.Misc | None = None):
-        if master is None:
-            self.root = tk.Tk()
-        else:
-            self.root = tk.Toplevel(master)
-            self.root.transient(master)
-
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
-        self.root.config(
-            background=CS[3],
-            relief="solid",
-            highlightbackground=CS[3],
-            highlightthickness=1,
-            width=280,
-            height=160,
+    def __init__(self, parent: Optional[wx.Window] = None) -> None:
+        style = (
+            wx.CAPTION
+            | wx.CLOSE_BOX
+            | wx.STAY_ON_TOP
+            | wx.FRAME_FLOAT_ON_PARENT
+            | wx.MINIMIZE_BOX
         )
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
+        super().__init__(parent, title="MTGO Opponent Tracker", size=(360, 180), style=style)
 
-        self.username_var = tk.StringVar()
-        self.auto_accept_var = tk.BooleanVar(value=False)
-        self.format = tk.StringVar(value=FORMAT_OPTIONS[0])
+        self._poll_timer = wx.Timer(self)
 
         self.cache: Dict[str, Dict[str, Any]] = {}
-        self.player_name = ""
-        self.last_seen_deck = ""
-        self.last_event_description = ""
-        self.last_snapshot: dict[str, Any] | None = None
-        self._watcher: BridgeWatcher | None = None
-        self.watch_poll_interval_ms = 750
+        self.player_name: str = ""
+        self.last_seen_decks: Dict[str, str] = {}  # format -> deck name
 
-        self.ui_make_components()
-        self.load_cache()
-        self.load_config()
+        self._saved_position: Optional[list[int]] = None
 
-        self._start_watch_loop()
-        self.schedule_trade_poll()
+        self._load_cache()
+        self._load_config()
 
-    # ------------------------------------------------------------------ UI helpers
-    def ui_make_components(self):
-        self.frame_top, _ = default_frame(self.root, "Current Opponent", color=CS[1])
-        self.frame_bottom, _ = default_frame(self.root, "Settings", color=CS[3])
+        self._build_ui()
+        self._apply_window_preferences()
 
-        self.event_label = default_label(self.frame_top, "No event detected", color=CS[0])
-        self.opponent_deck_label = default_label(self.frame_top, "No opponent detected", color=CS[0])
-        self.status_label = default_label(self.frame_top, "Waiting for MTGO data…", color=CS[0])
+        self.Bind(wx.EVT_TIMER, self._on_poll_tick, self._poll_timer)
+        self.Bind(wx.EVT_CLOSE, self.on_close)
 
-        # username + format row
-        row_user = tk.Frame(self.frame_bottom, background=CS[2])
-        tk.Label(row_user, text="Your MTGO name:", font=("calibri", 9, "bold"), background=CS[2]).pack(
-            anchor="w", side=tk.LEFT
-        )
-        username_entry = tk.Entry(row_user, textvariable=self.username_var, font=("calibri", 9))
-        username_entry.bind("<FocusOut>", lambda *_: self.save_config())
-        username_entry.pack(anchor="e", side=tk.RIGHT, fill="x", expand=True)
+        wx.CallAfter(self._start_polling)
 
-        row_format = tk.Frame(self.frame_bottom, background=CS[2])
-        tk.Label(row_format, text="Format:", font=("calibri", 9, "bold"), background=CS[2]).pack(
-            anchor="w", side=tk.LEFT
-        )
-        format_menu = tk.OptionMenu(row_format, self.format, *FORMAT_OPTIONS)
-        format_menu.config(
-            font=("calibri", 9, "bold"),
-            background=CS[2],
-            relief="solid",
-            borderwidth=2,
-            fg="black",
-            activebackground=CS[3],
-            activeforeground="black",
-            highlightbackground=CS[3],
-        )
-        format_menu["menu"].config(font=("calibri", 9, "bold"), background=CS[2], activebackground=CS[3])
+    # ------------------------------------------------------------------ UI ------------------------------------------------------------------
+    def _build_ui(self) -> None:
+        self.SetBackgroundColour(DARK_BG)
 
-        controls_row = tk.Frame(self.frame_bottom, background=CS[2])
-        self.auto_accept_checkbox = tk.Checkbutton(
-            controls_row,
-            text="Auto-accept trades",
-            variable=self.auto_accept_var,
-            font=("calibri", 9, "bold"),
-            background=CS[2],
-            command=self.save_config,
-            selectcolor=CS[1],
-        )
-        self.refresh_button = default_button(
-            controls_row,
-            "Refresh now",
-            self.manual_refresh,
-            color=CS[2],
-        )
-        self.hide_widget_button = default_button(
-            controls_row,
-            "Hide",
-            self.hide_bottom_frame,
-            color=CS[2],
-        )
+        panel = wx.Panel(self)
+        panel.SetBackgroundColour(DARK_BG)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(sizer)
 
-        self.drag_handle = tk.Label(
-            self.frame_bottom,
-            text="Click and drag to move • Right-click to close",
-            font=("calibri", 8, "bold"),
-            background=CS[2],
-            foreground="black",
-            borderwidth=1,
-            relief="solid",
-        )
+        self.deck_label = wx.StaticText(panel, label="Opponent not detected")
+        self._stylize_label(self.deck_label)
+        self.deck_label.Wrap(320)
+        sizer.Add(self.deck_label, 0, wx.ALL | wx.EXPAND, 6)
 
-        # Layout
-        self.event_label.pack(anchor="center", fill="both", expand=True, padx=2, pady=2)
-        self.opponent_deck_label.pack(anchor="center", fill="both", expand=True, padx=2, pady=2)
-        self.status_label.pack(anchor="center", fill="both", expand=True, padx=2, pady=2)
+        self.status_label = wx.StaticText(panel, label="Watching for MTGO match windows…")
+        self._stylize_label(self.status_label, subtle=True)
+        self.status_label.Wrap(320)
+        sizer.Add(self.status_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 6)
 
-        row_user.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
-        row_format.pack(anchor="center", fill="x", expand=True, padx=2, pady=2)
+        divider = wx.StaticLine(panel)
+        sizer.Add(divider, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 6)
 
-        controls_row.pack(anchor="center", fill="x", expand=True, padx=2, pady=4)
-        self.auto_accept_checkbox.pack(anchor="w", side=tk.LEFT)
-        self.refresh_button.pack(anchor="center", side=tk.RIGHT, padx=2)
-        self.hide_widget_button.pack(anchor="center", side=tk.RIGHT, padx=2)
+        controls = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(controls, 0, wx.ALL | wx.EXPAND, 6)
 
-        self.drag_handle.pack(anchor="center", fill="x", expand=False, padx=2, pady=2)
+        controls.AddStretchSpacer(1)
 
-        self.frame_top.pack(anchor="center", fill="both", side=tk.TOP, expand=True)
-        self.frame_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
+        refresh_button = wx.Button(panel, label="Refresh")
+        self._stylize_secondary_button(refresh_button)
+        refresh_button.Bind(wx.EVT_BUTTON, lambda _evt: self._manual_refresh(force=True))
+        controls.Add(refresh_button, 0, wx.RIGHT, 6)
 
-        self.drag_handle.bind("<ButtonPress-1>", self.start_move)
-        self.drag_handle.bind("<ButtonRelease-1>", self.stop_move)
-        self.drag_handle.bind("<B1-Motion>", self.do_move)
-        self.drag_handle.bind("<ButtonPress-3>", lambda _: self.close())
-        self.root.bind("<Enter>", self.show_bottom_frame)
+        close_button = wx.Button(panel, label="Close")
+        self._stylize_secondary_button(close_button)
+        close_button.Bind(wx.EVT_BUTTON, lambda _evt: self.Close())
+        controls.Add(close_button, 0)
 
-    # ------------------------------------------------------------------ Window controls
-    def hide_bottom_frame(self):
-        self.frame_bottom.forget()
+        sizer.AddSpacer(4)
 
-    def show_bottom_frame(self, _):
-        self.frame_bottom.pack(anchor="center", fill="x", side=tk.BOTTOM, expand=False)
+    def _stylize_label(self, label: wx.StaticText, *, bold: bool = False, subtle: bool = False) -> None:
+        label.SetForegroundColour(SUBDUED_TEXT if subtle else LIGHT_TEXT)
+        label.SetBackgroundColour(DARK_BG)
+        font = label.GetFont()
+        if bold:
+            font.MakeBold()
+            font.SetPointSize(font.GetPointSize() + 1)
+        label.SetFont(font)
 
-    def start_move(self, event):
-        self.hide_bottom_frame()
-        self.root.x = event.x
-        self.root.y = event.y
+    def _stylize_secondary_button(self, button: wx.Button) -> None:
+        button.SetBackgroundColour(DARK_PANEL)
+        button.SetForegroundColour(LIGHT_TEXT)
+        font = button.GetFont()
+        font.MakeBold()
+        button.SetFont(font)
 
-    def stop_move(self, _):
-        self.root.x = None
-        self.root.y = None
-        self.save_config()
-
-    def do_move(self, event):
-        if getattr(self.root, "x", None) is None:
-            return
-        deltax = event.x - self.root.x
-        deltay = event.y - self.root.y
-        x = self.root.winfo_x() + deltax
-        y = self.root.winfo_y() + deltay
-        self.root.geometry(f"+{x}+{y}")
-
-    # ------------------------------------------------------------------ Bridge polling
-    def _start_watch_loop(self) -> None:
-        try:
-            self._watcher = start_watch(interval_ms=self.watch_poll_interval_ms)
-            self.status_label.config(text="Watching MTGO state…")
-        except FileNotFoundError as exc:
-            logger.error("Bridge executable not found: %s", exc)
-            self.status_label.config(text="Bridge missing. Build the MTGO bridge executable.")
-            self.root.after(5000, self._start_watch_loop)
-            return
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Failed to start bridge watcher")
-            self.status_label.config(text=f"Bridge error: {exc}")
-            self.root.after(5000, self._start_watch_loop)
-            return
-
-        self._poll_watch_queue()
-
-    def _poll_watch_queue(self) -> None:
-        if not self.root or not self.root.winfo_exists():
-            return
-        if self._watcher:
-            payload = self._watcher.latest()
-            if payload:
-                self.handle_watch_snapshot(payload)
-        self.root.after(self.watch_poll_interval_ms, self._poll_watch_queue)
-
-    def manual_refresh(self) -> None:
+    # ------------------------------------------------------------------ Event handlers -------------------------------------------------------
+    def _manual_refresh(self, force: bool = False) -> None:
         if self.player_name:
             self.cache.pop(self.player_name, None)
-        if self.last_snapshot:
-            self.handle_watch_snapshot(self.last_snapshot, force=True)
+            self._check_for_opponent()
 
-    def handle_watch_snapshot(self, snapshot: dict[str, Any], force: bool = False) -> None:
-        self.last_snapshot = snapshot
+    # ------------------------------------------------------------------ Opponent detection ---------------------------------------------------
+    def _start_polling(self) -> None:
+        self.status_label.SetLabel("Watching for MTGO match windows…")
+        self._poll_timer.Start(self.POLL_INTERVAL_MS)
+        self._check_for_opponent()
 
-        error = snapshot.get("error")
-        if error:
-            self.status_label.config(text=f"Bridge error: {error}")
-            self.event_label.config(text="No active matches detected")
+    def _on_poll_tick(self, _event: wx.TimerEvent) -> None:
+        self._check_for_opponent()
+
+    def _check_for_opponent(self) -> None:
+        try:
+            opponents = find_opponent_names()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Failed to detect opponent from window titles: {exc}")
+            self.status_label.SetLabel("Waiting for MTGO match window…")
             self.player_name = ""
-            self.last_seen_deck = ""
-            self.refresh_labels()
+            self.last_seen_decks = {}
+            self._refresh_opponent_display()
             return
 
-        challenge_text = "No active matches detected"
-        timers = snapshot.get("challengeTimers") or []
-        if timers:
-            timer = timers[0]
-            desc = timer.get("description") or timer.get("format") or timer.get("eventId")
-            remaining = timer.get("remainingSeconds")
-            if desc and remaining is not None:
-                challenge_text = f"{desc} • {int(remaining)}s remaining"
-            elif desc:
-                challenge_text = desc
-        self.last_event_description = challenge_text
-        self.event_label.config(text=challenge_text)
-
-        active = snapshot.get("activeMatch") or {}
-        players = active.get("players") or []
-        if not players:
+        if not opponents:
+            self.status_label.SetLabel("No active match detected")
             self.player_name = ""
-            self.last_seen_deck = ""
-            self.status_label.config(text="Waiting for MTGO game to start…")
-            self.refresh_labels()
+            self.last_seen_decks = {}
+            self._refresh_opponent_display()
             return
 
-        username = self.username_var.get().strip() or None
-        self_player = next((p for p in players if p.get("isSelf")), None)
-        if not self_player and username:
-            lower = username.lower()
-            self_player = next(
-                (p for p in players if (p.get("name") or "").lower() == lower),
-                None,
-            )
-        if not self_player and players:
-            self_player = players[0]
-            self.username_var.set(self_player.get("name", ""))
+        # Take the first opponent found
+        opponent_name = opponents[0]
 
-        opponents = [p for p in players if p is not self_player]
-        opponent = opponents[0] if opponents else None
+        # Only lookup decks if opponent changed
+        if opponent_name != self.player_name:
+            self.player_name = opponent_name
+            self.last_seen_decks = self._lookup_decks_all_formats(self.player_name, force=False)
 
-        if opponent is None:
-            self.player_name = ""
-            self.last_seen_deck = ""
-            self.status_label.config(text="No opponent detected yet.")
-            self.refresh_labels()
-            return
+        self.status_label.SetLabel(f"Match detected: vs {self.player_name}")
+        self.status_label.Wrap(320)
+        self._refresh_opponent_display()
 
-        self.player_name = opponent.get("name", "Unknown opponent")
-        deck = self._lookup_deck(self.player_name, force=force)
-        self.last_seen_deck = deck
-
-        clock_desc = self._describe_clock(opponent)
-        self.status_label.config(text=f"{self.player_name} • Clock: {clock_desc}")
-        self.refresh_labels()
-
-    def _lookup_deck(self, opponent_name: str, force: bool = False) -> str:
+    def _lookup_decks_all_formats(self, opponent_name: str, *, force: bool = False) -> Dict[str, str]:
+        """Lookup opponent's recent decks across all formats."""
         cached = self.cache.get(opponent_name)
         now = time.time()
+
+        # Check if we have valid cached data
         if not force and cached and now - cached.get("ts", 0) < self.CACHE_TTL:
-            return cached.get("deck", "")
+            return cached.get("decks", {})
 
-        deck = get_latest_deck(opponent_name, self.format)
-        self.cache[opponent_name] = {"deck": deck, "ts": now}
-        self.save_cache()
-        return deck
-
-    def _describe_clock(self, player: dict[str, Any]) -> str:
-        seconds = int(player.get("clockSeconds") or 0)
-        minutes, secs = divmod(max(0, seconds), 60)
-        return f"{minutes:02d}:{secs:02d}"
-
-    def refresh_labels(self):
-        if self.player_name and self.last_seen_deck:
-            self.opponent_deck_label.config(text=f"{self.player_name}: {self.last_seen_deck}")
-        elif self.player_name:
-            self.opponent_deck_label.config(text=f"{self.player_name}: deck not found")
-        else:
-            self.opponent_deck_label.config(text="Opponent not detected")
-        self.opponent_deck_label.update()
-
-    # ------------------------------------------------------------------ Trade automation
-    def schedule_trade_poll(self):
-        self.root.after(self.TRADE_INTERVAL_MS, self.poll_trades)
-
-    def poll_trades(self):
-        if self.auto_accept_var.get():
+        # Search across all formats
+        decks = {}
+        for fmt in FORMAT_OPTIONS:
             try:
-                result = accept_pending_trades()
-                if result.get("accepted"):
-                    partner = result.get("partner") or "Unknown"
-                    logger.info(f"Accepted pending trade from {partner}")
-                    self.status_label.config(text=f"Accepted trade from {partner}")
+                deck = get_latest_deck(opponent_name, fmt)
+                if deck:  # Only include if deck was found
+                    decks[fmt] = deck
             except Exception as exc:  # noqa: BLE001
-                logger.debug(f"Auto-accept trade failed: {exc}")
-        self.schedule_trade_poll()
+                logger.debug(f"Failed to lookup {fmt} deck for {opponent_name}: {exc}")
+                continue
 
-    # ------------------------------------------------------------------ Persistence
-    def save_config(self):
+        # Cache the results
+        self.cache[opponent_name] = {"decks": decks, "ts": now}
+        self._save_cache()
+        return decks
+
+    def _refresh_opponent_display(self) -> None:
+        if not self.player_name:
+            text = "Opponent not detected"
+        elif not self.last_seen_decks:
+            text = f"{self.player_name}: no recent decks found"
+        elif len(self.last_seen_decks) == 1:
+            # Single format found
+            fmt, deck = next(iter(self.last_seen_decks.items()))
+            text = f"{self.player_name}: {deck} ({fmt})"
+        else:
+            # Multiple formats found - list all
+            lines = [f"{self.player_name}:"]
+            for fmt, deck in sorted(self.last_seen_decks.items()):
+                lines.append(f"  • {fmt}: {deck}")
+            text = "\n".join(lines)
+
+        self.deck_label.SetLabel(text)
+        self.deck_label.Wrap(320)
+
+    # ------------------------------------------------------------------ Persistence -----------------------------------------------------------
+    def _persist_config_async(self) -> None:
+        wx.CallLater(200, self._save_config)
+
+    def _save_config(self) -> None:
+        try:
+            position = list(self.GetPosition())
+        except RuntimeError:
+            return
+
         config = {
-            "format": self.format.get(),
-            "screen_pos": (self.root.winfo_x(), self.root.winfo_y()),
-            "mtgo_username": self.username_var.get().strip(),
-            "auto_accept_trades": self.auto_accept_var.get(),
+            "screen_pos": position,
         }
         try:
             DECK_MONITOR_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as f:
-                json.dump(config, f, indent=4)
+            with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as fh:
+                json.dump(config, fh, indent=4)
         except OSError as exc:
             logger.warning(f"Failed to write deck monitor config: {exc}")
 
-    def load_config(self):
+    def _load_config(self) -> None:
         source_file = DECK_MONITOR_CONFIG_FILE
         legacy_source = False
         if not source_file.exists() and LEGACY_DECK_MONITOR_CONFIG.exists():
@@ -406,83 +249,86 @@ class MTGOpponentDeckSpy:
             legacy_source = True
             logger.warning("Loaded legacy deck_monitor_config.json; migrating to config/")
 
-        if source_file.exists():
+        if not source_file.exists():
+            return
+
+        try:
+            with source_file.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except json.JSONDecodeError as exc:
+            logger.warning(f"Invalid deck monitor config: {exc}")
+            return
+
+        if legacy_source:
             try:
-                with source_file.open("r", encoding="utf-8") as f:
-                    config = json.load(f)
-                fmt = config.get("format")
-                if fmt in FORMAT_OPTIONS:
-                    self.format.set(fmt)
-                self.username_var.set(config.get("mtgo_username", ""))
-                self.auto_accept_var.set(config.get("auto_accept_trades", False))
+                DECK_MONITOR_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+                with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as fh:
+                    json.dump(data, fh, indent=4)
+            except OSError as exc:
+                logger.warning(f"Failed to migrate deck monitor config: {exc}")
+        self._saved_position = data.get("screen_pos")
 
-                screen_pos = config.get("screen_pos")
-                if screen_pos:
-                    self.root.geometry(f"+{screen_pos[0]}+{screen_pos[1]}")
-                self.root.update()
-
-                if legacy_source:
-                    try:
-                        with DECK_MONITOR_CONFIG_FILE.open("w", encoding="utf-8") as target:
-                            json.dump(config, target, indent=4)
-                        if source_file != DECK_MONITOR_CONFIG_FILE:
-                            source_file.unlink(missing_ok=True)
-                    except OSError as exc:
-                        logger.warning(f"Failed to migrate deck monitor config: {exc}")
-                return
-            except (json.JSONDecodeError, OSError) as exc:
-                logger.warning(f"Invalid config JSON, using defaults: {exc}")
-
-    def save_cache(self):
+    def _save_cache(self) -> None:
+        payload = {"entries": self.cache}
         try:
             DECK_MONITOR_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with DECK_MONITOR_CACHE_FILE.open("w", encoding="utf-8") as f:
-                json.dump(self.cache, f, indent=4)
+            with DECK_MONITOR_CACHE_FILE.open("w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
         except OSError as exc:
-            logger.warning(f"Failed to write deck monitor cache: {exc}")
+            logger.debug(f"Unable to write deck monitor cache: {exc}")
 
-    def load_cache(self):
-        source_file = DECK_MONITOR_CACHE_FILE
-        legacy_source = False
-        if not source_file.exists() and LEGACY_DECK_MONITOR_CACHE_CONFIG.exists():
-            source_file = LEGACY_DECK_MONITOR_CACHE_CONFIG
-            legacy_source = True
-            logger.warning("Loaded legacy deck_monitor_cache.json from config/; migrating to cache/")
-        if not source_file.exists() and LEGACY_DECK_MONITOR_CACHE.exists():
-            source_file = LEGACY_DECK_MONITOR_CACHE
-            legacy_source = True
-            logger.warning("Loaded legacy deck_monitor_cache.json from project root; migrating to cache/")
-
-        if source_file.exists():
+    def _load_cache(self) -> None:
+        candidates = [
+            DECK_MONITOR_CACHE_FILE,
+            LEGACY_DECK_MONITOR_CACHE_CONFIG,
+            LEGACY_DECK_MONITOR_CACHE,
+        ]
+        for candidate in candidates:
+            if not candidate.exists():
+                continue
             try:
-                with source_file.open("r", encoding="utf-8") as f:
-                    self.cache = json.load(f)
-                if legacy_source:
-                    try:
-                        DECK_MONITOR_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-                        with DECK_MONITOR_CACHE_FILE.open("w", encoding="utf-8") as target:
-                            json.dump(self.cache, target, indent=4)
-                        if source_file != DECK_MONITOR_CACHE_FILE:
-                            source_file.unlink(missing_ok=True)
-                    except OSError as exc:
-                        logger.warning(f"Failed to migrate deck monitor cache: {exc}")
-                return
-            except (json.JSONDecodeError, OSError) as exc:
-                logger.warning(f"Invalid cache JSON, resetting: {exc}")
-        self.cache = {}
+                with candidate.open("r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except json.JSONDecodeError:
+                logger.debug(f"Skipping invalid cache file {candidate}")
+                continue
+            entries = data.get("entries") if isinstance(data, dict) else None
+            if isinstance(entries, dict):
+                self.cache = entries
+            if candidate != DECK_MONITOR_CACHE_FILE:
+                self._save_cache()
+                try:
+                    candidate.unlink()
+                except OSError:
+                    logger.debug(f"Unable to remove legacy cache {candidate}")
+            break
 
-    # ------------------------------------------------------------------ teardown
-    def close(self):
-        if self._watcher:
+    def _apply_window_preferences(self) -> None:
+        self.SetBackgroundColour(DARK_BG)
+        if getattr(self, "_saved_position", None):
             try:
-                self._watcher.stop()
-            except Exception:
-                logger.debug("Failed to stop bridge watcher cleanly", exc_info=True)
-            self._watcher = None
-        if self.root:
-            self.root.destroy()
+                x, y = self._saved_position
+                self.SetPosition(wx.Point(int(x), int(y)))
+            except (TypeError, ValueError, RuntimeError):
+                logger.debug("Ignoring invalid saved window position")
+
+    def _is_widget_ok(self, widget: wx.Window) -> bool:
+        """Check if a widget is still valid and not destroyed."""
+        if widget is None:
+            return False
+        try:
+            # Try to access a basic property to verify widget is still valid
+            _ = widget.GetId()
+            return True
+        except (RuntimeError, AttributeError):
+            return False
+
+    # ------------------------------------------------------------------ Lifecycle -------------------------------------------------------------
+    def on_close(self, event: wx.CloseEvent) -> None:
+        self._save_config()
+        if self._poll_timer.IsRunning():
+            self._poll_timer.Stop()
+        event.Skip()
 
 
-if __name__ == "__main__":
-    monitor = MTGOpponentDeckSpy()
-    monitor.root.mainloop()
+__all__ = ["MTGOpponentDeckSpy"]
