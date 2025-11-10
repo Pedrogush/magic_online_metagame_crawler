@@ -273,8 +273,18 @@ def pump_ui_events(app: wx.App, *, iterations: int = 5) -> None:
             while pending():
                 app.Dispatch()
         else:
-            while wx.Pending():
-                app.Dispatch()
+            loop_pending = getattr(app, "ProcessPendingEvents", None)
+            if loop_pending:
+                while loop_pending():
+                    time_module.sleep(0)
+            else:
+                # Fall back to the older Pending/Dispatch loop if available
+                pending_func = getattr(wx, "Pending", None)
+                if pending_func:
+                    while pending_func():
+                        app.Dispatch()
+                else:
+                    app.Yield()
         time_module.sleep(0)
 
 

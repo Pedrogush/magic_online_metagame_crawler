@@ -36,7 +36,7 @@ from utils.card_images import (
 )
 
 
-def test_metadata_download():
+def run_metadata_download():
     """Test downloading bulk metadata."""
     print("=" * 60)
     print("Testing Bulk Metadata Download")
@@ -57,7 +57,7 @@ def test_metadata_download():
     return success
 
 
-def test_image_download(size: str = "normal", max_cards: int = 100):
+def run_image_download(size: str = "normal", max_cards: int = 100):
     """Test downloading a limited number of images."""
     print("=" * 60)
     print(f"Testing Image Download ({max_cards} cards, {size} size)")
@@ -187,12 +187,12 @@ def main():
         if args.stats:
             show_stats()
         elif args.metadata_only:
-            test_metadata_download()
+            run_metadata_download()
         elif args.test:
             # Download metadata first
-            test_metadata_download()
+            run_metadata_download()
             # Then download 100 images
-            test_image_download(size=args.size, max_cards=100)
+            run_image_download(size=args.size, max_cards=100)
             # Show stats
             show_stats()
         elif args.full:
@@ -215,7 +215,7 @@ def main():
             if not success:
                 print(f"Failed to download metadata: {msg}")
                 return 1
-            test_image_download(size=args.size, max_cards=args.max_cards)
+            run_image_download(size=args.size, max_cards=args.max_cards)
             show_stats()
         else:
             parser.print_help()

@@ -12,7 +12,7 @@ import wx  # noqa: E402
 from widgets.card_image_display import CardImageDisplay
 
 
-class TestFrame(wx.Frame):
+class CardDisplayDemoFrame(wx.Frame):
     def __init__(self):
         super().__init__(None, title="Card Image Display Test", size=(400, 600))
 
@@ -64,6 +64,6 @@ class TestFrame(wx.Frame):
 
 if __name__ == "__main__":
     app = wx.App(False)
-    frame = TestFrame()
+    frame = CardDisplayDemoFrame()
     frame.Show()
     app.MainLoop()
