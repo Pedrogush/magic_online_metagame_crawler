@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from utils.metagame_stats import (
     _filter_decks,
@@ -22,23 +23,24 @@ def _deck(publish_offset_days: int, fmt: str, archetype: str, player: str, event
     }
 
 
-SAMPLE_DECKS = [
-    _deck(1, "Modern", "Temur Rhinos", "Alice", "Modern Challenge 64"),
-    _deck(2, "Modern", "Temur Rhinos", "Bob", "Modern Challenge 64"),
-    _deck(3, "Modern", "Amulet Titan", "Charlie", "Modern Challenge 32"),
-    _deck(4, "Modern", "Modern Challenge 32", "Dana", "Modern Challenge 32"),
-    _deck(5, "Pioneer", "Rakdos Midrange", "Evan", "Pioneer Challenge"),
-]
+def sample_decks() -> list[dict[str, Any]]:
+    return [
+        _deck(1, "Modern", "Temur Rhinos", "Alice", "Modern Challenge 64"),
+        _deck(2, "Modern", "Temur Rhinos", "Bob", "Modern Challenge 64"),
+        _deck(3, "Modern", "Amulet Titan", "Charlie", "Modern Challenge 32"),
+        _deck(4, "Modern", "Modern Challenge 32", "Dana", "Modern Challenge 32"),
+        _deck(5, "Pioneer", "Rakdos Midrange", "Evan", "Pioneer Challenge"),
+    ]
 
 
 def test_filter_decks_respects_format_and_days():
-    filtered = _filter_decks(SAMPLE_DECKS, fmt="Modern", days=3)
+    filtered = _filter_decks(sample_decks(), fmt="Modern", days=3)
     assert len(filtered) == 3  # only modern decks within 3 days
     assert all(d["format"].lower() == "modern" for d in filtered)
 
 
 def test_count_functions_group_expected_fields():
-    modern_decks = _filter_decks(SAMPLE_DECKS, fmt="Modern", days=7)
+    modern_decks = _filter_decks(sample_decks(), fmt="Modern", days=7)
     archetypes = count_decks_by_archetype(modern_decks, fmt="Modern", days=7)
     assert archetypes[0] == ("Temur Rhinos", 2)
 
