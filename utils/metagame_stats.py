@@ -299,6 +299,102 @@ def _convert_cards(cards: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return converted
 
 
+def aggregate_archetypes_by_day(
+    decks: Iterable[dict[str, Any]],
+    fmt: str | None = None,
+    days: int | None = None,
+) -> dict[str, dict[str, int]]:
+    """Aggregate decks by archetype for each day in the window.
+
+    Returns a dict mapping date string to archetype counts for that day.
+    """
+    filtered = _filter_decks(decks, fmt=fmt, days=days)
+    result: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for deck in filtered:
+        publish_date = _parse_iso(deck.get("publish_date"))
+        if not publish_date:
+            continue
+        date_key = publish_date.date().isoformat()
+        archetype = deck.get("archetype") or deck.get("deck_name") or "Unknown"
+        result[date_key][archetype] += 1
+
+    return dict(result)
+
+
+def calculate_metagame_percentages(
+    archetype_counts: dict[str, int],
+) -> dict[str, float]:
+    """Calculate percentage share for each archetype.
+
+    Args:
+        archetype_counts: Dict mapping archetype name to count
+
+    Returns:
+        Dict mapping archetype name to percentage (0-100)
+    """
+    total = sum(archetype_counts.values())
+    if total == 0:
+        return {}
+
+    return {
+        archetype: (count / total) * 100
+        for archetype, count in archetype_counts.items()
+    }
+
+
+def calculate_metagame_changes(
+    current_period: dict[str, int],
+    previous_period: dict[str, int],
+) -> dict[str, float]:
+    """Calculate percentage point changes between two time periods.
+
+    Args:
+        current_period: Archetype counts for current period
+        previous_period: Archetype counts for previous period
+
+    Returns:
+        Dict mapping archetype to percentage point change
+    """
+    current_pct = calculate_metagame_percentages(current_period)
+    previous_pct = calculate_metagame_percentages(previous_period)
+
+    all_archetypes = set(current_pct.keys()) | set(previous_pct.keys())
+    changes = {}
+
+    for archetype in all_archetypes:
+        current = current_pct.get(archetype, 0.0)
+        previous = previous_pct.get(archetype, 0.0)
+        changes[archetype] = current - previous
+
+    return changes
+
+
+def aggregate_archetypes_for_window(
+    decks: Iterable[dict[str, Any]],
+    fmt: str | None = None,
+    days: int = 1,
+) -> dict[str, int]:
+    """Aggregate archetype counts for a time window.
+
+    Args:
+        decks: List of deck dictionaries
+        fmt: Format filter (e.g., "Modern", "Standard")
+        days: Number of days to look back
+
+    Returns:
+        Dict mapping archetype name to count
+    """
+    filtered = _filter_decks(decks, fmt=fmt, days=days)
+    counter = Counter()
+
+    for deck in filtered:
+        archetype = deck.get("archetype") or deck.get("deck_name") or "Unknown"
+        counter[archetype] += 1
+
+    return dict(counter)
+
+
 __all__ = [
     "update_mtgo_deck_cache",
     "load_aggregated_decks",
@@ -306,4 +402,8 @@ __all__ = [
     "count_decks_by_player",
     "count_decks_by_event",
     "summarize_meta_share",
+    "aggregate_archetypes_by_day",
+    "calculate_metagame_percentages",
+    "calculate_metagame_changes",
+    "aggregate_archetypes_for_window",
 ]

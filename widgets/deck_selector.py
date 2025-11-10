@@ -33,6 +33,7 @@ from utils.paths import (
 from widgets.card_image_display import CardImageDisplay
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.match_history import MatchHistoryFrame
+from widgets.metagame_analysis import MetagameAnalysisFrame
 from widgets.timer_alert import TimerAlertFrame
 
 FORMAT_OPTIONS = [
@@ -904,6 +905,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.tracker_window: Optional[MTGOpponentDeckSpy] = None
         self.timer_window: Optional[TimerAlertFrame] = None
         self.history_window: Optional[MatchHistoryFrame] = None
+        self.metagame_window: Optional[MetagameAnalysisFrame] = None
         self.mana_keyboard_window: Optional[ManaKeyboardFrame] = None
 
         self._build_ui()
@@ -962,6 +964,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         history_btn = wx.Button(right_panel, label="Match History")
         history_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_match_history())
         toolbar.Add(history_btn, 0, wx.RIGHT, 6)
+        metagame_btn = wx.Button(right_panel, label="Metagame Analysis")
+        metagame_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_metagame_analysis())
+        toolbar.Add(metagame_btn, 0, wx.RIGHT, 6)
         reload_collection_btn = wx.Button(right_panel, label="Load Collection")
         reload_collection_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._refresh_collection_inventory(force=True))
         toolbar.Add(reload_collection_btn, 0, wx.RIGHT, 6)
@@ -3220,6 +3225,18 @@ class MTGDeckSelectionFrame(wx.Frame):
         except Exception as exc:
             logger.error(f"Failed to open match history: {exc}")
             wx.MessageBox(f"Unable to open match history:\n{exc}", "Match History", wx.OK | wx.ICON_ERROR)
+
+    def open_metagame_analysis(self) -> None:
+        if self._widget_exists(self.metagame_window):
+            self.metagame_window.Raise()
+            return
+        try:
+            self.metagame_window = MetagameAnalysisFrame(self)
+            self.metagame_window.Bind(wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "metagame_window"))
+            self.metagame_window.Show()
+        except Exception as exc:
+            logger.error(f"Failed to open metagame analysis: {exc}")
+            wx.MessageBox(f"Unable to open metagame analysis:\n{exc}", "Metagame Analysis", wx.OK | wx.ICON_ERROR)
 
     def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
         setattr(self, attr, None)
