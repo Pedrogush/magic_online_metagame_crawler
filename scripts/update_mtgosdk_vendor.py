@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 
 import requests
+from defusedxml.ElementTree import parse as safe_et_parse
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR_ROOT = ROOT / "vendor" / "mtgosdk"
@@ -84,11 +85,7 @@ def update_sources_json(version: str, commit: str | None) -> None:
 
 
 def resolve_commit(nuspec_path: Path) -> str | None:
-    try:
-        import xml.etree.ElementTree as ET
-    except ImportError:
-        return None
-    root = ET.parse(nuspec_path).getroot()
+    root = safe_et_parse(nuspec_path).getroot()
     namespace = {"ns": root.tag.split("}")[0].strip("{")}
     repo = root.find("ns:metadata/ns:repository", namespace)
     if repo is None:
