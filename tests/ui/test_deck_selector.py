@@ -1,11 +1,13 @@
 import pytest
 import wx
 
-from tests.ui.conftest import deck_selector_factory, prepare_card_manager, pump_ui_events
+from tests.ui.conftest import prepare_card_manager, pump_ui_events
 
 
 @pytest.mark.usefixtures("wx_app")
-def test_deck_selector_loads_archetypes_and_mainboard_stats():
+def test_deck_selector_loads_archetypes_and_mainboard_stats(
+    deck_selector_factory,
+):
     frame = deck_selector_factory()
     try:
         frame.fetch_archetypes()
@@ -31,7 +33,9 @@ def test_deck_selector_loads_archetypes_and_mainboard_stats():
 
 
 @pytest.mark.usefixtures("wx_app")
-def test_builder_search_populates_results():
+def test_builder_search_populates_results(
+    deck_selector_factory,
+):
     frame = deck_selector_factory()
     try:
         prepare_card_manager(frame)
@@ -48,7 +52,9 @@ def test_builder_search_populates_results():
 
 
 @pytest.mark.usefixtures("wx_app")
-def test_notes_persist_across_frames():
+def test_notes_persist_across_frames(
+    deck_selector_factory,
+):
     first_frame = deck_selector_factory()
     try:
         first_frame.current_deck = {"href": "manual", "name": "Manual Deck"}
