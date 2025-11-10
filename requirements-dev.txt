@@ -6,3 +6,4 @@ loguru>=0.7.0
 wxPython>=4.2.0; platform_system == "Windows"
 beautifulsoup4>=4.14.0
 curl-cffi>=0.13.0
+pymongo>=4.0.0
