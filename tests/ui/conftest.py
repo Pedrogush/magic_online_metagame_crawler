@@ -268,8 +268,13 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def pump_ui_events(app: wx.App, *, iterations: int = 5) -> None:
     """Process pending wx events so CallAfter handlers run during tests."""
     for _ in range(iterations):
-        while app.Pending():
-            app.Dispatch()
+        pending = getattr(app, "Pending", None)
+        if pending:
+            while pending():
+                app.Dispatch()
+        else:
+            while wx.Pending():
+                app.Dispatch()
         time_module.sleep(0)
 
 
