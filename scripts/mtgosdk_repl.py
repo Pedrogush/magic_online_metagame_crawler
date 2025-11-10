@@ -1,6 +1,7 @@
 """Inspect pythonnet coreclr bootstrap state."""
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 try:
@@ -10,8 +11,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 pythonnet.load("coreclr")
 
-import clr  # type: ignore
-from System import AppDomain  # type: ignore
+clr = importlib.import_module("clr")  # type: ignore
+AppDomain = importlib.import_module("System").AppDomain  # type: ignore
 
 
 def _candidate_dirs() -> list[Path]:
@@ -64,8 +65,6 @@ for _dll in ("MTGOSDK.Win32.dll", "MTGOSDK.dll"):
     clr.AddReference(str(_path))
 
 del _assembly, _dll, _path, _publish_dir, _shared_dirs
-
-import MTGOSDK  # type: ignore
 
 print("MTGOSDK loaded; call list_mtgosdk_namespaces(), list_methods_by_type(), or generate_stubs() for inspection.")
 
@@ -179,8 +178,6 @@ def generate_stubs(output_dir: Path | str | None = None, sample_namespace: str |
         output_dir: Directory to write stub files. Defaults to 'stubs/MTGOSDK' relative to script dir.
         sample_namespace: If provided, only generate stubs for this namespace (e.g., 'MTGOSDK.API.Collection').
     """
-    from System.Reflection import BindingFlags  # type: ignore
-
     if output_dir is None:
         try:
             base_dir = Path(__file__).resolve().parent.parent
@@ -322,10 +319,10 @@ def _generate_class_stub(typ) -> str:
 
         # Static property
         if (prop.GetMethod and prop.GetMethod.IsStatic) or (prop.SetMethod and prop.SetMethod.IsStatic):
-            lines.append(f"    @staticmethod")
+            lines.append("    @staticmethod")
             lines.append(f"    def {prop.Name}() -> {prop_type}: ...")
         else:
-            lines.append(f"    @property")
+            lines.append("    @property")
             lines.append(f"    def {prop.Name}(self) -> {prop_type}: ...")
             if prop.CanWrite:
                 lines.append(f"    @{prop.Name}.setter")

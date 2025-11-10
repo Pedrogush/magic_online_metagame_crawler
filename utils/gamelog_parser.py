@@ -216,9 +216,9 @@ def locate_gamelog_directory_fallback() -> Optional[str]:
         # ClickOnce deployment (most common)
         rf"C:\Users\{username}\AppData\Local\Apps\2.0",
         # Steam version
-        rf"C:\Program Files (x86)\Steam\steamapps\common\Magic The Gathering Online\MTGO",
+        r"C:\Program Files (x86)\Steam\steamapps\common\Magic The Gathering Online\MTGO",
         # Direct install
-        rf"C:\Program Files (x86)\Wizards of the Coast\Magic Online",
+        r"C:\Program Files (x86)\Wizards of the Coast\Magic Online",
     ]
 
     for base_path in potential_paths:
@@ -227,7 +227,7 @@ def locate_gamelog_directory_fallback() -> Optional[str]:
 
         # For ClickOnce deployment, need to search subdirectories
         if "AppData\\Local\\Apps" in base_path:
-            for root, dirs, files in os.walk(base_path):
+            for root, dirs, _files in os.walk(base_path):
                 if "GameLogs" in dirs:
                     gamelog_path = os.path.join(root, "GameLogs")
                     # Verify it contains actual log files
@@ -461,7 +461,7 @@ def extract_cards_played(content: str, player_name: str) -> List[str]:
             for card in card_matches:
                 cards.add(card)
 
-    return sorted(list(cards))
+    return sorted(cards)
 
 
 def parse_mulligan_data(content: str) -> Dict[str, List[int]]:

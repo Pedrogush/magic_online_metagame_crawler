@@ -8,7 +8,6 @@ if sys.platform != "win32":
     pytest.skip("Card display test requires Windows", allow_module_level=True)
 
 import wx  # noqa: E402
-from pathlib import Path
 from widgets.card_image_display import CardImageDisplay
 
 

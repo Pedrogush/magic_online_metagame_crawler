@@ -208,7 +208,6 @@ def best_generic_match(
     sideboard: dict[str, DeckEntry],
     color: str,
 ) -> tuple[ArchetypeGeneric, float] | None:
-    combined = {**mainboard, **{k: v for k, v in sideboard.items() if k not in mainboard}}
     combined_counts = dict(mainboard)
     for name, entry in sideboard.items():
         if name in combined_counts:

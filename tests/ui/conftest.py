@@ -9,15 +9,15 @@ import pytest
 if sys.platform != "win32":
     pytest.skip("wxPython UI tests must run on Windows", allow_module_level=True)
 
-wx = pytest.importorskip("wx")
-
 import navigators.mtggoldfish as mtggoldfish
 import utils.card_images as card_images
 import utils.paths as paths
-from utils.card_data import CardDataManager
-from widgets.deck_selector import MTGDeckSelectionFrame
 import widgets.deck_selector as deck_selector
 import widgets.identify_opponent as identify_opponent
+from utils.card_data import CardDataManager
+from widgets.deck_selector import MTGDeckSelectionFrame
+
+wx = pytest.importorskip("wx")
 
 
 SAMPLE_CARDS = [
