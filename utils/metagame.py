@@ -1,6 +1,6 @@
-from loguru import logger
-from curl_cffi import requests
 import bs4
+from curl_cffi import requests
+from loguru import logger
 
 CHALLENGE_LOOKUP_OPTIONS = (
     "Modern",

@@ -17,13 +17,12 @@ Architecture:
 from __future__ import annotations
 
 import json
-import sqlite3
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
 import os
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path, PureWindowsPath
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
 from loguru import logger
@@ -70,9 +69,9 @@ class CardImageCache:
         for size in IMAGE_SIZES.values():
             (self.cache_dir / size).mkdir(exist_ok=True)
 
-    def _build_path_roots(self) -> List[Path]:
+    def _build_path_roots(self) -> list[Path]:
         """Precompute base directories used to resolve relative cache entries."""
-        roots: List[Path] = []
+        roots: list[Path] = []
         candidates = [
             Path.cwd(),
             self.cache_dir,
@@ -175,7 +174,7 @@ class CardImageCache:
 
         return path
 
-    def _resolve_relative_path(self, relative: Path) -> Optional[Path]:
+    def _resolve_relative_path(self, relative: Path) -> Path | None:
         """Attempt to resolve a relative cache entry against known roots."""
         for root in self._path_roots:
             candidate = (root / relative).resolve()
@@ -183,7 +182,7 @@ class CardImageCache:
                 return candidate
         return None
 
-    def get_image_path(self, card_name: str, size: str = "normal") -> Optional[Path]:
+    def get_image_path(self, card_name: str, size: str = "normal") -> Path | None:
         """Get cached image path for a card name.
 
         Args:
@@ -205,7 +204,7 @@ class CardImageCache:
                     return path
         return None
 
-    def get_image_by_uuid(self, uuid: str, size: str = "normal") -> Optional[Path]:
+    def get_image_by_uuid(self, uuid: str, size: str = "normal") -> Path | None:
         """Get cached image path by Scryfall UUID."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
@@ -235,7 +234,7 @@ class CardImageCache:
                   datetime.utcnow().isoformat(), scryfall_uri, artist))
             conn.commit()
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         with sqlite3.connect(self.db_path) as conn:
             total = conn.execute("SELECT COUNT(DISTINCT uuid) FROM card_images").fetchone()[0]
@@ -272,7 +271,7 @@ class BulkImageDownloader:
             "User-Agent": "MTGOMetagameCrawler/1.0"
         })
 
-    def download_bulk_metadata(self, force: bool = False) -> Tuple[bool, str]:
+    def download_bulk_metadata(self, force: bool = False) -> tuple[bool, str]:
         """Download Scryfall bulk data JSON.
 
         Args:
@@ -317,14 +316,14 @@ class BulkImageDownloader:
                 """, (datetime.utcnow().isoformat(), 0, download_uri))
                 conn.commit()
 
-            logger.info(f"Bulk data downloaded successfully")
+            logger.info("Bulk data downloaded successfully")
             return True, "Bulk data downloaded"
 
         except Exception as exc:
             logger.exception("Failed to download bulk data")
             return False, f"Error: {exc}"
 
-    def _download_single_image(self, card: Dict[str, Any], size: str = "normal") -> Tuple[bool, str]:
+    def _download_single_image(self, card: dict[str, Any], size: str = "normal") -> tuple[bool, str]:
         """Download a single card image.
 
         Args:
@@ -397,8 +396,8 @@ class BulkImageDownloader:
             return False, f"Error: {name} - {exc}"
 
     def download_all_images(self, size: str = "normal",
-                           max_cards: Optional[int] = None,
-                           progress_callback: Optional[callable] = None) -> Dict[str, Any]:
+                           max_cards: int | None = None,
+                           progress_callback: callable | None = None) -> dict[str, Any]:
         """Download all card images from bulk data.
 
         Args:
@@ -473,7 +472,7 @@ class BulkImageDownloader:
             }
 
 
-def _load_printing_index_payload() -> Optional[Dict[str, Any]]:
+def _load_printing_index_payload() -> dict[str, Any] | None:
     """Load the cached card printings index if available."""
     if not PRINTING_INDEX_CACHE.exists():
         return None
@@ -489,7 +488,7 @@ def _load_printing_index_payload() -> Optional[Dict[str, Any]]:
     return payload
 
 
-def ensure_printing_index_cache(force: bool = False) -> Dict[str, Any]:
+def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
     """Ensure a compact card printings index exists for fast wx lookups."""
     IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     existing = None if force else _load_printing_index_payload()
@@ -505,7 +504,7 @@ def ensure_printing_index_cache(force: bool = False) -> Dict[str, Any]:
     with BULK_DATA_CACHE.open("r", encoding="utf-8") as fh:
         cards = json.load(fh)
 
-    by_name: Dict[str, List[Dict[str, Any]]] = {}
+    by_name: dict[str, list[dict[str, Any]]] = {}
     total_printings = 0
     for card in cards:
         name = (card.get("name") or "").strip()
@@ -550,7 +549,7 @@ def ensure_printing_index_cache(force: bool = False) -> Dict[str, Any]:
 
 
 # Singleton instance
-_cache_instance: Optional[CardImageCache] = None
+_cache_instance: CardImageCache | None = None
 
 
 def get_cache() -> CardImageCache:
@@ -561,7 +560,7 @@ def get_cache() -> CardImageCache:
     return _cache_instance
 
 
-def get_card_image(card_name: str, size: str = "normal") -> Optional[Path]:
+def get_card_image(card_name: str, size: str = "normal") -> Path | None:
     """Get card image from cache.
 
     Args:
@@ -576,8 +575,8 @@ def get_card_image(card_name: str, size: str = "normal") -> Optional[Path]:
 
 
 def download_bulk_images(size: str = "normal",
-                         max_cards: Optional[int] = None,
-                         progress_callback: Optional[callable] = None) -> Dict[str, Any]:
+                         max_cards: int | None = None,
+                         progress_callback: callable | None = None) -> dict[str, Any]:
     """High-level function to download all card images.
 
     Args:
@@ -600,7 +599,7 @@ def download_bulk_images(size: str = "normal",
     return downloader.download_all_images(size, max_cards, progress_callback)
 
 
-def get_cache_stats() -> Dict[str, Any]:
+def get_cache_stats() -> dict[str, Any]:
     """Get cache statistics."""
     cache = get_cache()
     return cache.get_cache_stats()

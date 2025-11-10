@@ -7,3 +7,4 @@ wxPython>=4.2.0; platform_system == "Windows"
 beautifulsoup4>=4.14.0
 curl-cffi>=0.13.0
 pymongo>=4.0.0
+pygetwindow>=0.0.9

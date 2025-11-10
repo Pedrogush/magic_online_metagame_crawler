@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
-from collections.abc import Iterable
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup

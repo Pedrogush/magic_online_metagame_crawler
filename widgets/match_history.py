@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import wx
 import wx.dataview as dv
@@ -22,14 +22,14 @@ SUBDUED_TEXT = wx.Colour(185, 191, 202)
 class MatchHistoryFrame(wx.Frame):
     """Simple window displaying recent MTGO matches grouped by event."""
 
-    def __init__(self, parent: Optional[wx.Window] = None) -> None:
+    def __init__(self, parent: wx.Window | None = None) -> None:
         style = wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP
         super().__init__(parent, title="MTGO Match History (wx)", size=(850, 460), style=style)
 
-        self.history_items: List[Dict[str, Any]] = []
-        self.start_filter: Optional[str] = None
-        self.end_filter: Optional[str] = None
-        self.current_username: Optional[str] = None
+        self.history_items: list[dict[str, Any]] = []
+        self.start_filter: str | None = None
+        self.end_filter: str | None = None
+        self.current_username: str | None = None
 
         self._build_ui()
         self.Centre(wx.BOTH)
@@ -47,7 +47,7 @@ class MatchHistoryFrame(wx.Frame):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _set_username(self, username: Optional[str]) -> None:
+    def _set_username(self, username: str | None) -> None:
         """Set the current username."""
         self.current_username = username
         logger.debug(f"Set current username: {username}")
@@ -164,7 +164,7 @@ class MatchHistoryFrame(wx.Frame):
         self._set_busy(False)
         wx.MessageBox(f"Unable to load match history:\n{message}", "Match History", wx.OK | wx.ICON_ERROR)
 
-    def _populate_history(self, matches: List[Dict[str, Any]]) -> None:
+    def _populate_history(self, matches: list[dict[str, Any]]) -> None:
         if not self or not self.IsShown():
             return
 
@@ -352,9 +352,9 @@ class MatchHistoryFrame(wx.Frame):
             self.filtered_match_rate_label.SetLabel("Match Win Rate (filtered): —")
             self.filtered_game_rate_label.SetLabel("Game Win Rate (filtered): —")
 
-    def _iter_matches(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _iter_matches(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert match data to metrics format."""
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for match in items:
             if not isinstance(match, dict):
                 continue
@@ -409,7 +409,7 @@ class MatchHistoryFrame(wx.Frame):
 
         return results
 
-    def _parse_date(self, value: Optional[str]):
+    def _parse_date(self, value: str | None):
         if not value:
             return None
         try:

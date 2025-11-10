@@ -1,10 +1,11 @@
 import atexit
-import pymongo
 from dataclasses import asdict
-from utils.common import Card
 from datetime import datetime
+
+import pymongo
 from loguru import logger
 
+from utils.common import Card
 
 _CLIENT = None
 
