@@ -23,6 +23,7 @@ agent*.txt
 command*.txt
 *.sln
 requirements*.txt
+!requirements-dev.txt
 collection.json
 .codex/
 
