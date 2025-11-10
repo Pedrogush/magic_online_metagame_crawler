@@ -1,376 +1,537 @@
-"""Timer alert using MTGOSDK runtime clocks."""
+"""wxPython variant of the MTGO challenge timer alert widget."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import messagebox
+import re
+import threading
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+import wx
 from loguru import logger
 
 from utils import mtgo_bridge
+from utils.mtgo_bridge_client import BridgeWatcher
 
 try:
-    import winsound  # type: ignore
+    import winsound  # type: ignore[attr-defined]
 
-    def _beep(frequency: int, duration: int) -> None:
-        winsound.Beep(frequency, duration)
+    SOUND_AVAILABLE = True
+except Exception:  # pragma: no cover - fallback for non-Windows environments
+    SOUND_AVAILABLE = False
+    logger.warning("winsound not available, alarm sounds will not play")
 
-except Exception:  # pragma: no cover
+DARK_BG = wx.Colour(20, 22, 27)
+DARK_PANEL = wx.Colour(34, 39, 46)
+DARK_ALT = wx.Colour(40, 46, 54)
+DARK_ACCENT = wx.Colour(59, 130, 246)
+LIGHT_TEXT = wx.Colour(236, 236, 236)
+SUBDUED_TEXT = wx.Colour(185, 191, 202)
 
-    def _beep(frequency: int, duration: int) -> None:
-        logger.info("Alert: %s Hz for %s ms", frequency, duration)
+# Built-in Windows sounds (always available)
+SOUND_OPTIONS = {
+    "Beep": "SystemAsterisk",
+    "Alert": "SystemExclamation",
+    "Warning": "SystemHand",
+    "Question": "SystemQuestion",
+    "Default": "SystemDefault",
+}
 
 
-class TimerAlertWindow:
-    """Polls MTGO match clocks via MTGOSDK and plays alerts."""
+class ThresholdPanel(wx.Panel):
+    """Individual threshold entry with MM:SS format."""
 
-    def __init__(self, master: tk.Misc) -> None:
-        self.master = master
-        self.window = tk.Toplevel(master)
-        self.window.title("MTGO Timer Alert")
-        self.window.resizable(False, False)
-        self.window.attributes("-topmost", True)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+    def __init__(self, parent: wx.Window, on_remove: callable = None) -> None:
+        super().__init__(parent)
+        self.SetBackgroundColour(DARK_BG)
+        self.on_remove_callback = on_remove
 
-        self.username_var = tk.StringVar()
-        self.monitor_var = tk.StringVar(value="self")
-        self.thresholds_var = tk.StringVar(value="300,120,60")
-        self.alert_on_start_var = tk.BooleanVar(value=True)
-        self.frequency_var = tk.IntVar(value=1200)
-        self.duration_var = tk.IntVar(value=400)
-        self.poll_interval_var = tk.IntVar(value=1000)
-        self.status_var = tk.StringVar(value="Set options and click Start to begin monitoring.")
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.SetSizer(sizer)
 
-        self.match_var = tk.StringVar(value="All matches")
-        self._match_menu: tk.OptionMenu | None = None
-        self._match_options: dict[str, dict | None] = {"All matches": None}
+        # MM:SS input
+        self.time_input = wx.TextCtrl(self, size=(80, -1), value="05:00")
+        self._stylize_entry(self.time_input)
+        sizer.Add(self.time_input, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
 
-        self.monitor_job: str | None = None
-        self.last_seconds: int | None = None
+        # Remove button
+        self.remove_btn = wx.Button(self, label="✕", size=(30, -1))
+        self._stylize_remove_button(self.remove_btn)
+        self.remove_btn.Bind(wx.EVT_BUTTON, self._on_remove)
+        sizer.Add(self.remove_btn, 0, wx.ALIGN_CENTER_VERTICAL)
+
+    def _stylize_entry(self, entry: wx.TextCtrl) -> None:
+        entry.SetBackgroundColour(DARK_ALT)
+        entry.SetForegroundColour(LIGHT_TEXT)
+
+    def _stylize_remove_button(self, button: wx.Button) -> None:
+        button.SetBackgroundColour(wx.Colour(139, 35, 35))
+        button.SetForegroundColour(LIGHT_TEXT)
+        font = button.GetFont()
+        font.MakeBold()
+        button.SetFont(font)
+
+    def _on_remove(self, _event: wx.CommandEvent) -> None:
+        if self.on_remove_callback:
+            self.on_remove_callback(self)
+
+    def get_seconds(self) -> Optional[int]:
+        """Parse MM:SS format to seconds."""
+        value = self.time_input.GetValue().strip()
+        match = re.match(r"^(\d+):(\d{2})$", value)
+        if not match:
+            return None
+        minutes, seconds = match.groups()
+        return int(minutes) * 60 + int(seconds)
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable/disable the input."""
+        self.time_input.Enable(enabled)
+        self.remove_btn.Enable(enabled)
+
+
+class TimerAlertFrame(wx.Frame):
+    """Polls MTGO challenge timers via the bridge and plays audible alerts."""
+
+    WATCH_INTERVAL_MS = 750
+    POLL_INTERVAL_MS = 1000
+
+    def __init__(self, parent: Optional[wx.Window] = None) -> None:
+        style = (
+            wx.CAPTION
+            | wx.CLOSE_BOX
+            | wx.MINIMIZE_BOX
+            | wx.STAY_ON_TOP
+            | wx.RESIZE_BORDER
+        )
+        super().__init__(parent, title="MTGO Timer Alert", size=(420, 400), style=style)
+
+        self._watcher: Optional[BridgeWatcher] = None
+        self._watch_timer = wx.Timer(self)
+        self._monitor_timer = wx.Timer(self)
+        self._repeat_timer = wx.Timer(self)
+
+        self._last_snapshot: Optional[Dict[str, Any]] = None
+        self.challenge_text: Optional[wx.StaticText] = None
+        self.threshold_panels: List[ThresholdPanel] = []
+
+        self.monitor_job_active = False
         self.triggered_thresholds: set[int] = set()
         self.start_alert_sent = False
-        self._watcher = None
-        self._last_snapshot: dict | None = None
-        self._watch_poll_ms = 750
+        self._current_thresholds: List[int] = []
+        self._monitor_interval_ms = 1000
+        self._repeat_interval_ms = 30000  # 30 seconds default
 
         self._build_ui()
-        self._start_watch_loop()
-    # ------------------------------------------------------------------ UI
+
+        self.Bind(wx.EVT_TIMER, self._on_watch_timer, self._watch_timer)
+        self.Bind(wx.EVT_TIMER, self._on_monitor_timer, self._monitor_timer)
+        self.Bind(wx.EVT_TIMER, self._on_repeat_timer, self._repeat_timer)
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
+        wx.CallAfter(self._start_watch_loop)
+
+    # ------------------------------------------------------------------ UI ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        frame = tk.Frame(self.window, padx=12, pady=10)
-        frame.grid(column=0, row=0, sticky="nsew")
+        self.SetBackgroundColour(DARK_BG)
 
-        tk.Label(frame, text="Your MTGO username:").grid(row=0, column=0, sticky="w")
-        tk.Entry(frame, textvariable=self.username_var, width=24).grid(row=0, column=1, sticky="ew")
+        panel = wx.Panel(self)
+        panel.SetBackgroundColour(DARK_BG)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(sizer)
 
-        tk.Label(frame, text="Match:").grid(row=1, column=0, sticky="w", pady=(6, 0))
-        self._match_menu = tk.OptionMenu(frame, self.match_var, *self._match_options.keys())
-        self._match_menu.grid(row=1, column=1, sticky="ew", pady=(6, 0))
-        self._refresh_match_menu()
+        # Thresholds section
+        threshold_box = wx.StaticBox(panel, label="Alert Thresholds")
+        threshold_box.SetForegroundColour(LIGHT_TEXT)
+        threshold_box.SetBackgroundColour(DARK_PANEL)
+        threshold_sizer = wx.StaticBoxSizer(threshold_box, wx.VERTICAL)
+        box_parent = threshold_sizer.GetStaticBox()
 
-        tk.Label(frame, text="Monitor:").grid(row=2, column=0, sticky="w", pady=(6, 0))
-        monitor_menu = tk.OptionMenu(frame, self.monitor_var, "self", "opponent", "both")
-        monitor_menu.grid(row=2, column=1, sticky="ew", pady=(6, 0))
+        instructions = wx.StaticText(box_parent, label="Enter time in MM:SS format (e.g., 05:00 for 5 minutes)")
+        instructions.SetForegroundColour(SUBDUED_TEXT)
+        threshold_sizer.Add(instructions, 0, wx.ALL, 4)
 
-        tk.Label(frame, text="Thresholds (seconds):").grid(row=3, column=0, sticky="w", pady=(6, 0))
-        tk.Entry(frame, textvariable=self.thresholds_var).grid(row=3, column=1, sticky="ew", pady=(6, 0))
+        # Scrollable threshold container
+        self.threshold_container = wx.ScrolledWindow(box_parent, style=wx.VSCROLL)
+        self.threshold_container.SetBackgroundColour(DARK_BG)
+        self.threshold_container.SetScrollRate(0, 20)
+        self.threshold_container_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.threshold_container.SetSizer(self.threshold_container_sizer)
+        threshold_sizer.Add(self.threshold_container, 1, wx.EXPAND | wx.ALL, 4)
 
-        tk.Label(frame, text="Poll interval (ms):").grid(row=4, column=0, sticky="w", pady=(6, 0))
-        tk.Entry(frame, textvariable=self.poll_interval_var).grid(row=4, column=1, sticky="ew", pady=(6, 0))
+        # Add initial threshold
+        self._add_threshold_panel()
 
-        tk.Label(frame, text="Tone frequency (Hz):").grid(row=5, column=0, sticky="w", pady=(6, 0))
-        tk.Entry(frame, textvariable=self.frequency_var).grid(row=5, column=1, sticky="ew", pady=(6, 0))
+        # Add threshold button
+        add_btn = wx.Button(box_parent, label="+ Add Another Threshold")
+        self._stylize_secondary_button(add_btn)
+        add_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._add_threshold_panel())
+        threshold_sizer.Add(add_btn, 0, wx.ALL, 4)
 
-        tk.Label(frame, text="Tone duration (ms):").grid(row=6, column=0, sticky="w", pady=(6, 0))
-        tk.Entry(frame, textvariable=self.duration_var).grid(row=6, column=1, sticky="ew", pady=(6, 0))
+        sizer.Add(threshold_sizer, 1, wx.ALL | wx.EXPAND, 12)
 
-        tk.Checkbutton(
-            frame,
-            text="Alert when timer starts counting down",
-            variable=self.alert_on_start_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        # Options section
+        options_grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=8)
+        options_grid.AddGrowableCol(1, 1)
 
-        buttons = tk.Frame(frame)
-        buttons.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        buttons.grid_columnconfigure((0, 1, 2), weight=1)
+        # Sound selection
+        options_grid.Add(self._static_text(panel, "Alert Sound:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.sound_choice = wx.Choice(panel, choices=list(SOUND_OPTIONS.keys()))
+        self._stylize_choice(self.sound_choice)
+        self.sound_choice.SetSelection(0)
+        options_grid.Add(self.sound_choice, 0, wx.EXPAND)
 
-        tk.Button(buttons, text="Start", command=self.start_monitoring).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        tk.Button(buttons, text="Stop", command=self.stop_monitoring).grid(row=0, column=1, sticky="ew")
-        tk.Button(buttons, text="Test Alert", command=self.test_alert).grid(row=0, column=2, sticky="ew", padx=(4, 0))
+        # Poll interval
+        options_grid.Add(self._static_text(panel, "Check interval (ms):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.poll_interval_ctrl = wx.SpinCtrl(panel, min=250, max=5000, initial=1000)
+        self._stylize_spin(self.poll_interval_ctrl)
+        options_grid.Add(self.poll_interval_ctrl, 0, wx.EXPAND)
 
-        tk.Label(frame, textvariable=self.status_var, anchor="w", justify="left", wraplength=320).grid(
-            row=9, column=0, columnspan=2, sticky="ew", pady=(10, 0)
+        # Repeat interval
+        options_grid.Add(self._static_text(panel, "Repeat interval (seconds):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.repeat_interval_ctrl = wx.SpinCtrl(panel, min=5, max=300, initial=30)
+        self._stylize_spin(self.repeat_interval_ctrl)
+        options_grid.Add(self.repeat_interval_ctrl, 0, wx.EXPAND)
+
+        sizer.Add(options_grid, 0, wx.LEFT | wx.RIGHT | wx.EXPAND, 12)
+
+        # Checkboxes
+        self.start_alert_checkbox = wx.CheckBox(panel, label="Alert when timer starts counting down")
+        self.start_alert_checkbox.SetValue(True)
+        self.start_alert_checkbox.SetForegroundColour(LIGHT_TEXT)
+        self.start_alert_checkbox.SetBackgroundColour(DARK_BG)
+        sizer.Add(self.start_alert_checkbox, 0, wx.LEFT | wx.RIGHT | wx.TOP, 12)
+
+        self.repeat_alarm_checkbox = wx.CheckBox(panel, label="Repeat alarm at interval")
+        self.repeat_alarm_checkbox.SetValue(False)
+        self.repeat_alarm_checkbox.SetForegroundColour(LIGHT_TEXT)
+        self.repeat_alarm_checkbox.SetBackgroundColour(DARK_BG)
+        sizer.Add(self.repeat_alarm_checkbox, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
+
+        # Control buttons
+        button_row = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(button_row, 0, wx.ALL | wx.EXPAND, 12)
+
+        start_btn = wx.Button(panel, label="Start Monitoring")
+        self._stylize_primary_button(start_btn)
+        start_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.start_monitoring())
+        button_row.Add(start_btn, 0, wx.RIGHT, 6)
+
+        stop_btn = wx.Button(panel, label="Stop")
+        self._stylize_secondary_button(stop_btn)
+        stop_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.stop_monitoring())
+        button_row.Add(stop_btn, 0, wx.RIGHT, 6)
+
+        test_btn = wx.Button(panel, label="Test Alert")
+        self._stylize_secondary_button(test_btn)
+        test_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.test_alert())
+        button_row.Add(test_btn, 0)
+
+        # Status display
+        self.status_text = wx.TextCtrl(
+            panel,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.BORDER_NONE,
         )
+        self.status_text.SetMinSize((-1, 80))
+        self.status_text.SetBackgroundColour(DARK_ALT)
+        self.status_text.SetForegroundColour(LIGHT_TEXT)
+        sizer.Add(self.status_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
 
-    def _start_watch_loop(self) -> None:
-        if self._watcher is not None:
+        # Challenge timer display
+        challenge_box = wx.StaticBox(panel, label="Active Challenge Timer")
+        challenge_box.SetForegroundColour(LIGHT_TEXT)
+        challenge_box.SetBackgroundColour(DARK_PANEL)
+        challenge_sizer = wx.StaticBoxSizer(challenge_box, wx.VERTICAL)
+        self.challenge_text = wx.StaticText(challenge_box, label="No active challenge timer detected.")
+        self.challenge_text.SetForegroundColour(LIGHT_TEXT)
+        self.challenge_text.SetBackgroundColour(DARK_PANEL)
+        self.challenge_text.Wrap(340)
+        challenge_sizer.Add(self.challenge_text, 0, wx.ALL | wx.EXPAND, 8)
+        sizer.Add(challenge_sizer, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 12)
+
+        self._set_status("Configure thresholds and click Start to begin monitoring.")
+        self.Bind(wx.EVT_SIZE, self._on_resize)
+
+    def _add_threshold_panel(self) -> None:
+        """Add a new threshold input panel."""
+        panel = ThresholdPanel(self.threshold_container, on_remove=self._remove_threshold_panel)
+        self.threshold_panels.append(panel)
+        self.threshold_container_sizer.Add(panel, 0, wx.EXPAND | wx.BOTTOM, 4)
+        self.threshold_container.Layout()
+        self.threshold_container.FitInside()
+
+    def _remove_threshold_panel(self, panel: ThresholdPanel) -> None:
+        """Remove a threshold input panel."""
+        if len(self.threshold_panels) <= 1:
+            wx.MessageBox("At least one threshold is required.", "Timer Alert", wx.OK | wx.ICON_INFORMATION)
             return
-        try:
-            self._watcher = mtgo_bridge.start_watch(interval_ms=self._watch_poll_ms)
-            if self.monitor_job is None:
-                self.status_var.set("Bridge ready. Set options and click Start to begin monitoring.")
-        except FileNotFoundError as exc:
-            logger.error("Bridge executable not found: %s", exc)
-            self.status_var.set("Bridge missing. Build the MTGO bridge executable.")
-            self.window.after(5000, self._start_watch_loop)
-            return
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Unable to start bridge watcher")
-            self.status_var.set(f"Bridge error: {exc}")
-            self.window.after(5000, self._start_watch_loop)
-            return
+        self.threshold_panels.remove(panel)
+        self.threshold_container_sizer.Detach(panel)
+        panel.Destroy()
+        self.threshold_container.Layout()
+        self.threshold_container.FitInside()
 
-        self._poll_watch_loop()
+    def _static_text(self, parent: wx.Window, label: str) -> wx.StaticText:
+        text = wx.StaticText(parent, label=label)
+        text.SetForegroundColour(LIGHT_TEXT)
+        text.SetBackgroundColour(DARK_BG)
+        return text
 
-    def _poll_watch_loop(self) -> None:
-        try:
-            exists = bool(self.window and self.window.winfo_exists())
-        except tk.TclError:
-            return
-        if not exists:
-            return
-        if self._watcher:
-            payload = self._watcher.latest()
-            if payload:
-                self._process_watch_snapshot(payload)
-        self.window.after(self._watch_poll_ms, self._poll_watch_loop)
+    def _stylize_choice(self, choice: wx.Choice) -> None:
+        choice.SetBackgroundColour(DARK_ALT)
+        choice.SetForegroundColour(LIGHT_TEXT)
 
-    def _process_watch_snapshot(self, snapshot: dict) -> None:
-        self._last_snapshot = snapshot
-        matches = self._snapshot_to_matches(snapshot)
-        self._update_available_matches(matches)
-        if self.monitor_job is None:
-            if snapshot.get("error"):
-                self.status_var.set(f"Bridge error: {snapshot['error']}")
-            elif not matches:
-                self.status_var.set("No active matches detected. Join a match to monitor clocks.")
+    def _stylize_spin(self, ctrl: wx.SpinCtrl) -> None:
+        ctrl.SetBackgroundColour(DARK_ALT)
+        ctrl.SetForegroundColour(LIGHT_TEXT)
 
-    def _extract_event_description(self, snapshot: dict) -> str:
-        timers = snapshot.get("challengeTimers") or []
-        if timers:
-            timer = timers[0]
-            return (
-                timer.get("description")
-                or timer.get("format")
-                or timer.get("eventId")
-                or "Match"
-            )
-        return "Match"
+    def _stylize_primary_button(self, button: wx.Button) -> None:
+        button.SetBackgroundColour(DARK_ACCENT)
+        button.SetForegroundColour(wx.Colour(12, 14, 18))
+        font = button.GetFont()
+        font.MakeBold()
+        button.SetFont(font)
 
-    def _snapshot_to_matches(self, snapshot: dict | None) -> list[dict]:
-        if not snapshot or snapshot.get("error"):
-            return []
-        active = snapshot.get("activeMatch") or {}
-        players = active.get("players") or []
-        if not players:
-            return []
-        return [
-            {
-                "id": active.get("matchId") or active.get("id"),
-                "players": players,
-                "eventDescription": self._extract_event_description(snapshot),
-            }
-        ]
+    def _stylize_secondary_button(self, button: wx.Button) -> None:
+        button.SetBackgroundColour(DARK_PANEL)
+        button.SetForegroundColour(LIGHT_TEXT)
+        font = button.GetFont()
+        font.MakeBold()
+        button.SetFont(font)
 
-    # ----------------------------------------------------------------- logic
+    # ------------------------------------------------------------------ Monitoring ------------------------------------------------------------
     def start_monitoring(self) -> None:
-        if self.monitor_job is not None:
-            self.status_var.set("Already monitoring the timer.")
+        if self.monitor_job_active:
+            self._set_status("Already monitoring the timer.")
             return
 
         thresholds = self._parse_thresholds()
         if not thresholds:
-            messagebox.showwarning("Timer Alert", "Please enter at least one numeric threshold.")
+            wx.MessageBox("Please enter at least one valid threshold (MM:SS format).", "Timer Alert", wx.OK | wx.ICON_INFORMATION)
             return
 
         try:
-            poll_interval = max(250, int(self.poll_interval_var.get()))
+            poll_interval = max(250, int(self.poll_interval_ctrl.GetValue()))
         except (TypeError, ValueError):
-            messagebox.showwarning("Timer Alert", "Invalid poll interval.")
+            wx.MessageBox("Invalid poll interval.", "Timer Alert", wx.OK | wx.ICON_WARNING)
             return
 
-        self.triggered_thresholds = set()
+        self._current_thresholds = thresholds
+        self._monitor_interval_ms = poll_interval
+        self._repeat_interval_ms = self.repeat_interval_ctrl.GetValue() * 1000
+        self.triggered_thresholds.clear()
         self.start_alert_sent = False
-        self.last_seconds = None
-        self.status_var.set("Monitoring MTGO match clocks…")
+        self.monitor_job_active = True
 
-        def _poll() -> None:
-            self._monitor_timer(thresholds)
-            self.monitor_job = self.window.after(poll_interval, _poll)
+        # Disable threshold editing
+        for panel in self.threshold_panels:
+            panel.set_enabled(False)
 
-        self.monitor_job = self.window.after(0, _poll)
+        self._monitor_timer.Start(self._monitor_interval_ms)
+        self._set_status("Monitoring MTGO challenge timer…")
+        self._monitor_timer_step()
 
     def stop_monitoring(self) -> None:
-        if self.monitor_job is not None:
-            self.window.after_cancel(self.monitor_job)
-            self.monitor_job = None
-        self.status_var.set("Timer monitoring stopped.")
+        if self._monitor_timer.IsRunning():
+            self._monitor_timer.Stop()
+        if self._repeat_timer.IsRunning():
+            self._repeat_timer.Stop()
+        self.monitor_job_active = False
+
+        # Re-enable threshold editing
+        for panel in self.threshold_panels:
+            panel.set_enabled(True)
+
+        self._set_status("Monitoring stopped.")
 
     def test_alert(self) -> None:
-        _beep(self.frequency_var.get(), self.duration_var.get())
+        """Test the selected alert sound."""
+        self._play_alert()
 
-    def close(self) -> None:
-        self.stop_monitoring()
-        if self._watcher is not None:
-            try:
-                self._watcher.stop()
-            except Exception:
-                logger.debug("Failed to stop bridge watcher", exc_info=True)
-            self._watcher = None
-        try:
-            self.window.destroy()
-        except Exception:
-            pass
-
-    # ----------------------------------------------------------------- internals
-    def _monitor_timer(self, thresholds: list[int]) -> None:
-        snapshot = self._last_snapshot
-        if snapshot is None:
-            self.status_var.set("Waiting for MTGO data…")
-            return
-
-        if snapshot.get("error"):
-            self.status_var.set(f"Bridge error: {snapshot['error']}")
-            return
-
-        matches = self._snapshot_to_matches(snapshot)
-        self._update_available_matches(matches)
-
-        if not matches:
-            self.status_var.set("No active matches detected. Join an event or match to monitor clocks.")
-            self.last_seconds = None
-            self.triggered_thresholds.clear()
-            return
-
-        selection_label = self.match_var.get()
-        if selection_label not in self._match_options:
-            selection_label = "All matches"
-            self.match_var.set(selection_label)
-
-        selected_matches = []
-        if selection_label == "All matches":
-            selected_matches = matches
-        else:
-            match_entry = self._match_options.get(selection_label)
-            if match_entry:
-                selected_matches = [match_entry]
-            else:
-                selected_matches = matches
-
-        username = (self.username_var.get() or "").strip().lower()
-        monitor = self.monitor_var.get()
-
-        targets = []
-        status_lines = []
-        for match in selected_matches:
-            players = match.get("players") or []
-            line_parts = []
-            for player in players:
-                if not isinstance(player, dict):
-                    continue
-                name = player.get("name") or "Unknown"
-                is_self = bool(player.get("isSelf"))
-                if username and name.lower() == username:
-                    is_self = True
-                player["isSelf"] = is_self
-                if monitor == "self" and not is_self:
-                    continue
-                if monitor == "opponent" and is_self:
-                    continue
-                targets.append(player)
-                clock = player.get("clockSeconds")
-                clock_display = f"{clock}s" if isinstance(clock, int) else "—"
-                prefix = "You" if is_self else name
-                line_parts.append(f"{prefix}: {clock_display}")
-            label = self._format_match_label(match)
-            if line_parts:
-                status_lines.append(f"{label} — {' / '.join(line_parts)}")
-            else:
-                status_lines.append(f"{label} — awaiting clock data")
-
-        if not targets:
-            if monitor == "self":
-                self.status_var.set("Waiting for MTGO to detect your account in the active matches.")
-            else:
-                self.status_var.set("Waiting for opponent clocks to appear.")
-            return
-
-        seconds_values = [p.get("clockSeconds") for p in targets if isinstance(p.get("clockSeconds"), int)]
-        if not seconds_values:
-            self.status_var.set("Unable to read clock values yet.")
-            return
-
-        current_seconds = max(min(seconds_values), 0)
-        current_seconds = max(min(seconds_values), 0)
-        self.status_var.set("\n".join(status_lines))
-        if self.alert_on_start_var.get() and not self.start_alert_sent:
-            self._trigger_alert("Countdown started")
-            self.start_alert_sent = True
-
-        for threshold in thresholds:
-            if threshold < 0 or threshold in self.triggered_thresholds:
-                continue
-            if current_seconds <= threshold:
-                self._trigger_alert(f"Timer reached {threshold} seconds")
-                self.triggered_thresholds.add(threshold)
-
-        self.last_seconds = current_seconds
-
-    def _trigger_alert(self, message: str) -> None:
-        logger.debug(f"Timer alert: {message}")
-        _beep(self.frequency_var.get(), self.duration_var.get())
-
-    def _parse_thresholds(self) -> list[int]:
-        raw = self.thresholds_var.get()
-        thresholds: list[int] = []
-        for chunk in raw.split(','):
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            try:
-                thresholds.append(int(chunk))
-            except ValueError:
-                logger.warning(f"Skipping invalid threshold value: {chunk}")
+    def _parse_thresholds(self) -> List[int]:
+        """Parse all threshold panels and return valid seconds."""
+        thresholds: List[int] = []
+        for panel in self.threshold_panels:
+            seconds = panel.get_seconds()
+            if seconds is not None and seconds > 0:
+                thresholds.append(seconds)
+            elif panel.time_input.GetValue().strip():
+                logger.warning(f"Invalid threshold format: {panel.time_input.GetValue()}")
         thresholds.sort(reverse=True)
         return thresholds
 
-    def _update_available_matches(self, matches: list[dict]) -> None:
-        options: dict[str, dict | None] = {"All matches": None}
-        used_labels: set[str] = set()
-        for match in matches:
-            label = self._format_match_label(match)
-            base_label = label
-            counter = 2
-            while label in used_labels or label in options:
-                label = f"{base_label} ({counter})"
-                counter += 1
-            options[label] = match
-            used_labels.add(label)
-        if set(options.keys()) != set(self._match_options.keys()) or any(self._match_options.get(label) is not options[label] for label in options):
-            self._match_options = options
-            self._refresh_match_menu()
-
-    def _refresh_match_menu(self) -> None:
-        if not self._match_menu:
+    def _monitor_timer_step(self) -> None:
+        snapshot = self._last_snapshot
+        if snapshot is None:
+            self._set_status("Waiting for MTGO data…")
             return
-        menu = self._match_menu["menu"]
-        menu.delete(0, "end")
-        for label in self._match_options:
-            menu.add_command(label=label, command=tk._setit(self.match_var, label))
-        if self.match_var.get() not in self._match_options:
-            self.match_var.set(next(iter(self._match_options)))
 
-    def _format_match_label(self, match: dict) -> str:
-        event_desc = match.get("eventDescription") or match.get("format") or "Match"
-        opponents = [
-            player.get("name")
-            for player in match.get("players") or []
-            if isinstance(player, dict) and not player.get("isSelf")
-        ]
-        opponent = opponents[0] if opponents else "Unknown"
-        match_id = match.get("id") or match.get("eventId")
-        if opponent and opponent != "Unknown":
-            return f"{event_desc} vs {opponent}"
-        if match_id:
-            return f"{event_desc} ({match_id})"
-        return str(event_desc)
+        if snapshot.get("error"):
+            self._set_status(f"Bridge error: {snapshot['error']}")
+            return
+
+        self._update_challenge_display(snapshot)
+
+        # Get challenge timer info
+        timers = snapshot.get("challengeTimers") or []
+        if not timers:
+            self._set_status("No active challenge timer detected. Join an event to monitor.")
+            self.triggered_thresholds.clear()
+            self.start_alert_sent = False
+            if self._repeat_timer.IsRunning():
+                self._repeat_timer.Stop()
+            return
+
+        timer = timers[0]
+        remaining = timer.get("remainingSeconds")
+        if not isinstance(remaining, (int, float)):
+            self._set_status("Unable to read challenge timer value.")
+            return
+
+        current_seconds = max(0, int(remaining))
+        self._set_status(f"Challenge timer: {self._format_seconds(current_seconds)}")
+
+        # Start alert (countdown began)
+        if self.start_alert_checkbox.GetValue() and not self.start_alert_sent:
+            self._trigger_alert("Countdown started")
+            self.start_alert_sent = True
+            if self.repeat_alarm_checkbox.GetValue():
+                self._repeat_timer.Start(self._repeat_interval_ms)
+
+        # Threshold alerts
+        for threshold in self._current_thresholds:
+            if threshold < 0 or threshold in self.triggered_thresholds:
+                continue
+            if current_seconds <= threshold:
+                self._trigger_alert(f"Timer reached {self._format_seconds(threshold)}")
+                self.triggered_thresholds.add(threshold)
+
+    def _trigger_alert(self, message: str) -> None:
+        """Play the alert sound."""
+        logger.debug(f"Timer alert: {message}")
+        self._play_alert()
+
+    def _play_alert(self) -> None:
+        """Play the selected system sound."""
+        if not SOUND_AVAILABLE:
+            logger.warning("Sound playback not available")
+            return
+
+        sound_name = self.sound_choice.GetStringSelection()
+        sound_key = SOUND_OPTIONS.get(sound_name, "SystemDefault")
+
+        try:
+            winsound.PlaySound(sound_key, winsound.SND_ALIAS | winsound.SND_ASYNC)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"Failed to play sound: {exc}")
+
+    def _on_repeat_timer(self, _event: wx.TimerEvent) -> None:
+        """Repeat alarm timer fired."""
+        if self.monitor_job_active and self.repeat_alarm_checkbox.GetValue():
+            self._play_alert()
+
+    def _format_seconds(self, value: Any) -> str:
+        if not isinstance(value, (int, float)):
+            return "—"
+        total = max(0, int(round(value)))
+        hours, remainder = divmod(total, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+
+    # ------------------------------------------------------------------ Watch loop -----------------------------------------------------------
+    def _start_watch_loop(self) -> None:
+        if self._watcher:
+            return
+
+        def starter():
+            try:
+                watcher = mtgo_bridge.start_watch(interval_ms=self.WATCH_INTERVAL_MS)
+            except FileNotFoundError as exc:
+                wx.CallAfter(
+                    self._set_status,
+                    "Bridge missing. Build the MTGO bridge executable.",
+                )
+                logger.error("Bridge executable not found: %s", exc)
+                wx.CallLater(5000, self._start_watch_loop)
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Unable to start bridge watcher")
+                wx.CallAfter(self._set_status, f"Bridge error: {exc}")
+                wx.CallLater(5000, self._start_watch_loop)
+                return
+            self._watcher = watcher
+            wx.CallAfter(self._watch_timer.Start, self.WATCH_INTERVAL_MS)
+
+        threading.Thread(target=starter, daemon=True).start()
+
+    def _on_watch_timer(self, _event: wx.TimerEvent) -> None:
+        if not self._watcher:
+            return
+        payload = self._watcher.latest()
+        if not payload:
+            return
+        self._last_snapshot = payload
+        self._update_challenge_display(payload)
+
+    def _on_monitor_timer(self, _event: wx.TimerEvent) -> None:
+        self._monitor_timer_step()
+
+    # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
+    def _set_status(self, message: str) -> None:
+        self.status_text.ChangeValue(message)
+
+    def _update_challenge_display(self, snapshot: Dict[str, Any]) -> None:
+        if not self.challenge_text:
+            return
+        timers = snapshot.get("challengeTimers") or []
+        if not timers:
+            self.challenge_text.SetLabel("No active challenge timer detected.")
+            self.challenge_text.Wrap(self._challenge_wrap_width())
+            return
+        lines: List[str] = []
+        for timer in timers:
+            desc = timer.get("description") or timer.get("eventId") or "Challenge"
+            state = timer.get("state") or "Unknown"
+            remaining = timer.get("remainingSeconds")
+            remaining_display = self._format_seconds(remaining)
+            fmt = timer.get("format")
+            line = desc
+            if fmt and fmt.lower() != "no format found":
+                line += f" • {fmt}"
+            line += f" ({state}) — {remaining_display}"
+            lines.append(line)
+        self.challenge_text.SetLabel("\n".join(lines))
+        self.challenge_text.Wrap(self._challenge_wrap_width())
+
+    def _challenge_wrap_width(self) -> int:
+        if not self.challenge_text:
+            return 340
+        parent = self.challenge_text.GetParent()
+        width = parent.GetClientSize().width if parent else 0
+        return max(240, width - 24)
+
+    def _on_resize(self, event: wx.Event) -> None:
+        if self.challenge_text:
+            self.challenge_text.Wrap(self._challenge_wrap_width())
+        event.Skip()
+
+    # ------------------------------------------------------------------ Lifecycle -------------------------------------------------------------
+    def on_close(self, event: wx.CloseEvent) -> None:
+        if self._watch_timer.IsRunning():
+            self._watch_timer.Stop()
+        if self._monitor_timer.IsRunning():
+            self._monitor_timer.Stop()
+        if self._repeat_timer.IsRunning():
+            self._repeat_timer.Stop()
+        if self._watcher:
+            try:
+                self._watcher.stop()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"Failed to stop bridge watcher: {exc}")
+            self._watcher = None
+        event.Skip()
+
+
+__all__ = ["TimerAlertFrame"]

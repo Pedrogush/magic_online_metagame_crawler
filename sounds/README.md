@@ -31,7 +31,7 @@ To add custom alert sounds in the future:
    - `alert_urgent.wav`
    - `timer_beep.wav`
 
-4. **Update code** in `widgets/timer_alert_wx.py`:
+4. **Update code** in `widgets/timer_alert.py`:
    ```python
    SOUND_OPTIONS = {
        "Beep": "SystemAsterisk",

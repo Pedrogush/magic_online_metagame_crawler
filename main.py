@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""MTG Deck Builder entry point."""
+"""wxPython entry point that launches the deck builder directly."""
 
-import tkinter as tk
+from __future__ import annotations
+
+import wx
 from loguru import logger
 
-from widgets.deck_selector import MTGDeckSelectionWidget
+from widgets.deck_selector import MTGDeckSelectionFrame
+
+
+class MetagameWxApp(wx.App):
+    """Bootstrap the redesigned deck builder."""
+
+    def OnInit(self) -> bool:  # noqa: N802 - wx override
+        logger.info("Starting MTGO Metagame Deck Builder (wx)")
+        frame = MTGDeckSelectionFrame(None)
+        frame.Show()
+        self.SetTopWindow(frame)
+        wx.CallAfter(frame.ensure_card_data_loaded)
+        return True
 
 
 def main() -> None:
-    logger.info("Starting MTG Deck Builder")
-    root = tk.Tk()
-    app = MTGDeckSelectionWidget(root)
-    try:
-        app.ensure_card_data_loaded()
-    except Exception as exc:  # graceful fallback if preload fails
-        logger.warning(f"Unable to preload card data: {exc}")
-    root.mainloop()
+    app = MetagameWxApp(False)
+    app.MainLoop()
 
 
 if __name__ == "__main__":
