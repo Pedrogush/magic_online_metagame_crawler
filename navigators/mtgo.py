@@ -1,10 +1,11 @@
+import json
 from pathlib import Path
 
-from pynput import mouse
+import pyautogui
 from loguru import logger
 from PIL import Image, ImageDraw
-import pyautogui
-import json
+from pynput import mouse
+
 from utils.paths import LEADERBOARD_POSITIONS_FILE
 
 LEGACY_LEADERBOARD_POSITIONS = Path("leaderboard_positions.json")

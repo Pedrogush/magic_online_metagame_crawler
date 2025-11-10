@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import urllib.request
 import zipfile
 from pathlib import Path
+
+import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR_ROOT = ROOT / "vendor" / "mtgosdk"
@@ -18,8 +19,9 @@ PACKAGES = ["MTGOSDK", "MTGOSDK.Win32"]
 
 def fetch_latest_version(package: str) -> str:
     index_url = f"https://api.nuget.org/v3-flatcontainer/{package.lower()}/index.json"
-    with urllib.request.urlopen(index_url) as resp:
-        data = json.load(resp)
+    resp = requests.get(index_url, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
     versions = data.get("versions")
     if not versions:
         raise RuntimeError(f"No versions found for {package}")
@@ -32,8 +34,9 @@ def download_package(package: str, version: str, target: Path) -> Path:
     download_url = (
         f"https://api.nuget.org/v3-flatcontainer/{package.lower()}/{version}/{package.lower()}.{version}.nupkg"
     )
-    with urllib.request.urlopen(download_url) as resp, open(filename, "wb") as fh:
-        shutil.copyfileobj(resp, fh)
+    resp = requests.get(download_url, timeout=30)
+    resp.raise_for_status()
+    filename.write_bytes(resp.content)
     return filename
 
 
@@ -52,14 +55,19 @@ def copy_license_files(source_root: Path) -> None:
             shutil.copy(src, VENDOR_ROOT / name)
             return
     # fallback: download from upstream repo
-    urllib.request.urlretrieve(
+    license_resp = requests.get(
         "https://raw.githubusercontent.com/videre-project/MTGOSDK/main/LICENSE",
-        VENDOR_ROOT / "LICENSE",
+        timeout=30,
     )
-    urllib.request.urlretrieve(
+    license_resp.raise_for_status()
+    (VENDOR_ROOT / "LICENSE").write_bytes(license_resp.content)
+
+    notice_resp = requests.get(
         "https://raw.githubusercontent.com/videre-project/MTGOSDK/main/NOTICE",
-        VENDOR_ROOT / "NOTICE",
+        timeout=30,
     )
+    notice_resp.raise_for_status()
+    (VENDOR_ROOT / "NOTICE").write_bytes(notice_resp.content)
 
 
 def update_sources_json(version: str, commit: str | None) -> None:

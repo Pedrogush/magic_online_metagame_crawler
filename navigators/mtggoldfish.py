@@ -1,19 +1,20 @@
-from pathlib import Path
-
-from curl_cffi import requests
-import bs4
 import json
-import time
 import re
-from urllib.parse import unquote
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
+from urllib.parse import unquote
+
+import bs4
+from curl_cffi import requests
 from loguru import logger
+
 from utils.paths import (
-    CONFIG_DIR,
     ARCHETYPE_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
-    DECK_CACHE_FILE,
+    CONFIG_DIR,
     CURR_DECK_FILE,
+    DECK_CACHE_FILE,
 )
 
 LEGACY_ARCHETYPE_CACHE_FILE = Path("archetype_cache.json")
