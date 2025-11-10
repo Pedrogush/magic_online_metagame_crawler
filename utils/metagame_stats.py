@@ -15,6 +15,13 @@ from navigators.mtgo_decklists import fetch_decklist_index, fetch_deck_event
 from utils.archetype_classifier import ArchetypeClassifier
 from utils.paths import MTGO_DECK_CACHE_FILE
 
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc
+
+_FILTER_TOLERANCE = timedelta(seconds=5)
+
 
 def _load_cache() -> dict[str, Any]:
     if not MTGO_DECK_CACHE_FILE.exists():
@@ -212,7 +219,7 @@ def _filter_decks(
 ) -> list[dict[str, Any]]:
     cutoff = None
     if days is not None:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
     filtered: list[dict[str, Any]] = []
     for deck in decks:
@@ -222,7 +229,7 @@ def _filter_decks(
             continue
         if cutoff:
             publish = _parse_iso(deck.get("publish_date"))
-            if not publish or publish < cutoff:
+            if not publish or publish + _FILTER_TOLERANCE < cutoff:
                 continue
         filtered.append(deck)
     return filtered

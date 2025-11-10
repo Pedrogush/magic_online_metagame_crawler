@@ -254,8 +254,15 @@ def normalize(text: str) -> str:
 
 
 class FormatLoader:
+    FALLBACK_VENDOR_ROOT = Path(__file__).resolve().parent.parent / "resources" / "mtgo_format_data"
+
     def __init__(self, vendor_root: Path) -> None:
-        self.vendor_root = vendor_root
+        if vendor_root.exists():
+            self.vendor_root = vendor_root
+        elif self.FALLBACK_VENDOR_ROOT.exists():
+            self.vendor_root = self.FALLBACK_VENDOR_ROOT
+        else:
+            raise FileNotFoundError(f"MTGO format data not found at {vendor_root}")
         self._index = self._discover_formats()
         self._cache: dict[str, FormatBundle] = {}
 

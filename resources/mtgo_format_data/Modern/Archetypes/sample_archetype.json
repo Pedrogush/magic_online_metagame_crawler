@@ -1,0 +1,10 @@
+{
+  "Name": "Sample Modern",
+  "Conditions": [
+    {
+      "Type": "OneOrMoreInMainboard",
+      "Cards": ["Mountain", "Lightning Bolt"]
+    }
+  ],
+  "Variants": []
+}

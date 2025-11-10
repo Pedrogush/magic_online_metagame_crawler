@@ -1,0 +1,9 @@
+{
+  "Lands": [
+    {"Name": "Mountain", "Color": "R"}
+  ],
+  "NonLands": [
+    {"Name": "Lightning Bolt", "Color": "R"},
+    {"Name": "Steam Vents", "Color": "U"}
+  ]
+}
