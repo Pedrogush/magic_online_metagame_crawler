@@ -275,7 +275,7 @@ class TestSaveToDb:
 class TestDownloadDeck:
     """Test deck downloading functionality."""
 
-    @patch("services.deck_service.download_deck")
+    @patch("services.deck_service.fetch_deck_text")
     def test_download_deck_success(self, mock_download, deck_service):
         """Test successful deck download."""
         deck_dict = {"number": "12345", "player": "Test"}
@@ -298,7 +298,7 @@ class TestDownloadDeck:
 class TestBuildDailyAverage:
     """Test daily average building functionality."""
 
-    @patch("services.deck_service.download_deck")
+    @patch("services.deck_service.fetch_deck_text")
     @patch("services.deck_service.add_dicts")
     def test_build_daily_average_multiple_decks(
         self, mock_add_dicts, mock_download, deck_service
@@ -322,7 +322,7 @@ class TestBuildDailyAverage:
         assert count == 2
         assert mock_download.call_count == 2
 
-    @patch("services.deck_service.download_deck")
+    @patch("services.deck_service.fetch_deck_text")
     def test_build_daily_average_skips_invalid_decks(
         self, mock_download, deck_service
     ):
@@ -342,7 +342,7 @@ class TestBuildDailyAverage:
         # Only 2 valid decks processed
         assert count == 2
 
-    @patch("services.deck_service.download_deck")
+    @patch("services.deck_service.fetch_deck_text")
     def test_build_daily_average_handles_download_errors(
         self, mock_download, deck_service
     ):

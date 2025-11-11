@@ -8,7 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-from navigators.mtggoldfish import download_deck, get_archetype_decks
+from navigators.mtggoldfish import fetch_deck_text, get_archetype_decks
 from utils.dbq import save_deck_to_db
 from utils.deck import add_dicts, analyze_deck, deck_to_dictionary
 
@@ -42,7 +42,7 @@ class DeckService:
             raise ValueError("Deck number not found")
 
         logger.info(f"Downloading deck {deck_num}")
-        deck_text = download_deck(deck_num)
+        deck_text = fetch_deck_text(deck_num)
         return deck_text
 
     def parse_deck(self, deck_text: str) -> dict[str, list[dict[str, Any]]]:
@@ -191,7 +191,7 @@ class DeckService:
                 if not deck_num:
                     continue
 
-                deck_text = download_deck(deck_num)
+                deck_text = fetch_deck_text(deck_num)
                 deck_dict = self.deck_to_dictionary(deck_text)
 
                 deck_buffer = add_dicts(deck_buffer, deck_dict)
