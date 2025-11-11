@@ -63,7 +63,7 @@ for candidate in bridge_candidates:
         break
 
 a = Analysis(
-    ["main_wx.py"],
+    ["main.py"],
     pathex=[str(project_root)],
     binaries=binaries,
     datas=datas,
