@@ -2,10 +2,18 @@
 
 import os
 import pathlib
+import sys
 
 block_cipher = None
 
-project_root = pathlib.Path(__file__).resolve().parents[1]
+def _spec_path() -> pathlib.Path:
+    if "__file__" in globals():
+        return pathlib.Path(__file__).resolve()
+    if sys.argv:
+        return pathlib.Path(sys.argv[0]).resolve()
+    return pathlib.Path(".").resolve()
+
+project_root = _spec_path().parents[1]
 
 def tree(src: pathlib.Path, dest: str) -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = []
