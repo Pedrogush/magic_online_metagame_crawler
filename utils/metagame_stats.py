@@ -330,10 +330,7 @@ def calculate_metagame_percentages(
     total = sum(archetype_counts.values())
     if total == 0:
         return {}
-    return {
-        archetype: (count / total) * 100
-        for archetype, count in archetype_counts.items()
-    }
+    return {archetype: (count / total) * 100 for archetype, count in archetype_counts.items()}
 
 
 def calculate_metagame_changes(

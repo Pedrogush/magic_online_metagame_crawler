@@ -2440,13 +2440,13 @@ class MTGDeckSelectionFrame(wx.Frame):
             try:
                 age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
                 if age_seconds < 86400:  # Less than 24 hours
-                    logger.info(f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)")
+                    logger.info(f"Bulk data cache is recent ({age_seconds / 3600:.1f}h old)")
                     # Still need to load into memory
                     self._load_bulk_data_into_memory()
                     return
                 else:
                     logger.info(
-                        f"Bulk data cache is stale ({age_seconds/3600:.1f}h old), updating..."
+                        f"Bulk data cache is stale ({age_seconds / 3600:.1f}h old), updating..."
                     )
                     needs_download = True
             except Exception as exc:
@@ -3433,7 +3433,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         except Exception as exc:
             logger.error(f"Failed to open metagame analysis: {exc}")
             wx.MessageBox(
-                f"Unable to open metagame analysis:\n{exc}", "Metagame Analysis", wx.OK | wx.ICON_ERROR
+                f"Unable to open metagame analysis:\n{exc}",
+                "Metagame Analysis",
+                wx.OK | wx.ICON_ERROR,
             )
 
     def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:

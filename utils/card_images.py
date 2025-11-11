@@ -310,7 +310,7 @@ class BulkImageDownloader:
         if not force and BULK_DATA_CACHE.exists():
             age = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
             if age < 86400:  # 24 hours
-                logger.info(f"Using cached bulk data ({age/3600:.1f}h old)")
+                logger.info(f"Using cached bulk data ({age / 3600:.1f}h old)")
                 return True, "Using cached bulk data"
 
         try:
@@ -324,7 +324,7 @@ class BulkImageDownloader:
                 return False, "No download URI in bulk data response"
 
             logger.info(f"Downloading bulk data from {download_uri}")
-            logger.info(f"Size: {bulk_meta.get('size', 0) / (1024*1024):.1f} MB")
+            logger.info(f"Size: {bulk_meta.get('size', 0) / (1024 * 1024):.1f} MB")
 
             # Download with progress
             resp = self.session.get(download_uri, stream=True, timeout=120)

@@ -53,10 +53,21 @@ class MetagameAnalysisFrame(wx.Frame):
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
         main_sizer.Add(toolbar, 0, wx.ALL | wx.EXPAND, 10)
 
-        toolbar.Add(wx.StaticText(panel, label="Format:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        toolbar.Add(
+            wx.StaticText(panel, label="Format:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5
+        )
         self.format_choice = wx.Choice(
             panel,
-            choices=["Modern", "Standard", "Pioneer", "Legacy", "Vintage", "Pauper", "Commander", "Historic"],
+            choices=[
+                "Modern",
+                "Standard",
+                "Pioneer",
+                "Legacy",
+                "Vintage",
+                "Pauper",
+                "Commander",
+                "Historic",
+            ],
         )
         self.format_choice.SetSelection(0)
         self.format_choice.SetBackgroundColour(DARK_ALT)
@@ -64,7 +75,12 @@ class MetagameAnalysisFrame(wx.Frame):
         self.format_choice.Bind(wx.EVT_CHOICE, self.on_format_change)
         toolbar.Add(self.format_choice, 0, wx.RIGHT, 15)
 
-        toolbar.Add(wx.StaticText(panel, label="Time Window (days):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        toolbar.Add(
+            wx.StaticText(panel, label="Time Window (days):"),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            5,
+        )
         self.days_spin = wx.SpinCtrl(panel, value="1", min=1, max=30, initial=1)
         self.days_spin.SetBackgroundColour(DARK_ALT)
         self.days_spin.SetForegroundColour(LIGHT_TEXT)
@@ -152,7 +168,9 @@ class MetagameAnalysisFrame(wx.Frame):
         if not self or not self.IsShown():
             return
         self._set_busy(False)
-        wx.MessageBox(f"Unable to load metagame data:\n{message}", "Metagame Analysis", wx.OK | wx.ICON_ERROR)
+        wx.MessageBox(
+            f"Unable to load metagame data:\n{message}", "Metagame Analysis", wx.OK | wx.ICON_ERROR
+        )
 
     def _populate_data(self, decks: list[dict[str, Any]]) -> None:
         if not self or not self.IsShown():
