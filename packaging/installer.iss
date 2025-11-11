@@ -43,9 +43,9 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 
 [Files]
 ; Main executable created by PyInstaller
-Source: "../dist/magic_online_metagame_crawler/{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "../dist/{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; All other files from PyInstaller bundle
-Source: "../dist/magic_online_metagame_crawler/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "../dist/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; .NET Bridge executable
 Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: BridgeExeExists
 ; Vendor data directories (if they exist)
