@@ -78,6 +78,13 @@ try {
             Write-Warn "Vendor update script exited with code $LASTEXITCODE"
         }
     }
+    foreach ($vendorDir in @("vendor\mtgo_format_data", "vendor\mtgo_archetype_parser", "vendor\mtgosdk")) {
+        $fullPath = Join-Path $ProjectRoot $vendorDir
+        if (-not (Test-Path $fullPath)) {
+            Write-Info "Creating missing vendor directory: $vendorDir"
+            New-Item -ItemType Directory -Force -Path $fullPath | Out-Null
+        }
+    }
 } finally {
     Pop-Location
 }
