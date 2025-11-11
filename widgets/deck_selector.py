@@ -2439,14 +2439,14 @@ class MTGDeckSelectionFrame(wx.Frame):
                 needs_download, metadata = self.image_downloader.is_bulk_data_outdated()
                 if not needs_download:
                     logger.info(
-                        "Bulk data cache is current (vendor updated_at=%s)",
-                        metadata.get("updated_at"),
+                        "Bulk data cache is current (vendor updated_at={updated})",
+                        updated=metadata.get("updated_at"),
                     )
                     self._load_bulk_data_into_memory()
                     return
                 logger.info(
-                    "Bulk data cache is stale (vendor updated_at=%s)",
-                    metadata.get("updated_at"),
+                    "Bulk data cache is stale (vendor updated_at={updated})",
+                    updated=metadata.get("updated_at"),
                 )
             except Exception as exc:
                 logger.warning(f"Failed to check bulk data metadata: {exc}")
@@ -2528,9 +2528,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.bulk_data_by_name = by_name
         self._set_status("Ready")
         logger.info(
-            "Printings index ready: %s names / %s printings",
-            stats.get("unique_names"),
-            stats.get("total_printings"),
+            "Printings index ready: {unique} names / {total} printings",
+            unique=stats.get("unique_names"),
+            total=stats.get("total_printings"),
         )
 
     def _on_bulk_data_load_failed(self, error_msg: str) -> None:

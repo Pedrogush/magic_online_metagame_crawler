@@ -627,9 +627,9 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
         with PRINTING_INDEX_CACHE.open("w", encoding="utf-8") as fh:
             json.dump(payload, fh, separators=(",", ":"))
         logger.info(
-            "Cached card printings index (%s names, %s printings)",
-            payload["unique_names"],
-            payload["total_printings"],
+            "Cached card printings index ({unique_names} names, {total_printings} printings)",
+            unique_names=payload["unique_names"],
+            total_printings=payload["total_printings"],
         )
     except Exception as exc:
         logger.warning(f"Failed to write printings index cache: {exc}")
