@@ -49,21 +49,25 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
-      - name: Publish MTGO bridge
-        run: dotnet publish dotnet/MTGOBridge/MTGOBridge.csproj -c Release -r win-x64 --self-contained false
-      - name: Build PyInstaller bundle
-        run: pyinstaller packaging/magic_online_metagame_crawler.spec --noconfirm --clean
-      - name: Compress artifact
+      - name: Install Inno Setup
         run: |
-          Compress-Archive -Path dist\magic_online_metagame_crawler\* -DestinationPath magic_online_metagame_crawler_windows.zip
-      - name: Upload artifact
+          choco install innosetup -y
+      - name: Build Windows Installer
+        run: |
+          cd packaging
+          .\build_installer.ps1
+      - name: Test Installer
+        run: |
+          cd packaging
+          .\test_installer.ps1
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: magic-online-metagame-crawler-windows
-          path: magic_online_metagame_crawler_windows.zip
+          name: windows-installer
+          path: dist/installer/*.exe
 
   build-linux:
-    name: Build Linux Bundle
+    name: Build Windows Installer (via Linux/Wine)
     runs-on: ubuntu-latest
     needs: tests
     steps:
@@ -77,12 +81,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
           pip install pyinstaller
-      - name: Build PyInstaller bundle
-        run: pyinstaller packaging/magic_online_metagame_crawler.spec --noconfirm --clean
-      - name: Archive bundle
-        run: tar -czf magic_online_metagame_crawler_linux.tar.gz -C dist magic_online_metagame_crawler
-      - name: Upload artifact
+      - name: Install Wine for Inno Setup
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo mkdir -pm755 /etc/apt/keyrings
+          sudo wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+          sudo wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/jammy/winehq-jammy.sources
+          sudo apt-get update
+          sudo apt-get install -y --install-recommends winehq-stable
+      - name: Build Windows Installer via Wine
+        run: |
+          cd packaging
+          chmod +x build_installer.sh
+          ./build_installer.sh
+      - name: Test Installer
+        run: |
+          cd packaging
+          chmod +x test_installer.sh
+          ./test_installer.sh
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: magic-online-metagame-crawler-linux
-          path: magic_online_metagame_crawler_linux.tar.gz
+          name: windows-installer-linux-build
+          path: dist/installer/*.exe

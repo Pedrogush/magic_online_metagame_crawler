@@ -14,6 +14,7 @@ trade_request.png
 __pycache__/
 *.md
 !README.md
+!packaging/README.md
 settings.local.json
 data/
 vendor/
@@ -22,5 +23,11 @@ agent*.txt
 command*.txt
 *.sln
 requirements*.txt
+!requirements-dev.txt
 collection.json
 .codex/
+
+# Installer build outputs
+dist/
+build/
+*.spec.bak

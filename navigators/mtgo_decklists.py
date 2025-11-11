@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any
+from collections.abc import Iterable
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -43,7 +44,7 @@ def _fetch_html(url: str) -> str:
     return response.text
 
 
-def _classify_event(title: str) -> Tuple[str | None, str | None]:
+def _classify_event(title: str) -> tuple[str | None, str | None]:
     title_lower = (title or "").lower()
     fmt = None
     words = title.split()
@@ -63,7 +64,7 @@ def _classify_event(title: str) -> Tuple[str | None, str | None]:
     return fmt, event_type
 
 
-def fetch_decklist_index(year: int, month: int) -> List[Dict[str, Any]]:
+def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
     """Return decklist entries for the given year/month."""
     cache = _load_cache()
     index_cache = cache.setdefault("index", {})
@@ -74,7 +75,7 @@ def fetch_decklist_index(year: int, month: int) -> List[Dict[str, Any]]:
     url = DECKLIST_INDEX_URL.format(year=year, month=month)
     html = _fetch_html(url)
     soup = BeautifulSoup(html, "html.parser")
-    entries: List[Dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for li in soup.select("li.decklists-item"):
         link = li.find("a", class_="decklists-link")
         if not link or not link.get("href"):
@@ -112,7 +113,7 @@ def fetch_decklist_index(year: int, month: int) -> List[Dict[str, Any]]:
 DETAIL_RE = re.compile(r"window\.MTGO\.decklists\.data\s*=\s*(\{.*?\});", re.DOTALL)
 
 
-def _parse_deck_event(html: str) -> Dict[str, Any]:
+def _parse_deck_event(html: str) -> dict[str, Any]:
     match = DETAIL_RE.search(html)
     if not match:
         raise ValueError("Could not locate deck JSON payload")
@@ -120,7 +121,7 @@ def _parse_deck_event(html: str) -> Dict[str, Any]:
     return payload
 
 
-def fetch_deck_event(url: str) -> Dict[str, Any]:
+def fetch_deck_event(url: str) -> dict[str, Any]:
     """Return the full deck event JSON for a decklist page."""
     cache = _load_cache()
     deck_cache = cache.setdefault("events", {})
@@ -134,7 +135,7 @@ def fetch_deck_event(url: str) -> Dict[str, Any]:
     return payload
 
 
-def iter_deck_events(entries: Iterable[Dict[str, Any]]) -> Iterable[Dict[str, Any]]:
+def iter_deck_events(entries: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
     for entry in entries:
         try:
             payload = fetch_deck_event(entry["url"])
@@ -147,13 +148,13 @@ def iter_deck_events(entries: Iterable[Dict[str, Any]]) -> Iterable[Dict[str, An
 __all__ = ["fetch_decklist_index", "fetch_deck_event", "iter_deck_events", "fetch_recent_event_history"]
 
 
-def fetch_recent_event_history(limit: int = 10) -> List[Dict[str, Any]]:
+def fetch_recent_event_history(limit: int = 10) -> list[dict[str, Any]]:
     """Return recent MTGO event results in the history format expected by the UI."""
     now = datetime.utcnow()
     entries = fetch_decklist_index(now.year, now.month)
-    history: List[Dict[str, Any]] = []
+    history: list[dict[str, Any]] = []
     for entry, payload in iter_deck_events(entries):
-        matches: List[Dict[str, Any]] = []
+        matches: list[dict[str, Any]] = []
         for deck in payload.get("decklists", []):
             player = deck.get("player") or deck.get("pilot")
             standing = deck.get("standing") or deck.get("finish") or deck.get("result")
