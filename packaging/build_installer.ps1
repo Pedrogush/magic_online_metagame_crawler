@@ -78,15 +78,19 @@ function Find-PyInstallerPath {
     param([string]$ProjectRoot)
 
     $explicit = Join-Path $ProjectRoot "env\Scripts\pyinstaller.exe"
+    Write-Info "Looking for PyInstaller at explicit path: $explicit"
     if (Test-Path $explicit) {
+        Write-Info "PyInstaller found explicitly."
         return $explicit
     }
 
     $fromEnv = Get-Command pyinstaller -ErrorAction SilentlyContinue
     if ($fromEnv) {
+        Write-Info "PyInstaller found via PATH: $($fromEnv.Path)"
         return $fromEnv.Path
     }
 
+    Write-Warn "PyInstaller not found explicitly or via PATH."
     return $null
 }
 
