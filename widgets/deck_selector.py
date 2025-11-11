@@ -452,103 +452,23 @@ class MTGDeckSelectionFrame(wx.Frame):
         deck_sizer = wx.StaticBoxSizer(deck_box, wx.VERTICAL)
         summary_column.Add(deck_sizer, 1, wx.EXPAND)
 
+        # Card Inspector Panel (replaces ~100 lines of inline UI code)
         inspector_box = wx.StaticBox(right_panel, label="Card Inspector")
         inspector_box.SetForegroundColour(LIGHT_TEXT)
         inspector_box.SetBackgroundColour(DARK_PANEL)
         inspector_sizer = wx.StaticBoxSizer(inspector_box, wx.VERTICAL)
         upper_split.Add(inspector_sizer, 2, wx.EXPAND)
 
-        inspector_content = wx.BoxSizer(wx.HORIZONTAL)
-        inspector_sizer.Add(inspector_content, 1, wx.EXPAND | wx.ALL, 6)
-
-        image_column_panel = wx.Panel(inspector_box)
-        image_column_panel.SetBackgroundColour(DARK_PANEL)
-        image_column = wx.BoxSizer(wx.VERTICAL)
-        image_column_panel.SetSizer(image_column)
-        inspector_content.Add(image_column_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
-
-        # Create the card image display widget (clean implementation)
-        self.card_image_display = CardImageDisplay(image_column_panel, width=260, height=360)
-        image_column.Add(self.card_image_display, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 4)
-
-        self.inspector_nav_panel = wx.Panel(image_column_panel)
-        self.inspector_nav_panel.SetBackgroundColour(DARK_PANEL)
-        nav_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.inspector_nav_panel.SetSizer(nav_sizer)
-
-        try:
-            nav_btn_size = self.FromDIP(wx.Size(38, 30))
-        except AttributeError:
-            nav_btn_size = wx.Size(38, 30)
-
-        self.inspector_prev_btn = wx.Button(self.inspector_nav_panel, label="◀", size=nav_btn_size)
-        stylize_button(self.inspector_prev_btn)
-        self.inspector_prev_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_prev_printing())
-        nav_sizer.Add(self.inspector_prev_btn, 0, wx.RIGHT, 4)
-
-        self.inspector_printing_label = wx.StaticText(self.inspector_nav_panel, label="")
-        self.inspector_printing_label.SetForegroundColour(SUBDUED_TEXT)
-        nav_sizer.Add(self.inspector_printing_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER)
-
-        self.inspector_next_btn = wx.Button(self.inspector_nav_panel, label="▶", size=nav_btn_size)
-        stylize_button(self.inspector_next_btn)
-        self.inspector_next_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_next_printing())
-        nav_sizer.Add(self.inspector_next_btn, 0, wx.LEFT, 4)
-
-        image_column.Add(self.inspector_nav_panel, 0, wx.EXPAND | wx.TOP, 6)
-        self.inspector_nav_panel.Hide()  # Hidden by default
-
-        inspector_details_panel = wx.Panel(inspector_box)
-        inspector_details_panel.SetBackgroundColour(DARK_PANEL)
-        inspector_details = wx.BoxSizer(wx.VERTICAL)
-        inspector_details_panel.SetSizer(inspector_details)
-        inspector_content.Add(inspector_details_panel, 1, wx.EXPAND)
-
-        self.inspector_name = wx.StaticText(
-            inspector_details_panel, label="Select a card to inspect."
+        self.card_inspector_panel = CardInspectorPanel(
+            inspector_box, card_manager=self.card_manager, mana_icons=self.mana_icons
         )
-        name_font = self.inspector_name.GetFont()
-        name_font.SetPointSize(name_font.GetPointSize() + 2)
-        name_font.MakeBold()
-        self.inspector_name.SetFont(name_font)
-        self.inspector_name.SetForegroundColour(LIGHT_TEXT)
-        inspector_details.Add(self.inspector_name, 0, wx.BOTTOM, 4)
+        inspector_sizer.Add(self.card_inspector_panel, 1, wx.EXPAND)
 
-        self.inspector_cost_container = wx.Panel(inspector_details_panel)
-        self.inspector_cost_container.SetBackgroundColour(DARK_PANEL)
-        self.inspector_cost_container.SetMinSize((-1, 36))
-        self.inspector_cost_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.inspector_cost_container.SetSizer(self.inspector_cost_sizer)
-        inspector_details.Add(self.inspector_cost_container, 0, wx.EXPAND | wx.BOTTOM, 4)
-
-        self.inspector_type = wx.StaticText(inspector_details_panel, label="")
-        self.inspector_type.SetForegroundColour(SUBDUED_TEXT)
-        inspector_details.Add(self.inspector_type, 0, wx.BOTTOM, 4)
-
-        self.inspector_stats = wx.StaticText(inspector_details_panel, label="")
-        self.inspector_stats.SetForegroundColour(LIGHT_TEXT)
-        inspector_details.Add(self.inspector_stats, 0, wx.BOTTOM, 4)
-
-        self.inspector_text = wx.TextCtrl(
-            inspector_details_panel,
-            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.NO_BORDER,
-        )
-        stylize_textctrl(self.inspector_text, multiline=True)
-        self.inspector_text.SetMinSize((-1, 120))
-        inspector_details.Add(self.inspector_text, 1, wx.EXPAND | wx.TOP, 4)
-
-        # State for managing printings
-        self.inspector_printings: list[dict[str, Any]] = []
-        self.inspector_current_printing: int = 0
-        self.inspector_current_card_name: str | None = None
+        # Keep references for backward compatibility
         self.image_cache = get_cache()
         self.image_downloader: BulkImageDownloader | None = None
-
-        # Bulk data cache - loaded once in memory for fast lookups
         self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
         self.printing_index_loading: bool = False
-
-        self._reset_card_inspector()
 
         self.deck_list = wx.ListBox(deck_box, style=wx.LB_SINGLE)
         stylize_listbox(self.deck_list)
@@ -644,81 +564,27 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.collection_status_label.SetForegroundColour(SUBDUED_TEXT)
         tables_sizer.Add(self.collection_status_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
 
-        self.stats_page = wx.Panel(self.deck_tabs)
-        self.deck_tabs.AddPage(self.stats_page, "Stats")
-        stats_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.stats_page.SetSizer(stats_sizer)
+        # Deck Stats Panel (replaces ~24 lines of inline UI code)
+        self.deck_stats_panel = DeckStatsPanel(
+            self.deck_tabs, card_manager=self.card_manager, deck_service=self.deck_service
+        )
+        self.deck_tabs.AddPage(self.deck_stats_panel, "Stats")
 
-        self.stats_summary = wx.StaticText(self.stats_page, label="No deck loaded.")
-        self.stats_summary.SetForegroundColour(LIGHT_TEXT)
-        stats_sizer.Add(self.stats_summary, 0, wx.ALL, 6)
+        # Sideboard Guide Panel (replaces ~32 lines of inline UI code)
+        self.sideboard_guide_panel = SideboardGuidePanel(
+            self.deck_tabs,
+            on_add_callback=lambda: self._on_add_guide_entry(),
+            on_edit_callback=lambda: self._on_edit_guide_entry(),
+            on_remove_callback=lambda: self._on_remove_guide_entry(),
+            on_exclusions_callback=lambda: self._on_edit_exclusions(),
+        )
+        self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
-        stats_split = wx.BoxSizer(wx.HORIZONTAL)
-        stats_sizer.Add(stats_split, 1, wx.EXPAND | wx.ALL, 6)
-
-        self.curve_list = dv.DataViewListCtrl(self.stats_page)
-        self.curve_list.AppendTextColumn("CMC", width=80)
-        self.curve_list.AppendTextColumn("Count", width=80)
-        self.curve_list.SetBackgroundColour(DARK_ALT)
-        self.curve_list.SetForegroundColour(LIGHT_TEXT)
-        stats_split.Add(self.curve_list, 0, wx.RIGHT, 12)
-
-        self.color_list = dv.DataViewListCtrl(self.stats_page)
-        self.color_list.AppendTextColumn("Color", width=120)
-        self.color_list.AppendTextColumn("Share", width=100)
-        self.color_list.SetBackgroundColour(DARK_ALT)
-        self.color_list.SetForegroundColour(LIGHT_TEXT)
-        stats_split.Add(self.color_list, 0)
-
-        self.guide_page = wx.Panel(self.deck_tabs)
-        self.deck_tabs.AddPage(self.guide_page, "Sideboard Guide")
-        guide_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.guide_page.SetSizer(guide_sizer)
-
-        self.guide_view = dv.DataViewListCtrl(self.guide_page, style=dv.DV_ROW_LINES)
-        self.guide_view.AppendTextColumn("Archetype", width=200)
-        self.guide_view.AppendTextColumn("Cards In", width=200)
-        self.guide_view.AppendTextColumn("Cards Out", width=200)
-        self.guide_view.AppendTextColumn("Notes", width=220)
-        self.guide_view.SetBackgroundColour(DARK_ALT)
-        self.guide_view.SetForegroundColour(LIGHT_TEXT)
-        guide_sizer.Add(self.guide_view, 1, wx.EXPAND | wx.ALL, 6)
-
-        guide_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        guide_sizer.Add(guide_buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-        add_guide_btn = wx.Button(self.guide_page, label="Add Entry")
-        add_guide_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_add_guide_entry())
-        guide_buttons.Add(add_guide_btn, 0, wx.RIGHT, 6)
-        edit_guide_btn = wx.Button(self.guide_page, label="Edit Entry")
-        edit_guide_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_edit_guide_entry())
-        guide_buttons.Add(edit_guide_btn, 0, wx.RIGHT, 6)
-        remove_guide_btn = wx.Button(self.guide_page, label="Remove Entry")
-        remove_guide_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_remove_guide_entry())
-        guide_buttons.Add(remove_guide_btn, 0, wx.RIGHT, 6)
-        exclusions_btn = wx.Button(self.guide_page, label="Exclude Archetypes")
-        exclusions_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_edit_exclusions())
-        guide_buttons.Add(exclusions_btn, 0)
-        guide_buttons.AddStretchSpacer(1)
-
-        self.guide_exclusions_label = wx.StaticText(self.guide_page, label="Exclusions: —")
-        self.guide_exclusions_label.SetForegroundColour(SUBDUED_TEXT)
-        guide_sizer.Add(self.guide_exclusions_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-
-        self.notes_page = wx.Panel(self.deck_tabs)
-        self.deck_tabs.AddPage(self.notes_page, "Deck Notes")
-        notes_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.notes_page.SetSizer(notes_sizer)
-
-        self.deck_notes_text = wx.TextCtrl(self.notes_page, style=wx.TE_MULTILINE)
-        stylize_textctrl(self.deck_notes_text, multiline=True)
-        notes_sizer.Add(self.deck_notes_text, 1, wx.EXPAND | wx.ALL, 6)
-
-        notes_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        notes_sizer.Add(notes_buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
-        save_notes_btn = wx.Button(self.notes_page, label="Save Notes")
-        save_notes_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._save_current_notes())
-        notes_buttons.Add(save_notes_btn, 0, wx.RIGHT, 6)
-        notes_buttons.AddStretchSpacer(1)
+        # Deck Notes Panel (replaces ~14 lines of inline UI code)
+        self.deck_notes_panel = DeckNotesPanel(
+            self.deck_tabs, on_save_callback=lambda notes: self._save_current_notes()
+        )
+        self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
 
     # ------------------------------------------------------------------ Left panel helpers -------------------------------------------------
     def _show_left_panel(self, mode: str, force: bool = False) -> None:
@@ -1457,6 +1323,8 @@ class MTGDeckSelectionFrame(wx.Frame):
         """Handle successful printings index load."""
         self.printing_index_loading = False
         self.bulk_data_by_name = by_name
+        # Update card inspector panel with bulk data
+        self.card_inspector_panel.set_bulk_data(by_name)
         self._set_status("Ready")
         logger.info(
             "Printings index ready: {unique} names / {total} printings",
@@ -1582,11 +1450,13 @@ class MTGDeckSelectionFrame(wx.Frame):
     # ------------------------------------------------------------------ Card inspector -----------------------------------------------------
     def _handle_card_focus(self, zone: str, card: dict[str, Any] | None) -> None:
         if card is None:
-            if self.active_inspector_zone == zone:
-                self._reset_card_inspector()
+            if self.card_inspector_panel.active_zone == zone:
+                self.card_inspector_panel.reset()
             return
         self._collapse_other_zone_tables(zone)
-        self._update_card_inspector(zone, card)
+        # Load metadata if possible
+        meta = self._get_card_metadata(card["name"])
+        self.card_inspector_panel.update_card(card, zone=zone, meta=meta)
 
     def _collapse_other_zone_tables(self, active_zone: str) -> None:
         tables = {
@@ -1599,217 +1469,28 @@ class MTGDeckSelectionFrame(wx.Frame):
                 continue
             table.collapse_active()
 
-    def _reset_card_inspector(self) -> None:
-        self.active_inspector_zone = None
-        self.inspector_name.SetLabel("Select a card to inspect.")
-        self.inspector_type.SetLabel("")
-        self.inspector_stats.SetLabel("")
-        self.inspector_text.ChangeValue("")
-        self._render_inspector_cost("")
-        # Show placeholder with new widget
-        self.card_image_display.show_placeholder("Select a card")
-        self.inspector_nav_panel.Hide()
-        self.inspector_printings = []
-        self.inspector_current_printing = 0
-        self.inspector_current_card_name = None
-
     def _get_card_metadata(self, card_name: str) -> dict[str, Any] | None:
         """Get card metadata from the card manager if available."""
         if not self.card_manager:
             return None
         return self.card_manager.get_card(card_name)
 
-    def _update_card_inspector(
-        self, zone: str | None, card: dict[str, Any], meta: dict[str, Any] | None = None
-    ) -> None:
-        self.active_inspector_zone = zone
-        zone_title = ZONE_TITLES.get(zone, zone.title()) if zone else "Card Search"
-        header = f"{card['name']}  ×{card['qty']}  ({zone_title})"
-        self.inspector_name.SetLabel(header)
-        meta = meta or self._get_card_metadata(card["name"]) or {}
-        mana_cost = meta.get("mana_cost") or ""
-        self._render_inspector_cost(mana_cost)
-        type_line = meta.get("type_line") or "Type data unavailable."
-        self.inspector_type.SetLabel(type_line)
-        stats_bits: list[str] = []
-        if meta.get("mana_value") is not None:
-            stats_bits.append(f"MV {meta['mana_value']}")
-        if meta.get("power") or meta.get("toughness"):
-            stats_bits.append(f"P/T {meta.get('power', '?')}/{meta.get('toughness', '?')}")
-        if meta.get("loyalty"):
-            stats_bits.append(f"Loyalty {meta['loyalty']}")
-        colors = meta.get("color_identity") or []
-        stats_bits.append(f"Colors: {'/'.join(colors) if colors else 'Colorless'}")
-        stats_bits.append(f"Zone: {zone_title}")
-        self.inspector_stats.SetLabel("  |  ".join(stats_bits))
-        oracle_text = meta.get("oracle_text") or "No rules text available."
-        self.inspector_text.ChangeValue(oracle_text)
-
-        # Load card image and printings
-        self._load_card_image_and_printings(card["name"])
-
-    def _render_inspector_cost(self, mana_cost: str) -> None:
-        self.inspector_cost_sizer.Clear(delete_windows=True)
-        if mana_cost:
-            panel = self.mana_icons.render(self.inspector_cost_container, mana_cost)
-            panel.SetMinSize((max(32, panel.GetBestSize().width), 32))
-        else:
-            panel = wx.StaticText(self.inspector_cost_container, label="—")
-            panel.SetForegroundColour(SUBDUED_TEXT)
-        self.inspector_cost_sizer.Add(panel, 0)
-        self.inspector_cost_container.Layout()
-
-    def _load_card_image_and_printings(self, card_name: str) -> None:
-        """Load card image and populate printings list (uses in-memory cache)."""
-        self.inspector_current_card_name = card_name
-        self.inspector_printings = []
-        self.inspector_current_printing = 0
-
-        # Query in-memory bulk data for all printings of this card (non-blocking)
-        if self.bulk_data_by_name:
-            # Fast O(1) lookup from pre-indexed dictionary
-            printings = self.bulk_data_by_name.get(card_name.lower(), [])
-            self.inspector_printings = printings
-        elif BULK_DATA_CACHE.exists():
-            # Fallback: bulk data not loaded yet, show placeholder
-            logger.debug(f"Bulk data not loaded yet for {card_name}, showing placeholder")
-
-        # Try to load an image
-        self._load_current_printing_image()
-
-    def _load_current_printing_image(self) -> None:
-        """Load and display the current printing's image."""
-        if not self.inspector_printings:
-            # No printings found, try to load any cached image for this card name
-            image_path = get_card_image(self.inspector_current_card_name, "normal")
-            exists = image_path.exists() if image_path else False
-            if image_path:
-                self.card_image_display.show_image(image_path)
-                self.inspector_nav_panel.Hide()
-            else:
-                # No image available, show placeholder
-                self.card_image_display.show_placeholder("Not cached")
-                self.inspector_nav_panel.Hide()
-            return
-
-        # Get current printing
-        printing = self.inspector_printings[self.inspector_current_printing]
-        uuid = printing.get("id")
-        # Try to load from cache
-        image_path = self.image_cache.get_image_by_uuid(uuid, "normal")
-
-        if image_path:
-            self.card_image_display.show_image(image_path)
-        else:
-            # Image not cached, show placeholder
-            self.card_image_display.show_placeholder("Not cached")
-
-        # Update navigation controls
-        if len(self.inspector_printings) > 1:
-            set_code = printing.get("set", "").upper()
-            set_name = printing.get("set_name", "")
-            printing_info = (
-                f"{self.inspector_current_printing + 1} of {len(self.inspector_printings)}"
-            )
-            if set_code:
-                printing_info += f" - {set_code}"
-            if set_name:
-                printing_info += f" ({set_name})"
-            self.inspector_printing_label.SetLabel(printing_info)
-            self.inspector_prev_btn.Enable(self.inspector_current_printing > 0)
-            self.inspector_next_btn.Enable(
-                self.inspector_current_printing < len(self.inspector_printings) - 1
-            )
-            self.inspector_nav_panel.Show()
-        else:
-            self.inspector_nav_panel.Hide()
-
-    def _on_prev_printing(self) -> None:
-        """Navigate to previous printing."""
-        if self.inspector_current_printing > 0:
-            self.inspector_current_printing -= 1
-            self._load_current_printing_image()
-
-    def _on_next_printing(self) -> None:
-        """Navigate to next printing."""
-        if self.inspector_current_printing < len(self.inspector_printings) - 1:
-            self.inspector_current_printing += 1
-            self._load_current_printing_image()
-
     # ------------------------------------------------------------------ Stats + notes --------------------------------------------------------
     def _update_stats(self, deck_text: str) -> None:
-        if not deck_text.strip():
-            self.stats_summary.SetLabel("No deck loaded.")
-            self.curve_list.DeleteAllItems()
-            self.color_list.DeleteAllItems()
-            return
-        stats = self.deck_service.analyze_deck(deck_text)
-        summary = (
-            f"Mainboard: {stats['mainboard_count']} cards ({stats['unique_mainboard']} unique)  |  "
-            f"Sideboard: {stats['sideboard_count']} cards ({stats['unique_sideboard']} unique)  |  "
-            f"Estimated lands: {stats['estimated_lands']}"
-        )
-        self.stats_summary.SetLabel(summary)
-        self._render_curve()
-        self._render_color_concentration()
-
-    def _render_curve(self) -> None:
-        self.curve_list.DeleteAllItems()
-        if not self.card_manager:
-            return
-        counts: Counter[str] = Counter()
-        for entry in self.zone_cards.get("main", []):
-            meta = self.card_manager.get_card(entry["name"])
-            mana_value = meta.get("mana_value") if meta else None
-            bucket: str
-            if isinstance(mana_value, (int, float)):
-                value = int(mana_value)
-                bucket = "7+" if value >= 7 else str(value)
-            else:
-                bucket = "X"
-            counts[bucket] += entry["qty"]
-
-        def curve_key(bucket: str) -> int:
-            if bucket == "X":
-                return 99
-            if bucket.endswith("+") and bucket[:-1].isdigit():
-                return int(bucket[:-1]) + 10
-            if bucket.isdigit():
-                return int(bucket)
-            return 98
-
-        for bucket in sorted(counts.keys(), key=curve_key):
-            self.curve_list.AppendItem([bucket, str(counts[bucket])])
-
-    def _render_color_concentration(self) -> None:
-        self.color_list.DeleteAllItems()
-        if not self.card_manager:
-            return
-        totals: Counter[str] = Counter()
-        for entry in self.zone_cards.get("main", []):
-            meta = self.card_manager.get_card(entry["name"])
-            identity = meta.get("color_identity") if meta else []
-            if not identity:
-                totals["Colorless"] += entry["qty"]
-            else:
-                for color in identity:
-                    totals[color.upper()] += entry["qty"]
-        grand_total = sum(totals.values())
-        if not grand_total:
-            return
-        for color, count in sorted(totals.items(), key=lambda item: item[0]):
-            pct = (count / grand_total) * 100
-            label = f"{pct:.1f}% ({count})"
-            self.color_list.AppendItem([color, label])
+        """Update stats display using the DeckStatsPanel."""
+        self.deck_stats_panel.update_stats(deck_text, self.zone_cards)
 
     def _load_notes_for_current(self) -> None:
+        """Load notes for the current deck into the notes panel."""
         key = self._current_deck_key()
         note = self.deck_notes_store.get(key, "")
-        self.deck_notes_text.ChangeValue(note)
+        self.deck_notes_panel.set_notes(note)
 
     def _save_current_notes(self) -> None:
+        """Save notes from the notes panel."""
         key = self._current_deck_key()
-        self.deck_notes_store[key] = self.deck_notes_text.GetValue()
+        notes = self.deck_notes_panel.get_notes()
+        self.deck_notes_store[key] = notes
         self._save_store(NOTES_STORE, self.deck_notes_store)
         self._set_status("Deck notes saved.")
 
@@ -1831,13 +1512,15 @@ class MTGDeckSelectionFrame(wx.Frame):
         return cleaned
 
     def _load_guide_for_current(self) -> None:
+        """Load sideboard guide for the current deck into the guide panel."""
         key = self._current_deck_key()
         payload = self.guide_store.get(key) or {}
         self.sideboard_guide_entries = payload.get("entries", [])
         self.sideboard_exclusions = payload.get("exclusions", [])
-        self._refresh_guide_view()
+        self.sideboard_guide_panel.set_entries(self.sideboard_guide_entries, self.sideboard_exclusions)
 
     def _persist_guide_for_current(self) -> None:
+        """Save sideboard guide from the guide panel."""
         key = self._current_deck_key()
         self.guide_store[key] = {
             "entries": self.sideboard_guide_entries,
@@ -1846,23 +1529,8 @@ class MTGDeckSelectionFrame(wx.Frame):
         self._save_store(GUIDE_STORE, self.guide_store)
 
     def _refresh_guide_view(self) -> None:
-        self.guide_view.DeleteAllItems()
-        for entry in self.sideboard_guide_entries:
-            if entry.get("archetype") in self.sideboard_exclusions:
-                continue
-            self.guide_view.AppendItem(
-                [
-                    entry.get("archetype", ""),
-                    entry.get("cards_in", ""),
-                    entry.get("cards_out", ""),
-                    entry.get("notes", ""),
-                ]
-            )
-        if self.sideboard_exclusions:
-            text = ", ".join(self.sideboard_exclusions)
-        else:
-            text = "—"
-        self.guide_exclusions_label.SetLabel(f"Exclusions: {text}")
+        """Refresh the guide panel display."""
+        self.sideboard_guide_panel.set_entries(self.sideboard_guide_entries, self.sideboard_exclusions)
 
     def _on_add_guide_entry(self) -> None:
         names = [item.get("name", "") for item in self.archetypes]
@@ -1876,13 +1544,13 @@ class MTGDeckSelectionFrame(wx.Frame):
         dlg.Destroy()
 
     def _on_edit_guide_entry(self) -> None:
-        item = self.guide_view.GetSelection()
-        if not item.IsOk():
+        """Handle editing a sideboard guide entry."""
+        index = self.sideboard_guide_panel.get_selected_index()
+        if index is None:
             wx.MessageBox(
                 "Select an entry to edit.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
             )
             return
-        index = self.guide_view.ItemToRow(item)
         data = self.sideboard_guide_entries[index]
         names = [item.get("name", "") for item in self.archetypes]
         dlg = GuideEntryDialog(self, names, data=data)
@@ -1895,13 +1563,13 @@ class MTGDeckSelectionFrame(wx.Frame):
         dlg.Destroy()
 
     def _on_remove_guide_entry(self) -> None:
-        item = self.guide_view.GetSelection()
-        if not item.IsOk():
+        """Handle removing a sideboard guide entry."""
+        index = self.sideboard_guide_panel.get_selected_index()
+        if index is None:
             wx.MessageBox(
                 "Select an entry to remove.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
             )
             return
-        index = self.guide_view.ItemToRow(item)
         del self.sideboard_guide_entries[index]
         self._persist_guide_for_current()
         self._refresh_guide_view()
@@ -2007,6 +1675,9 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         def on_success(manager: CardDataManager):
             self.card_manager = manager
+            # Update panels with card manager
+            self.card_inspector_panel.set_card_manager(manager)
+            self.deck_stats_panel.set_card_manager(manager)
             self.card_data_loading = False
             self.card_data_ready = True
             self._set_status("Card database loaded")
