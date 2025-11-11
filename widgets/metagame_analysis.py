@@ -266,6 +266,7 @@ class MetagameAnalysisFrame(wx.Frame):
         self.ax.clear()
 
         if not self.current_data or sum(self.current_data.values()) == 0:
+            self.ax.axis("off")
             self.ax.text(
                 0.5,
                 0.5,
