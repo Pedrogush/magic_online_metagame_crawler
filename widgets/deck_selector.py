@@ -2660,10 +2660,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             "Preparing download...",
             maximum=max_value,
             parent=self,
-            style=wx.PD_AUTO_HIDE
-            | wx.PD_CAN_ABORT
-            | wx.PD_ELAPSED_TIME
-            | wx.PD_REMAINING_TIME,
+            style=wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT | wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME,
         )
 
         # Track cancellation
