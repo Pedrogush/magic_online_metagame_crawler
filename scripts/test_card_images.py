@@ -25,14 +25,15 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from loguru import logger
+
 from utils.card_images import (
+    BulkImageDownloader,
     download_bulk_images,
     get_cache,
     get_cache_stats,
     get_card_image,
-    BulkImageDownloader,
 )
-from loguru import logger
 
 
 def test_metadata_download():

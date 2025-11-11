@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import time
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from loguru import logger
 
-from navigators.mtgo_decklists import fetch_decklist_index, fetch_deck_event
+from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
 from utils.archetype_classifier import ArchetypeClassifier
 from utils.paths import MTGO_DECK_CACHE_FILE
 
@@ -52,7 +53,7 @@ def update_mtgo_deck_cache(
     max_events: int = 40,
 ) -> list[dict[str, Any]]:
     """Fetch recent MTGO decklists from mtgo.com and cache them locally."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(days=days)
 
     cache = _load_cache()
@@ -94,7 +95,7 @@ def update_mtgo_deck_cache(
             if not publish_date:
                 continue
             if publish_date.tzinfo is None:
-                publish_date = publish_date.replace(tzinfo=timezone.utc)
+                publish_date = publish_date.replace(tzinfo=UTC)
             if not (start <= publish_date <= now):
                 continue
             url = entry.get("url")
@@ -130,7 +131,7 @@ def update_mtgo_deck_cache(
                 continue
             publish_date = _parse_iso(entry.get("publish_date")) or now
             if publish_date.tzinfo is None:
-                publish_date = publish_date.replace(tzinfo=timezone.utc)
+                publish_date = publish_date.replace(tzinfo=UTC)
             event_name = payload.get("name") or entry.get("title")
             decks = payload.get("decklists", [])
             for deck in decks:
@@ -212,7 +213,7 @@ def _filter_decks(
 ) -> list[dict[str, Any]]:
     cutoff = None
     if days is not None:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
 
     filtered: list[dict[str, Any]] = []
     for deck in decks:

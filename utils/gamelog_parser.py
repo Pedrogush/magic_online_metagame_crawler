@@ -13,17 +13,17 @@ Key modifications:
 - Added support for locating log files via MTGOSDK
 """
 
-import re
-import os
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple
-from pathlib import Path
-from loguru import logger
 import json
+import os
+import re
 import subprocess
+from datetime import datetime
+from pathlib import Path
+
+from loguru import logger
 
 
-def get_current_username() -> Optional[str]:
+def get_current_username() -> str | None:
     """
     Get current MTGO username via bridge.
 
@@ -57,7 +57,7 @@ def get_current_username() -> Optional[str]:
     return None
 
 
-def detect_format_from_cards(cards: List[str]) -> str:
+def detect_format_from_cards(cards: list[str]) -> str:
     """
     Attempt to detect format from card list.
 
@@ -102,7 +102,7 @@ def detect_format_from_cards(cards: List[str]) -> str:
     return "Unknown"
 
 
-def detect_archetype(cards: List[str]) -> str:
+def detect_archetype(cards: list[str]) -> str:
     """
     Detect deck archetype from card list.
 
@@ -166,15 +166,15 @@ def detect_archetype(cards: List[str]) -> str:
         return "Midrange"
 
 
-def locate_gamelog_directory_via_bridge() -> Optional[str]:
+def locate_gamelog_directory_via_bridge() -> str | None:
     """
     Use MTGOBridge to locate GameLog files through MTGOSDK.
 
     Returns:
         Path to GameLog directory if found, None otherwise
     """
-    import subprocess
     import json
+    import subprocess
     try:
         from utils.config import CONFIG
     except ImportError:
@@ -202,7 +202,7 @@ def locate_gamelog_directory_via_bridge() -> Optional[str]:
     return None
 
 
-def locate_gamelog_directory_fallback() -> Optional[str]:
+def locate_gamelog_directory_fallback() -> str | None:
     """
     Try common MTGO log file locations as fallback.
 
@@ -216,9 +216,9 @@ def locate_gamelog_directory_fallback() -> Optional[str]:
         # ClickOnce deployment (most common)
         rf"C:\Users\{username}\AppData\Local\Apps\2.0",
         # Steam version
-        rf"C:\Program Files (x86)\Steam\steamapps\common\Magic The Gathering Online\MTGO",
+        r"C:\Program Files (x86)\Steam\steamapps\common\Magic The Gathering Online\MTGO",
         # Direct install
-        rf"C:\Program Files (x86)\Wizards of the Coast\Magic Online",
+        r"C:\Program Files (x86)\Wizards of the Coast\Magic Online",
     ]
 
     for base_path in potential_paths:
@@ -227,7 +227,7 @@ def locate_gamelog_directory_fallback() -> Optional[str]:
 
         # For ClickOnce deployment, need to search subdirectories
         if "AppData\\Local\\Apps" in base_path:
-            for root, dirs, files in os.walk(base_path):
+            for root, dirs, _files in os.walk(base_path):
                 if "GameLogs" in dirs:
                     gamelog_path = os.path.join(root, "GameLogs")
                     # Verify it contains actual log files
@@ -242,7 +242,7 @@ def locate_gamelog_directory_fallback() -> Optional[str]:
     return None
 
 
-def locate_gamelog_directory() -> Optional[str]:
+def locate_gamelog_directory() -> str | None:
     """
     Locate MTGO GameLog directory.
 
@@ -269,7 +269,7 @@ def locate_gamelog_directory() -> Optional[str]:
     return None
 
 
-def extract_players(content: str) -> List[str]:
+def extract_players(content: str) -> list[str]:
     """
     Extract player names from log content.
 
@@ -361,7 +361,7 @@ def parse_timestamp(timestamp_str: str, file_path: str = None) -> datetime:
         return datetime.now()
 
 
-def determine_winner(content: str, players: List[str]) -> Optional[str]:
+def determine_winner(content: str, players: list[str]) -> str | None:
     """
     Determine match winner from log content.
 
@@ -436,7 +436,7 @@ def determine_winner(content: str, players: List[str]) -> Optional[str]:
     return None
 
 
-def extract_cards_played(content: str, player_name: str) -> List[str]:
+def extract_cards_played(content: str, player_name: str) -> list[str]:
     """
     Extract all unique cards played by a specific player.
 
@@ -461,10 +461,10 @@ def extract_cards_played(content: str, player_name: str) -> List[str]:
             for card in card_matches:
                 cards.add(card)
 
-    return sorted(list(cards))
+    return sorted(cards)
 
 
-def parse_mulligan_data(content: str) -> Dict[str, List[int]]:
+def parse_mulligan_data(content: str) -> dict[str, list[int]]:
     """
     Extract mulligan data per player per game.
 
@@ -511,7 +511,7 @@ def parse_mulligan_data(content: str) -> Dict[str, List[int]]:
     return result
 
 
-def parse_match_score(content: str) -> Optional[Tuple[str, int, int]]:
+def parse_match_score(content: str) -> tuple[str, int, int] | None:
     """
     Parse final match score from log.
 
@@ -542,7 +542,7 @@ def parse_match_score(content: str) -> Optional[Tuple[str, int, int]]:
     return None
 
 
-def parse_game_results(content: str) -> List[Dict[str, str]]:
+def parse_game_results(content: str) -> list[dict[str, str]]:
     """
     Parse individual game results from match.
 
@@ -591,7 +591,7 @@ def parse_game_results(content: str) -> List[Dict[str, str]]:
     return games
 
 
-def parse_gamelog_file(file_path: str) -> Optional[Dict]:
+def parse_gamelog_file(file_path: str) -> dict | None:
     """
     Parse a single GameLog file with enhanced data extraction.
 
@@ -602,7 +602,7 @@ def parse_gamelog_file(file_path: str) -> Optional[Dict]:
         Dict with comprehensive match data or None if parsing fails
     """
     try:
-        with open(file_path, 'r', encoding='latin1') as f:
+        with open(file_path, encoding='latin1') as f:
             content = f.read()
 
         # Extract metadata from first line (timestamp)
@@ -682,7 +682,7 @@ def parse_gamelog_file(file_path: str) -> Optional[Dict]:
         return None
 
 
-def find_gamelog_files(directory: str, since_date: Optional[datetime] = None) -> List[str]:
+def find_gamelog_files(directory: str, since_date: datetime | None = None) -> list[str]:
     """
     Find all GameLog files in directory, optionally filtered by date.
 
@@ -712,7 +712,7 @@ def find_gamelog_files(directory: str, since_date: Optional[datetime] = None) ->
     return files
 
 
-def parse_all_gamelogs(directory: str = None, limit: int = None, progress_callback=None) -> List[Dict]:
+def parse_all_gamelogs(directory: str = None, limit: int = None, progress_callback=None) -> list[dict]:
     """
     Parse all GameLog files in directory.
 

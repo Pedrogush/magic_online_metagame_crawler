@@ -10,7 +10,6 @@ Features:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 import wx
 from loguru import logger
@@ -34,14 +33,14 @@ class CardImageDisplay(wx.Panel):
         self.corner_radius = 12
 
         # Image navigation state
-        self.image_paths: List[Path] = []
+        self.image_paths: list[Path] = []
         self.current_index: int = 0
 
         # Animation state
-        self.animation_timer: Optional[wx.Timer] = None
+        self.animation_timer: wx.Timer | None = None
         self.animation_alpha: float = 0.0
-        self.animation_target_bitmap: Optional[wx.Bitmap] = None
-        self.animation_current_bitmap: Optional[wx.Bitmap] = None
+        self.animation_target_bitmap: wx.Bitmap | None = None
+        self.animation_current_bitmap: wx.Bitmap | None = None
 
         # Set panel size
         self.SetMinSize((width, height + 50))  # Extra space for buttons
@@ -107,7 +106,7 @@ class CardImageDisplay(wx.Panel):
         self._update_navigation()
         self.Refresh()
 
-    def show_images(self, image_paths: List[Path], start_index: int = 0) -> bool:
+    def show_images(self, image_paths: list[Path], start_index: int = 0) -> bool:
         """Display a list of card images with navigation.
 
         Args:

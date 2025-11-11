@@ -1,28 +1,27 @@
 import json
+import re
 import threading
 import time
 from collections import Counter
-import re
-import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 import wx
 import wx.dataview as dv
 from loguru import logger
 
-from navigators.mtggoldfish import get_archetypes, get_archetype_decks, download_deck
+from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
 from utils.card_data import CardDataManager
 from utils.card_images import (
-    get_card_image,
-    get_cache,
-    BulkImageDownloader,
-    IMAGE_CACHE_DIR,
     BULK_DATA_CACHE,
+    BulkImageDownloader,
     ensure_printing_index_cache,
+    get_cache,
+    get_card_image,
 )
-from utils.deck import add_dicts, analyze_deck, deck_to_dictionary
 from utils.dbq import save_deck_to_db
+from utils.deck import add_dicts, analyze_deck, deck_to_dictionary
 from utils.paths import (
     CACHE_DIR,
     CONFIG_FILE,
@@ -92,7 +91,7 @@ def _log_card_inspector(*parts: str) -> None:  # pragma: no cover - debug helper
     except OSError:
         pass
 
-CONFIG: Dict[str, Any] = {}
+CONFIG: dict[str, Any] = {}
 if CONFIG_FILE.exists():
     try:
         with CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
@@ -137,7 +136,7 @@ ZONE_TITLES = {
     "out": "Outboard",
 }
 
-FULL_MANA_SYMBOLS: List[str] = (
+FULL_MANA_SYMBOLS: list[str] = (
     ["W", "U", "B", "R", "G", "C", "S", "X", "Y", "Z", "∞", "½"]
     + [str(i) for i in range(0, 21)]
     + [
@@ -170,7 +169,7 @@ FULL_MANA_SYMBOLS: List[str] = (
 )
 
 
-def format_deck_name(deck: Dict[str, Any]) -> str:
+def format_deck_name(deck: dict[str, Any]) -> str:
     """Compose a compact deck line for list display."""
     date = deck.get("date", "")
     player = deck.get("player", "")
@@ -186,8 +185,8 @@ class _Worker:
         self,
         func: Callable,
         *args,
-        on_success: Optional[Callable] = None,
-        on_error: Optional[Callable] = None,
+        on_success: Callable | None = None,
+        on_error: Callable | None = None,
     ) -> None:
         self.func = func
         self.args = args
@@ -223,7 +222,7 @@ class ManaIconFactory:
     _FONT_NAME = "Mana"
 
     def __init__(self) -> None:
-        self._cache: Dict[str, wx.Bitmap] = {}
+        self._cache: dict[str, wx.Bitmap] = {}
         self._glyph_map, self._color_map = self._load_css_resources()
         self._ensure_font_loaded()
 
@@ -252,8 +251,8 @@ class ManaIconFactory:
             token = token[1:-1]
         return self._get_bitmap(token or "")
 
-    def _tokenize(self, cost: str) -> List[str]:
-        tokens: List[str] = []
+    def _tokenize(self, cost: str) -> list[str]:
+        tokens: list[str] = []
         if not cost:
             return tokens
         parts = cost.replace("}", "").split("{")
@@ -269,7 +268,7 @@ class ManaIconFactory:
             return self._cache[symbol]
         key = self._normalize_symbol(symbol)
         components = self._hybrid_components(key)
-        second_color: Optional[tuple[int, int, int]] = None
+        second_color: tuple[int, int, int] | None = None
         glyph = self._glyph_map.get(key or "") if not components else ""
         _log_mana_event("_get_bitmap", f"symbol={symbol}", f"key={key}", f"glyph={'yes' if glyph else 'no'}", f"components={components}")
         scale = 3
@@ -330,7 +329,7 @@ class ManaIconFactory:
         cx: int,
         cy: int,
         radius: int,
-        key: Optional[str],
+        key: str | None,
         font: wx.Font,
         text_color: wx.Colour,
         outline: bool = True,
@@ -353,7 +352,7 @@ class ManaIconFactory:
         cx: int,
         cy: int,
         radius: int,
-        components: List[str],
+        components: list[str],
     ) -> tuple[int, int, int]:
         rect = (cx - radius, cy - radius, radius * 2, radius * 2)
         base = self._color_for_key(components[0])
@@ -370,7 +369,7 @@ class ManaIconFactory:
         cx: int,
         cy: int,
         radius: int,
-        components: List[str],
+        components: list[str],
         font: wx.Font,
         text_color: wx.Colour,
     ) -> None:
@@ -424,7 +423,7 @@ class ManaIconFactory:
         except Exception:
             return font
 
-    def _glyph_fallback(self, key: Optional[str]) -> str:
+    def _glyph_fallback(self, key: str | None) -> str:
         if not key:
             return ""
         glyph = self._glyph_map.get(key)
@@ -446,7 +445,7 @@ class ManaIconFactory:
         _log_mana_event("_glyph_fallback", f"key={key}", f"source=default({fallback})")
         return fallback
 
-    def _color_for_key(self, key: Optional[str]) -> tuple[int, int, int]:
+    def _color_for_key(self, key: str | None) -> tuple[int, int, int]:
         if not key:
             return self.FALLBACK_COLORS["multicolor"]
         if key in self._color_map:
@@ -463,7 +462,7 @@ class ManaIconFactory:
             return self._color_map[key[1]]
         return self.FALLBACK_COLORS["multicolor"]
 
-    def _normalize_symbol(self, symbol: str) -> Optional[str]:
+    def _normalize_symbol(self, symbol: str) -> str | None:
         token = symbol.strip().lower().replace("{", "").replace("}", "")
         if not token:
             return None
@@ -482,7 +481,7 @@ class ManaIconFactory:
         }
         return aliases.get(token, token)
 
-    def _hybrid_components(self, key: Optional[str]) -> Optional[List[str]]:
+    def _hybrid_components(self, key: str | None) -> list[str] | None:
         if not key or len(key) < 2:
             return None
         base = set("wubrg")
@@ -509,9 +508,9 @@ class ManaIconFactory:
         except Exception as exc:  # pragma: no cover
             logger.debug(f"Unable to load mana font: {exc}")
 
-    def _load_css_resources(self) -> tuple[Dict[str, str], Dict[str, tuple[int, int, int]]]:
-        glyphs: Dict[str, str] = {}
-        colors: Dict[str, tuple[int, int, int]] = {}
+    def _load_css_resources(self) -> tuple[dict[str, str], dict[str, tuple[int, int, int]]]:
+        glyphs: dict[str, str] = {}
+        colors: dict[str, tuple[int, int, int]] = {}
         css_path = Path(__file__).resolve().parents[1] / "assets" / "mana" / "css" / "mana.min.css"
         if not css_path.exists():
             return glyphs, {k: tuple(v) for k, v in self.FALLBACK_COLORS.items()}
@@ -547,13 +546,13 @@ class CardCardPanel(wx.Panel):
         self,
         parent: wx.Window,
         zone: str,
-        card: Dict[str, Any],
+        card: dict[str, Any],
         icon_factory: ManaIconFactory,
-        get_metadata: Callable[[str], Optional[Dict[str, Any]]],
+        get_metadata: Callable[[str], dict[str, Any] | None],
         owned_status: Callable[[str, int], tuple[str, wx.Colour]],
         on_delta: Callable[[str, str, int], None],
         on_remove: Callable[[str, str], None],
-        on_select: Callable[[str, Dict[str, Any], "CardCardPanel"], None],
+        on_select: Callable[[str, dict[str, Any], "CardCardPanel"], None],
     ) -> None:
         super().__init__(parent)
         self.zone = zone
@@ -624,7 +623,7 @@ class CardCardPanel(wx.Panel):
         self.Refresh()
         self.Layout()
 
-    def _bind_click_targets(self, targets: List[wx.Window]) -> None:
+    def _bind_click_targets(self, targets: list[wx.Window]) -> None:
         for target in targets:
             target.Bind(wx.EVT_LEFT_DOWN, self._handle_click)
             for child in target.GetChildren():
@@ -640,12 +639,12 @@ class CardTablePanel(wx.Panel):
         parent: wx.Window,
         zone: str,
         icon_factory: ManaIconFactory,
-        get_metadata: Callable[[str], Optional[Dict[str, Any]]],
+        get_metadata: Callable[[str], dict[str, Any] | None],
         owned_status: Callable[[str, int], tuple[str, wx.Colour]],
         on_delta: Callable[[str, str, int], None],
         on_remove: Callable[[str, str], None],
         on_add: Callable[[str], None],
-        on_select: Callable[[str, Optional[Dict[str, Any]]], None],
+        on_select: Callable[[str, dict[str, Any] | None], None],
     ) -> None:
         super().__init__(parent)
         self.zone = zone
@@ -656,10 +655,10 @@ class CardTablePanel(wx.Panel):
         self._on_remove = on_remove
         self._on_add = on_add
         self._on_select = on_select
-        self.cards: List[Dict[str, Any]] = []
-        self.card_widgets: List[CardCardPanel] = []
-        self.active_panel: Optional[CardCardPanel] = None
-        self.selected_name: Optional[str] = None
+        self.cards: list[dict[str, Any]] = []
+        self.card_widgets: list[CardCardPanel] = []
+        self.active_panel: CardCardPanel | None = None
+        self.selected_name: str | None = None
 
         self.SetBackgroundColour(DARK_PANEL)
         outer = wx.BoxSizer(wx.VERTICAL)
@@ -682,7 +681,7 @@ class CardTablePanel(wx.Panel):
         self.scroller.SetSizer(self.grid_sizer)
         outer.Add(self.scroller, 1, wx.EXPAND)
 
-    def set_cards(self, cards: List[Dict[str, Any]]) -> None:
+    def set_cards(self, cards: list[dict[str, Any]]) -> None:
         self.cards = cards
         self._rebuild_grid()
 
@@ -717,7 +716,7 @@ class CardTablePanel(wx.Panel):
         self.scroller.FitInside()
         self._restore_selection()
 
-    def _handle_card_click(self, zone: str, card: Dict[str, Any], panel: CardCardPanel) -> None:
+    def _handle_card_click(self, zone: str, card: dict[str, Any], panel: CardCardPanel) -> None:
         if self.active_panel is panel:
             return
         if self.active_panel:
@@ -755,13 +754,13 @@ class CardTablePanel(wx.Panel):
         self.active_panel = None
         self.selected_name = None
 
-    def _notify_selection(self, card: Optional[Dict[str, Any]]) -> None:
+    def _notify_selection(self, card: dict[str, Any] | None) -> None:
         if self._on_select:
             self._on_select(self.zone, card)
 
 
 class GuideEntryDialog(wx.Dialog):
-    def __init__(self, parent: wx.Window, archetype_names: List[str], data: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, parent: wx.Window, archetype_names: list[str], data: dict[str, str] | None = None) -> None:
         super().__init__(parent, title="Sideboard Guide Entry", size=(420, 360))
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -810,7 +809,7 @@ class GuideEntryDialog(wx.Dialog):
         if button_sizer:
             main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
 
-    def get_data(self) -> Dict[str, str]:
+    def get_data(self) -> dict[str, str]:
         return {
             "archetype": self.archetype_ctrl.GetValue().strip(),
             "cards_in": self.cards_in_ctrl.GetValue().strip(),
@@ -852,7 +851,7 @@ class ManaKeyboardFrame(wx.Frame):
 class MTGDeckSelectionFrame(wx.Frame):
     """wxPython-based metagame research + deck builder UI."""
 
-    def __init__(self, parent: Optional[wx.Window] = None):
+    def __init__(self, parent: wx.Window | None = None):
         super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
 
         self.settings = self._load_window_settings()
@@ -860,15 +859,15 @@ class MTGDeckSelectionFrame(wx.Frame):
         if self.current_format not in FORMAT_OPTIONS:
             self.current_format = "Modern"
 
-        self.archetypes: List[Dict[str, Any]] = []
-        self.filtered_archetypes: List[Dict[str, Any]] = []
-        self.decks: List[Dict[str, Any]] = []
-        self.current_deck: Optional[Dict[str, Any]] = None
+        self.archetypes: list[dict[str, Any]] = []
+        self.filtered_archetypes: list[dict[str, Any]] = []
+        self.decks: list[dict[str, Any]] = []
+        self.current_deck: dict[str, Any] | None = None
         self.current_deck_text: str = ""
-        self.zone_cards: Dict[str, List[Dict[str, Any]]] = {"main": [], "side": [], "out": []}
-        self.collection_inventory: Dict[str, int] = {}
-        self.collection_path: Optional[Path] = None
-        self.card_manager: Optional[CardDataManager] = None
+        self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": [], "out": []}
+        self.collection_inventory: dict[str, int] = {}
+        self.collection_path: Path | None = None
+        self.card_manager: CardDataManager | None = None
         self.card_data_loading = False
         self.card_data_ready = False
 
@@ -876,37 +875,37 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.outboard_store = self._load_store(OUTBOARD_STORE)
         self.guide_store = self._load_store(GUIDE_STORE)
 
-        self.sideboard_guide_entries: List[Dict[str, str]] = []
-        self.sideboard_exclusions: List[str] = []
-        self.active_inspector_zone: Optional[str] = None
+        self.sideboard_guide_entries: list[dict[str, str]] = []
+        self.sideboard_exclusions: list[str] = []
+        self.active_inspector_zone: str | None = None
         self.left_mode = "builder" if self.settings.get("left_mode") == "builder" else "research"
-        self.builder_results_cache: List[Dict[str, Any]] = []
-        self.builder_inputs: Dict[str, wx.TextCtrl] = {}
-        self.builder_results_ctrl: Optional[wx.ListCtrl] = None
-        self.builder_status_label: Optional[wx.StaticText] = None
-        self.builder_mana_exact_cb: Optional[wx.CheckBox] = None
-        self.builder_mv_comparator: Optional[wx.Choice] = None
-        self.builder_mv_value: Optional[wx.TextCtrl] = None
-        self.builder_format_checks: List[wx.CheckBox] = []
-        self.builder_color_checks: Dict[str, wx.CheckBox] = {}
-        self.builder_color_mode_choice: Optional[wx.Choice] = None
-        self.left_stack: Optional[wx.Simplebook] = None
-        self.research_panel: Optional[wx.Panel] = None
-        self.builder_panel: Optional[wx.Panel] = None
+        self.builder_results_cache: list[dict[str, Any]] = []
+        self.builder_inputs: dict[str, wx.TextCtrl] = {}
+        self.builder_results_ctrl: wx.ListCtrl | None = None
+        self.builder_status_label: wx.StaticText | None = None
+        self.builder_mana_exact_cb: wx.CheckBox | None = None
+        self.builder_mv_comparator: wx.Choice | None = None
+        self.builder_mv_value: wx.TextCtrl | None = None
+        self.builder_format_checks: list[wx.CheckBox] = []
+        self.builder_color_checks: dict[str, wx.CheckBox] = {}
+        self.builder_color_mode_choice: wx.Choice | None = None
+        self.left_stack: wx.Simplebook | None = None
+        self.research_panel: wx.Panel | None = None
+        self.builder_panel: wx.Panel | None = None
 
-        self.deck_buffer: Dict[str, float] = {}
+        self.deck_buffer: dict[str, float] = {}
         self.decks_added: int = 0
         self.loading_archetypes = False
         self.loading_decks = False
         self.loading_daily_average = False
 
-        self._save_timer: Optional[wx.Timer] = None
+        self._save_timer: wx.Timer | None = None
         self.mana_icons = ManaIconFactory()
-        self.tracker_window: Optional[MTGOpponentDeckSpy] = None
-        self.timer_window: Optional[TimerAlertFrame] = None
-        self.history_window: Optional[MatchHistoryFrame] = None
-        self.metagame_window: Optional[MetagameAnalysisFrame] = None
-        self.mana_keyboard_window: Optional[ManaKeyboardFrame] = None
+        self.tracker_window: MTGOpponentDeckSpy | None = None
+        self.timer_window: TimerAlertFrame | None = None
+        self.history_window: MatchHistoryFrame | None = None
+        self.metagame_window: MetagameAnalysisFrame | None = None
+        self.mana_keyboard_window: ManaKeyboardFrame | None = None
 
         self._build_ui()
         self._apply_window_preferences()
@@ -1085,14 +1084,14 @@ class MTGDeckSelectionFrame(wx.Frame):
         inspector_details.Add(self.inspector_text, 1, wx.EXPAND | wx.TOP, 4)
 
         # State for managing printings
-        self.inspector_printings: List[Dict[str, Any]] = []
+        self.inspector_printings: list[dict[str, Any]] = []
         self.inspector_current_printing: int = 0
-        self.inspector_current_card_name: Optional[str] = None
+        self.inspector_current_card_name: str | None = None
         self.image_cache = get_cache()
-        self.image_downloader: Optional[BulkImageDownloader] = None
+        self.image_downloader: BulkImageDownloader | None = None
 
         # Bulk data cache - loaded once in memory for fast lookups
-        self.bulk_data_by_name: Optional[Dict[str, List[Dict[str, Any]]]] = None
+        self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
         self.printing_index_loading: bool = False
 
         self._reset_card_inspector()
@@ -1464,7 +1463,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         return font
 
     def _create_mana_button(self, parent: wx.Window, token: str, handler: Callable[[str], None]) -> wx.Button:
-        bmp: Optional[wx.Bitmap] = None
+        bmp: wx.Bitmap | None = None
         try:
             bmp = self.mana_icons.bitmap_for_symbol(token)
         except Exception:
@@ -1504,7 +1503,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             entries = saved_zones.get(zone, [])
             if not isinstance(entries, list):
                 continue
-            sanitized: List[Dict[str, Any]] = []
+            sanitized: list[dict[str, Any]] = []
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
@@ -1593,7 +1592,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         logger.info(message)
 
     # ------------------------------------------------------------------ Window persistence ---------------------------------------------------
-    def _load_window_settings(self) -> Dict[str, Any]:
+    def _load_window_settings(self) -> dict[str, Any]:
         if not DECK_SELECTOR_SETTINGS_FILE.exists():
             return {}
         try:
@@ -1628,10 +1627,10 @@ class MTGDeckSelectionFrame(wx.Frame):
             logger.warning(f"Unable to persist deck selector settings: {exc}")
         self.settings = data
 
-    def _serialize_zone_cards(self) -> Dict[str, List[Dict[str, Any]]]:
-        serialized: Dict[str, List[Dict[str, Any]]] = {}
+    def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
+        serialized: dict[str, list[dict[str, Any]]] = {}
         for zone, cards in self.zone_cards.items():
-            cleaned: List[Dict[str, Any]] = []
+            cleaned: list[dict[str, Any]] = []
             for entry in cards:
                 name = entry.get("name")
                 qty = entry.get("qty", 0)
@@ -1726,7 +1725,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         selected_colors = [code for code, cb in self.builder_color_checks.items() if cb.IsChecked()]
         query = filters.get("name") or filters.get("text") or ""
         results = self.card_manager.search_cards(query=query, format_filter=None)
-        filtered: List[Dict[str, Any]] = []
+        filtered: list[dict[str, Any]] = []
         for card in results:
             name_lower = card.get("name_lower", "")
             if filters.get("name") and filters["name"].lower() not in name_lower:
@@ -1804,7 +1803,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         if "{" in text and "}" in text:
             return text
         upper_text = text.upper()
-        tokens: List[str] = []
+        tokens: list[str] = []
         i = 0
         length = len(upper_text)
         while i < length:
@@ -1847,8 +1846,8 @@ class MTGDeckSelectionFrame(wx.Frame):
             i += 1
         return "".join(f"{{{tok}}}" for tok in tokens if tok)
 
-    def _tokenize_mana_symbols(self, cost: str) -> List[str]:
-        tokens: List[str] = []
+    def _tokenize_mana_symbols(self, cost: str) -> list[str]:
+        tokens: list[str] = []
         if not cost:
             return tokens
         for part in cost.replace("}", "").split("{"):
@@ -1888,7 +1887,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             return value > target
         return True
 
-    def _matches_color_filter(self, card_colors: List[str], selected: List[str], mode: str) -> bool:
+    def _matches_color_filter(self, card_colors: list[str], selected: list[str], mode: str) -> bool:
         if not selected or mode == "Any":
             return True
         selected_set = {c.upper() for c in selected}
@@ -2043,7 +2042,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.guide_view.DeleteAllItems()
         self.guide_exclusions_label.SetLabel("Exclusions: —")
 
-    def _on_archetypes_loaded(self, items: List[Dict[str, Any]]) -> None:
+    def _on_archetypes_loaded(self, items: list[dict[str, Any]]) -> None:
         self.loading_archetypes = False
         self.archetypes = sorted(items, key=lambda entry: entry.get("name", "").lower())
         self.filtered_archetypes = list(self.archetypes)
@@ -2070,7 +2069,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             self.archetype_list.Append(item.get("name", "Unknown"))
         self.archetype_list.Enable()
 
-    def _load_decks_for_archetype(self, archetype: Dict[str, Any]) -> None:
+    def _load_decks_for_archetype(self, archetype: dict[str, Any]) -> None:
         if self.loading_decks:
             return
         self.loading_decks = True
@@ -2087,7 +2086,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         _Worker(loader, href, on_success=lambda decks: self._on_decks_loaded(name, decks), on_error=self._on_decks_error).start()
 
-    def _on_decks_loaded(self, archetype_name: str, decks: List[Dict[str, Any]]) -> None:
+    def _on_decks_loaded(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
         self.loading_decks = False
         self.decks = decks
         self.deck_list.Clear()
@@ -2111,8 +2110,8 @@ class MTGDeckSelectionFrame(wx.Frame):
         self._set_status(f"Error loading decks: {error}")
         wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
 
-    def _present_archetype_summary(self, archetype_name: str, decks: List[Dict[str, Any]]) -> None:
-        by_date: Dict[str, int] = {}
+    def _present_archetype_summary(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
+        by_date: dict[str, int] = {}
         for deck in decks:
             date = deck.get("date", "").lower()
             by_date[date] = by_date.get(date, 0) + 1
@@ -2126,7 +2125,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             lines.append("No recent deck activity.")
         self.summary_text.ChangeValue("\n".join(lines))
 
-    def _download_and_display_deck(self, deck: Dict[str, Any]) -> None:
+    def _download_and_display_deck(self, deck: dict[str, Any]) -> None:
         deck_number = deck.get("number")
         if not deck_number:
             wx.MessageBox("Deck identifier missing.", "Deck Error", wx.OK | wx.ICON_ERROR)
@@ -2238,6 +2237,7 @@ class MTGDeckSelectionFrame(wx.Frame):
     def _refresh_collection_inventory(self, force: bool = False) -> None:
         """Fetch collection from MTGO Bridge and export to JSON."""
         from datetime import datetime
+
         from utils import mtgo_bridge
 
         # Check if we already have a recent collection export (unless forced)
@@ -2395,7 +2395,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_bulk_data_loaded(self, by_name: Dict[str, List[Dict[str, Any]]], stats: Dict[str, Any]) -> None:
+    def _on_bulk_data_loaded(self, by_name: dict[str, list[dict[str, Any]]], stats: dict[str, Any]) -> None:
         """Handle successful printings index load."""
         self.printing_index_loading = False
         self.bulk_data_by_name = by_name
@@ -2513,7 +2513,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         dialog.Destroy()
 
-    def _start_image_download(self, size: str, max_cards: Optional[int]) -> None:
+    def _start_image_download(self, size: str, max_cards: int | None) -> None:
         """Start downloading card images with progress dialog."""
         # Create progress dialog
         max_value = max_cards if max_cards else 80000
@@ -2587,7 +2587,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             cancelled_flag[0] = True
             dialog.Destroy()
 
-    def _on_image_download_complete(self, dialog: wx.ProgressDialog, result: Dict[str, Any]):
+    def _on_image_download_complete(self, dialog: wx.ProgressDialog, result: dict[str, Any]):
         """Handle successful image download."""
         try:
             dialog.Destroy()
@@ -2623,7 +2623,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         self._set_status("Card image download cancelled")
 
-    def _get_card_metadata(self, name: str) -> Optional[Dict[str, Any]]:
+    def _get_card_metadata(self, name: str) -> dict[str, Any] | None:
         if not self.card_manager:
             return None
         return self.card_manager.get_card(name)
@@ -2714,7 +2714,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self._schedule_settings_save()
 
     # ------------------------------------------------------------------ Card inspector -----------------------------------------------------
-    def _handle_card_focus(self, zone: str, card: Optional[Dict[str, Any]]) -> None:
+    def _handle_card_focus(self, zone: str, card: dict[str, Any] | None) -> None:
         if card is None:
             if self.active_inspector_zone == zone:
                 self._reset_card_inspector()
@@ -2748,7 +2748,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.inspector_current_card_name = None
         _log_card_inspector("reset")
 
-    def _update_card_inspector(self, zone: Optional[str], card: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> None:
+    def _update_card_inspector(self, zone: str | None, card: dict[str, Any], meta: dict[str, Any] | None = None) -> None:
         self.active_inspector_zone = zone
         zone_title = ZONE_TITLES.get(zone, zone.title()) if zone else "Card Search"
         header = f"{card['name']}  ×{card['qty']}  ({zone_title})"
@@ -2758,7 +2758,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self._render_inspector_cost(mana_cost)
         type_line = meta.get("type_line") or "Type data unavailable."
         self.inspector_type.SetLabel(type_line)
-        stats_bits: List[str] = []
+        stats_bits: list[str] = []
         if meta.get("mana_value") is not None:
             stats_bits.append(f"MV {meta['mana_value']}")
         if meta.get("power") or meta.get("toughness"):
@@ -2963,10 +2963,10 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.outboard_store[key] = self.zone_cards.get("out", [])
         self._save_store(OUTBOARD_STORE, self.outboard_store)
 
-    def _load_outboard_for_current(self) -> List[Dict[str, Any]]:
+    def _load_outboard_for_current(self) -> list[dict[str, Any]]:
         key = self._current_deck_key()
         data = self.outboard_store.get(key, [])
-        cleaned: List[Dict[str, Any]] = []
+        cleaned: list[dict[str, Any]] = []
         for entry in data:
             name = entry.get("name")
             qty = int(entry.get("qty", 0))
@@ -3064,7 +3064,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         dlg.Destroy()
 
     # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
-    def _load_store(self, path: Path) -> Dict[str, Any]:
+    def _load_store(self, path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
         try:
@@ -3073,7 +3073,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             logger.warning(f"Invalid JSON at {path}; ignoring store")
             return {}
 
-    def _save_store(self, path: Path, data: Dict[str, Any]) -> None:
+    def _save_store(self, path: Path, data: dict[str, Any]) -> None:
         try:
             path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         except OSError as exc:
@@ -3099,8 +3099,8 @@ class MTGDeckSelectionFrame(wx.Frame):
             style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME,
         )
 
-        def worker(rows: List[Dict[str, Any]]):
-            buffer: Dict[str, float] = {}
+        def worker(rows: list[dict[str, Any]]):
+            buffer: dict[str, float] = {}
             for index, deck in enumerate(rows, start=1):
                 download_deck(deck["number"])
                 deck_content = self._read_curr_deck_file()
@@ -3108,7 +3108,7 @@ class MTGDeckSelectionFrame(wx.Frame):
                 wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{len(rows)} decks…")
             return buffer
 
-        def on_success(buffer: Dict[str, float]):
+        def on_success(buffer: dict[str, float]):
             progress_dialog.Destroy()
             self.loading_daily_average = False
             self.daily_average_button.Enable()
@@ -3124,11 +3124,11 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         _Worker(worker, todays_decks, on_success=on_success, on_error=on_error).start()
 
-    def _render_average_deck(self, buffer: Dict[str, float], decks_added: int) -> str:
+    def _render_average_deck(self, buffer: dict[str, float], decks_added: int) -> str:
         if not buffer or decks_added <= 0:
             return ""
-        lines: List[str] = []
-        sideboard_lines: List[str] = []
+        lines: list[str] = []
+        sideboard_lines: list[str] = []
         for card, total in sorted(buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0])):
             display_name = card.replace("Sideboard ", "")
             average = float(total) / decks_added
@@ -3167,7 +3167,7 @@ class MTGDeckSelectionFrame(wx.Frame):
     def _build_deck_text(self) -> str:
         if not self.zone_cards["main"] and not self.zone_cards["side"]:
             return ""
-        lines: List[str] = []
+        lines: list[str] = []
         for entry in self.zone_cards["main"]:
             lines.append(f"{entry['qty']} {entry['name']}")
         if self.zone_cards["side"]:
@@ -3182,7 +3182,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             return self.current_deck.get("href") or self.current_deck.get("name", "manual").lower()
         return "manual"
 
-    def _widget_exists(self, window: Optional[wx.Window]) -> bool:
+    def _widget_exists(self, window: wx.Window | None) -> bool:
         if window is None:
             return False
         try:

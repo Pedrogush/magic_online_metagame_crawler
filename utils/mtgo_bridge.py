@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 from loguru import logger
 
 from . import mtgo_bridge_client
 
 
-def _bridge_available(bridge_path: str | None = None) -> Tuple[bool, str | None]:
+def _bridge_available(bridge_path: str | None = None) -> tuple[bool, str | None]:
     try:
         path = mtgo_bridge_client._require_bridge_path(bridge_path)  # type: ignore[attr-defined]
     except FileNotFoundError as exc:
@@ -17,12 +18,12 @@ def _bridge_available(bridge_path: str | None = None) -> Tuple[bool, str | None]
     return True, str(path)
 
 
-def ensure_runtime_ready(bridge_path: str | None = None) -> Tuple[bool, str | None]:
+def ensure_runtime_ready(bridge_path: str | None = None) -> tuple[bool, str | None]:
     """Return True if the CLI bridge executable exists."""
     return runtime_status(bridge_path)
 
 
-def runtime_status(bridge_path: str | None = None) -> Tuple[bool, str | None]:
+def runtime_status(bridge_path: str | None = None) -> tuple[bool, str | None]:
     ready, message = _bridge_available(bridge_path)
     return ready, None if ready else message
 

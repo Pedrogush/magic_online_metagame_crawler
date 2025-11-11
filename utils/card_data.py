@@ -1,9 +1,9 @@
+import hashlib
 import io
 import json
 import zipfile
-import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -26,8 +26,8 @@ class CardDataManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.data_dir / "atomic_cards_index.json"
         self.meta_path = self.data_dir / "atomic_cards_meta.json"
-        self._cards: Optional[List[Dict[str, Any]]] = None
-        self._cards_by_name: Optional[Dict[str, Dict[str, Any]]] = None
+        self._cards: list[dict[str, Any]] | None = None
+        self._cards_by_name: dict[str, dict[str, Any]] | None = None
 
     def ensure_latest(self, force: bool = False) -> None:
         if requests is None:
@@ -74,17 +74,17 @@ class CardDataManager:
     def search_cards(
         self,
         query: str = "",
-        format_filter: Optional[str] = None,
-        type_filter: Optional[str] = None,
-        color_identity: Optional[List[str]] = None,
-        limit: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        format_filter: str | None = None,
+        type_filter: str | None = None,
+        color_identity: list[str] | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         self._require_cards()
         query = (query or "").strip().lower()
         fmt = (format_filter or "").strip().lower()
         type_filter = (type_filter or "").strip().lower()
         color_identity = [c.upper() for c in (color_identity or [])]
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for card in self._cards or []:
             name_lower = card["name_lower"]
             type_line = (card.get("type_line") or "").lower()
@@ -110,14 +110,14 @@ class CardDataManager:
                 break
         return results
 
-    def get_card(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_card(self, name: str) -> dict[str, Any] | None:
         self._require_cards()
         return (self._cards_by_name or {}).get(name.lower())
 
-    def available_formats(self) -> List[str]:
+    def available_formats(self) -> list[str]:
         self._require_cards()
         seen = set()
-        formats: List[str] = []
+        formats: list[str] = []
         for card in self._cards or []:
             for fmt, state in (card.get("legalities") or {}).items():
                 if state != "Legal" or fmt in seen:
@@ -130,17 +130,17 @@ class CardDataManager:
         if self._cards is None:
             raise RuntimeError("Card data not loaded; call ensure_latest first")
 
-    def _fetch_remote_meta(self) -> Optional[Dict[str, Any]]:
+    def _fetch_remote_meta(self) -> dict[str, Any] | None:
         return self._fetch_dataset_headers()
 
-    def _fetch_dataset_headers(self) -> Optional[Dict[str, Any]]:
+    def _fetch_dataset_headers(self) -> dict[str, Any] | None:
         try:
             resp = requests.head(ATOMIC_DATA_URL, impersonate="chrome", timeout=60)
             resp.raise_for_status()
         except Exception as exc:
             logger.warning(f"Failed to fetch MTGJSON dataset headers: {exc}")
             return None
-        meta: Dict[str, Any] = {}
+        meta: dict[str, Any] = {}
         headers = {k.lower(): v for k, v in resp.headers.items()}  # type: ignore[arg-type]
         if "etag" in headers:
             meta["etag"] = headers["etag"].strip('"')
@@ -150,7 +150,7 @@ class CardDataManager:
             meta["content_length"] = headers["content-length"]
         return meta or None
 
-    def _download_and_rebuild(self, remote_meta: Optional[Dict[str, Any]]) -> None:
+    def _download_and_rebuild(self, remote_meta: dict[str, Any] | None) -> None:
         resp = requests.get(ATOMIC_DATA_URL, impersonate="chrome", timeout=300)
         resp.raise_for_status()
         content = resp.content
@@ -160,7 +160,7 @@ class CardDataManager:
                 raw = json.load(source)
         index = self._build_index(raw.get("data", {}))
         self.index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
-        meta_to_store: Dict[str, Any] = remote_meta.copy() if remote_meta else {}
+        meta_to_store: dict[str, Any] = remote_meta.copy() if remote_meta else {}
         meta_to_store.setdefault("sha512", digest)
         headers = {k.lower(): v for k, v in resp.headers.items()}  # type: ignore[arg-type]
         if "etag" in headers:
@@ -180,7 +180,7 @@ class CardDataManager:
         self._cards = data["cards"]
         self._cards_by_name = data["cards_by_name"]
 
-    def _load_json(self, path: Path) -> Optional[Dict[str, Any]]:
+    def _load_json(self, path: Path) -> dict[str, Any] | None:
         if not path.exists():
             return None
         try:
@@ -189,8 +189,8 @@ class CardDataManager:
             logger.warning(f"Invalid JSON at {path}: {exc}")
             return None
 
-    def _build_index(self, atomic_cards: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
-        cards: Dict[str, Dict[str, Any]] = {}
+    def _build_index(self, atomic_cards: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+        cards: dict[str, dict[str, Any]] = {}
         for variations in atomic_cards.values():
             if not isinstance(variations, list):
                 continue
@@ -215,7 +215,7 @@ class CardDataManager:
             "cards_by_name": {card["name_lower"]: card for card in card_list},
         }
 
-    def _simplify_printing(self, printing: Dict[str, Any], face_name: str) -> Dict[str, Any]:
+    def _simplify_printing(self, printing: dict[str, Any], face_name: str) -> dict[str, Any]:
         legalities = printing.get("legalities") or {}
         mana_value = printing.get("manaValue")
         if isinstance(mana_value, str):
@@ -241,10 +241,10 @@ class CardDataManager:
 
     def _merge_legalities(
         self,
-        base: Optional[Dict[str, Any]],
-        incoming: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        merged: Dict[str, Any] = {}
+        base: dict[str, Any] | None,
+        incoming: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
         for source in (base or {}), (incoming or {}):
             for fmt, state in source.items():
                 if state == "Legal":

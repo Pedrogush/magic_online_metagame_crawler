@@ -87,7 +87,7 @@ def update_sources_json(version: str, commit: str | None) -> None:
 
 def resolve_commit(nuspec_path: Path) -> str | None:
     try:
-        import xml.etree.ElementTree as ET
+        import defusedxml.ElementTree as ET
     except ImportError:
         return None
     root = ET.parse(nuspec_path).getroot()

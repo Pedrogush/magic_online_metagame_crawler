@@ -1,7 +1,8 @@
 """Quick test of the new CardImageDisplay widget."""
 
+
 import wx
-from pathlib import Path
+
 from widgets.card_image_display import CardImageDisplay
 
 

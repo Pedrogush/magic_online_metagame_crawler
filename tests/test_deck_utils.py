@@ -1,6 +1,5 @@
 from utils.deck import analyze_deck, deck_to_dictionary
 
-
 SAMPLE_DECK = """4 Ragavan, Nimble Pilferer
 2 Blood Moon
 1 Otawara, Soaring City

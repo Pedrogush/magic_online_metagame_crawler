@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import wx
 from loguru import logger
@@ -48,7 +48,7 @@ class MTGOpponentDeckSpy(wx.Frame):
     CACHE_TTL = 60 * 30  # 30 minutes
     POLL_INTERVAL_MS = 2000  # Check for opponent every 2 seconds
 
-    def __init__(self, parent: Optional[wx.Window] = None) -> None:
+    def __init__(self, parent: wx.Window | None = None) -> None:
         style = (
             wx.CAPTION
             | wx.CLOSE_BOX
@@ -60,11 +60,11 @@ class MTGOpponentDeckSpy(wx.Frame):
 
         self._poll_timer = wx.Timer(self)
 
-        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.cache: dict[str, dict[str, Any]] = {}
         self.player_name: str = ""
-        self.last_seen_decks: Dict[str, str] = {}  # format -> deck name
+        self.last_seen_decks: dict[str, str] = {}  # format -> deck name
 
-        self._saved_position: Optional[list[int]] = None
+        self._saved_position: list[int] | None = None
 
         self._load_cache()
         self._load_config()
@@ -177,7 +177,7 @@ class MTGOpponentDeckSpy(wx.Frame):
         self.status_label.Wrap(320)
         self._refresh_opponent_display()
 
-    def _lookup_decks_all_formats(self, opponent_name: str, *, force: bool = False) -> Dict[str, str]:
+    def _lookup_decks_all_formats(self, opponent_name: str, *, force: bool = False) -> dict[str, str]:
         """Lookup opponent's recent decks across all formats."""
         cached = self.cache.get(opponent_name)
         now = time.time()
