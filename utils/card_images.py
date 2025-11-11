@@ -297,6 +297,48 @@ class BulkImageDownloader:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "MTGOMetagameCrawler/1.0"})
 
+    def _fetch_bulk_metadata(self) -> dict[str, Any]:
+        """Fetch the bulk data metadata from Scryfall."""
+        logger.info("Fetching bulk data metadata from Scryfall...")
+        resp = self.session.get(BULK_DATA_URL, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _get_cached_bulk_data_record(self) -> tuple[str | None, str | None]:
+        """Return the saved bulk data metadata (updated_at, download URI)."""
+        with sqlite3.connect(self.cache.db_path) as conn:
+            row = conn.execute(
+                "SELECT downloaded_at, bulk_data_uri FROM bulk_data_meta WHERE id = 1"
+            ).fetchone()
+        if row:
+            return row[0], row[1]
+        return None, None
+
+    def is_bulk_data_outdated(self) -> tuple[bool, dict[str, Any]]:
+        """Determine whether the cached bulk data is outdated compared to the vendor."""
+        metadata = self._fetch_bulk_metadata()
+        download_uri = metadata.get("download_uri")
+        updated_at = metadata.get("updated_at")
+
+        if not BULK_DATA_CACHE.exists():
+            return True, metadata
+
+        cached_updated, cached_uri = self._get_cached_bulk_data_record()
+        if updated_at and download_uri and cached_updated and cached_uri:
+            if updated_at == cached_updated and download_uri == cached_uri:
+                return False, metadata
+            return True, metadata
+
+        # Fallback to age-based check when the vendor metadata lacks timestamps/URIs
+        try:
+            age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
+            if age_seconds < 86400:
+                return False, metadata
+        except OSError:
+            pass
+
+        return True, metadata
+
     def download_bulk_metadata(self, force: bool = False) -> tuple[bool, str]:
         """Download Scryfall bulk data JSON.
 
@@ -306,25 +348,32 @@ class BulkImageDownloader:
         Returns:
             (success, message)
         """
-        # Check if we have recent bulk data (less than 24 hours old)
-        if not force and BULK_DATA_CACHE.exists():
-            age = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-            if age < 86400:  # 24 hours
-                logger.info(f"Using cached bulk data ({age / 3600:.1f}h old)")
-                return True, "Using cached bulk data"
+        try:
+            metadata = self._fetch_bulk_metadata()
+        except Exception as exc:
+            logger.exception("Failed to fetch bulk data metadata")
+            return False, f"Error: {exc}"
+
+        download_uri = metadata.get("download_uri")
+        if not download_uri:
+            return False, "No download URI in bulk data response"
+
+        remote_updated_at = metadata.get("updated_at")
+        cached_updated, cached_uri = self._get_cached_bulk_data_record()
+        cache_matches = (
+            not force
+            and BULK_DATA_CACHE.exists()
+            and remote_updated_at
+            and cached_updated == remote_updated_at
+            and cached_uri == download_uri
+        )
+        if cache_matches:
+            logger.info("Using cached bulk data (vendor metadata is current)")
+            return True, "Using cached bulk data"
 
         try:
-            logger.info("Fetching bulk data metadata from Scryfall...")
-            resp = self.session.get(BULK_DATA_URL, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            bulk_meta = resp.json()
-
-            download_uri = bulk_meta.get("download_uri")
-            if not download_uri:
-                return False, "No download URI in bulk data response"
-
             logger.info(f"Downloading bulk data from {download_uri}")
-            logger.info(f"Size: {bulk_meta.get('size', 0) / (1024 * 1024):.1f} MB")
+            logger.info(f"Size: {metadata.get('size', 0) / (1024 * 1024):.1f} MB")
 
             # Download with progress
             resp = self.session.get(download_uri, stream=True, timeout=120)
@@ -341,7 +390,11 @@ class BulkImageDownloader:
                     INSERT OR REPLACE INTO bulk_data_meta (id, downloaded_at, total_cards, bulk_data_uri)
                     VALUES (1, ?, ?, ?)
                 """,
-                    (datetime.now(UTC).isoformat(), 0, download_uri),
+                    (
+                        remote_updated_at or datetime.now(UTC).isoformat(),
+                        0,
+                        download_uri,
+                    ),
                 )
                 conn.commit()
 
@@ -574,9 +627,9 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
         with PRINTING_INDEX_CACHE.open("w", encoding="utf-8") as fh:
             json.dump(payload, fh, separators=(",", ":"))
         logger.info(
-            "Cached card printings index (%s names, %s printings)",
-            payload["unique_names"],
-            payload["total_printings"],
+            "Cached card printings index ({unique_names} names, {total_printings} printings)",
+            unique_names=payload["unique_names"],
+            total_printings=payload["total_printings"],
         )
     except Exception as exc:
         logger.warning(f"Failed to write printings index cache: {exc}")
