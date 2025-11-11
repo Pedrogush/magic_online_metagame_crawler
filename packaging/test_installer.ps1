@@ -49,7 +49,7 @@ function Run-Test {
     )
 
     $script:TestCount++
-    Write-Test "Test $TestCount: $TestName"
+    Write-Test "Test ${TestCount}: $TestName"
 
     try {
         $result = & $TestCommand
@@ -129,7 +129,7 @@ Run-Test "PE header is valid" {
 
 # Test 7: Check for Inno Setup signature using strings
 Run-Test "Contains Inno Setup signature" {
-    $content = Get-Content -Path $InstallerFile -Raw -Encoding Byte
+    $content = [System.IO.File]::ReadAllBytes($InstallerFile)
     $text = [System.Text.Encoding]::ASCII.GetString($content)
     return $text -match "Inno Setup"
 }

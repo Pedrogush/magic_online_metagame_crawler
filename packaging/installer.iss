@@ -43,15 +43,26 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 
 [Files]
 ; Main executable created by PyInstaller
-Source: "../dist/magic_online_metagame_crawler/{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "../dist/{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; All other files from PyInstaller bundle
-Source: "../dist/magic_online_metagame_crawler/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "../dist/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; .NET Bridge executable
-Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: BridgeExeExists
+#if FileExists('../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe')
+Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists('../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/mtgo_bridge.exe')
+Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 ; Vendor data directories (if they exist)
-Source: "../vendor/mtgo_format_data/*"; DestDir: "{app}/vendor/mtgo_format_data"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VendorDirExists('mtgo_format_data')
-Source: "../vendor/mtgo_archetype_parser/*"; DestDir: "{app}/vendor/mtgo_archetype_parser"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VendorDirExists('mtgo_archetype_parser')
-Source: "../vendor/mtgosdk/*"; DestDir: "{app}/vendor/mtgosdk"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VendorDirExists('mtgosdk')
+#if DirExists('../vendor/mtgo_format_data')
+Source: "../vendor/mtgo_format_data/*"; DestDir: "{app}/vendor/mtgo_format_data"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#if DirExists('../vendor/mtgo_archetype_parser')
+Source: "../vendor/mtgo_archetype_parser/*"; DestDir: "{app}/vendor/mtgo_archetype_parser"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#if DirExists('../vendor/mtgosdk')
+Source: "../vendor/mtgosdk/*"; DestDir: "{app}/vendor/mtgosdk"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 ; README and LICENSE
 Source: "../README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "../LICENSE"; DestDir: "{app}"; Flags: ignoreversion
@@ -72,15 +83,6 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 [Code]
 // Check if the .NET bridge executable exists before trying to include it
-function BridgeExeExists: Boolean;
-var
-  BridgePath: String;
-begin
-  BridgePath := ExpandConstant('{#SourcePath}\..\dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\mtgo_bridge.exe');
-  Result := FileExists(BridgePath);
-  if not Result then
-    Log('Warning: .NET bridge executable not found at: ' + BridgePath);
-end;
 
 // Check if vendor directory exists
 function VendorDirExists(DirName: String): Boolean;

@@ -25,6 +25,7 @@ exclude = [
     "dist",
     ".eggs",
     "*.egg-info",
+    "requirements-dev.txt",
 ]
 
 # Line length to match black

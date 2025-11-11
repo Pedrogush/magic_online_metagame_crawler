@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timezone
-from typing import Any, Mapping, Tuple
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
 
 from utils import mtgo_bridge
 
@@ -27,7 +28,7 @@ def _coerce_int(value: Any) -> int | None:
 
 def _extract_currency_counts(
     snapshot: Mapping[str, Any] | None,
-) -> Tuple[int | None, int | None, int | None, str | None]:
+) -> tuple[int | None, int | None, int | None, str | None]:
     if not isinstance(snapshot, Mapping):
         return None, None, None, None
     tickets = _coerce_int(snapshot.get("eventTickets"))
@@ -43,8 +44,8 @@ def _format_timestamp(raw: Any) -> str:
     if isinstance(raw, str) and raw:
         return raw
     if isinstance(raw, (int, float)):
-        return datetime.fromtimestamp(raw, tz=timezone.utc).isoformat()
-    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(raw, tz=UTC).isoformat()
+    return datetime.now(tz=UTC).isoformat(timespec="seconds")
 
 
 def monitor_currency(
@@ -59,7 +60,7 @@ def monitor_currency(
         return 1
 
     timeout = max(1.0, interval_ms / 1000.0 * 2.0)
-    last_report: Tuple[int | None, int | None, int | None, str | None] | None = None
+    last_report: tuple[int | None, int | None, int | None, str | None] | None = None
 
     print("Monitoring Event Tickets / Play Points (Ctrl+C to stop)…")
 
@@ -71,7 +72,9 @@ def monitor_currency(
                     continue
 
                 currency = payload.get("currency")
-                tickets, play_points, treasure_chests, currency_error = _extract_currency_counts(currency)
+                tickets, play_points, treasure_chests, currency_error = _extract_currency_counts(
+                    currency
+                )
                 current = (tickets, play_points, treasure_chests, currency_error)
 
                 if last_report != current:

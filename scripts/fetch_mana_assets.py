@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 def _run_git_clone(url: str, target: Path, depth: int = 1) -> None:
     cmd = [
         "git",

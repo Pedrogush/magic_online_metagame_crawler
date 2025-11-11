@@ -17,10 +17,11 @@ import json
 import multiprocessing as mp
 import os
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Full
-from typing import Any, Iterable, Mapping, MutableMapping, Sequence
+from typing import Any
 
 from loguru import logger
 
@@ -339,7 +340,7 @@ class BridgeWatcher:
         except Empty:
             return None
 
-    def __enter__(self) -> "BridgeWatcher":
+    def __enter__(self) -> BridgeWatcher:
         self.start()
         return self
 

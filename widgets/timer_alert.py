@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import re
 import threading
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import wx
 from loguru import logger
@@ -75,7 +74,7 @@ class ThresholdPanel(wx.Panel):
         if self.on_remove_callback:
             self.on_remove_callback(self)
 
-    def get_seconds(self) -> Optional[int]:
+    def get_seconds(self) -> int | None:
         """Parse MM:SS format to seconds."""
         value = self.time_input.GetValue().strip()
         match = re.match(r"^(\d+):(\d{2})$", value)
@@ -96,29 +95,23 @@ class TimerAlertFrame(wx.Frame):
     WATCH_INTERVAL_MS = 750
     POLL_INTERVAL_MS = 1000
 
-    def __init__(self, parent: Optional[wx.Window] = None) -> None:
-        style = (
-            wx.CAPTION
-            | wx.CLOSE_BOX
-            | wx.MINIMIZE_BOX
-            | wx.STAY_ON_TOP
-            | wx.RESIZE_BORDER
-        )
+    def __init__(self, parent: wx.Window | None = None) -> None:
+        style = wx.CAPTION | wx.CLOSE_BOX | wx.MINIMIZE_BOX | wx.STAY_ON_TOP | wx.RESIZE_BORDER
         super().__init__(parent, title="MTGO Timer Alert", size=(420, 400), style=style)
 
-        self._watcher: Optional[BridgeWatcher] = None
+        self._watcher: BridgeWatcher | None = None
         self._watch_timer = wx.Timer(self)
         self._monitor_timer = wx.Timer(self)
         self._repeat_timer = wx.Timer(self)
 
-        self._last_snapshot: Optional[Dict[str, Any]] = None
-        self.challenge_text: Optional[wx.StaticText] = None
-        self.threshold_panels: List[ThresholdPanel] = []
+        self._last_snapshot: dict[str, Any] | None = None
+        self.challenge_text: wx.StaticText | None = None
+        self.threshold_panels: list[ThresholdPanel] = []
 
         self.monitor_job_active = False
         self.triggered_thresholds: set[int] = set()
         self.start_alert_sent = False
-        self._current_thresholds: List[int] = []
+        self._current_thresholds: list[int] = []
         self._monitor_interval_ms = 1000
         self._repeat_interval_ms = 30000  # 30 seconds default
 
@@ -147,7 +140,9 @@ class TimerAlertFrame(wx.Frame):
         threshold_sizer = wx.StaticBoxSizer(threshold_box, wx.VERTICAL)
         box_parent = threshold_sizer.GetStaticBox()
 
-        instructions = wx.StaticText(box_parent, label="Enter time in MM:SS format (e.g., 05:00 for 5 minutes)")
+        instructions = wx.StaticText(
+            box_parent, label="Enter time in MM:SS format (e.g., 05:00 for 5 minutes)"
+        )
         instructions.SetForegroundColour(SUBDUED_TEXT)
         threshold_sizer.Add(instructions, 0, wx.ALL, 4)
 
@@ -182,13 +177,17 @@ class TimerAlertFrame(wx.Frame):
         options_grid.Add(self.sound_choice, 0, wx.EXPAND)
 
         # Poll interval
-        options_grid.Add(self._static_text(panel, "Check interval (ms):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        options_grid.Add(
+            self._static_text(panel, "Check interval (ms):"), 0, wx.ALIGN_CENTER_VERTICAL
+        )
         self.poll_interval_ctrl = wx.SpinCtrl(panel, min=250, max=5000, initial=1000)
         self._stylize_spin(self.poll_interval_ctrl)
         options_grid.Add(self.poll_interval_ctrl, 0, wx.EXPAND)
 
         # Repeat interval
-        options_grid.Add(self._static_text(panel, "Repeat interval (seconds):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        options_grid.Add(
+            self._static_text(panel, "Repeat interval (seconds):"), 0, wx.ALIGN_CENTER_VERTICAL
+        )
         self.repeat_interval_ctrl = wx.SpinCtrl(panel, min=5, max=300, initial=30)
         self._stylize_spin(self.repeat_interval_ctrl)
         options_grid.Add(self.repeat_interval_ctrl, 0, wx.EXPAND)
@@ -196,7 +195,9 @@ class TimerAlertFrame(wx.Frame):
         sizer.Add(options_grid, 0, wx.LEFT | wx.RIGHT | wx.EXPAND, 12)
 
         # Checkboxes
-        self.start_alert_checkbox = wx.CheckBox(panel, label="Alert when timer starts counting down")
+        self.start_alert_checkbox = wx.CheckBox(
+            panel, label="Alert when timer starts counting down"
+        )
         self.start_alert_checkbox.SetValue(True)
         self.start_alert_checkbox.SetForegroundColour(LIGHT_TEXT)
         self.start_alert_checkbox.SetBackgroundColour(DARK_BG)
@@ -242,7 +243,9 @@ class TimerAlertFrame(wx.Frame):
         challenge_box.SetForegroundColour(LIGHT_TEXT)
         challenge_box.SetBackgroundColour(DARK_PANEL)
         challenge_sizer = wx.StaticBoxSizer(challenge_box, wx.VERTICAL)
-        self.challenge_text = wx.StaticText(challenge_box, label="No active challenge timer detected.")
+        self.challenge_text = wx.StaticText(
+            challenge_box, label="No active challenge timer detected."
+        )
         self.challenge_text.SetForegroundColour(LIGHT_TEXT)
         self.challenge_text.SetBackgroundColour(DARK_PANEL)
         self.challenge_text.Wrap(340)
@@ -263,7 +266,9 @@ class TimerAlertFrame(wx.Frame):
     def _remove_threshold_panel(self, panel: ThresholdPanel) -> None:
         """Remove a threshold input panel."""
         if len(self.threshold_panels) <= 1:
-            wx.MessageBox("At least one threshold is required.", "Timer Alert", wx.OK | wx.ICON_INFORMATION)
+            wx.MessageBox(
+                "At least one threshold is required.", "Timer Alert", wx.OK | wx.ICON_INFORMATION
+            )
             return
         self.threshold_panels.remove(panel)
         self.threshold_container_sizer.Detach(panel)
@@ -307,7 +312,11 @@ class TimerAlertFrame(wx.Frame):
 
         thresholds = self._parse_thresholds()
         if not thresholds:
-            wx.MessageBox("Please enter at least one valid threshold (MM:SS format).", "Timer Alert", wx.OK | wx.ICON_INFORMATION)
+            wx.MessageBox(
+                "Please enter at least one valid threshold (MM:SS format).",
+                "Timer Alert",
+                wx.OK | wx.ICON_INFORMATION,
+            )
             return
 
         try:
@@ -348,9 +357,9 @@ class TimerAlertFrame(wx.Frame):
         """Test the selected alert sound."""
         self._play_alert()
 
-    def _parse_thresholds(self) -> List[int]:
+    def _parse_thresholds(self) -> list[int]:
         """Parse all threshold panels and return valid seconds."""
-        thresholds: List[int] = []
+        thresholds: list[int] = []
         for panel in self.threshold_panels:
             seconds = panel.get_seconds()
             if seconds is not None and seconds > 0:
@@ -482,7 +491,7 @@ class TimerAlertFrame(wx.Frame):
     def _set_status(self, message: str) -> None:
         self.status_text.ChangeValue(message)
 
-    def _update_challenge_display(self, snapshot: Dict[str, Any]) -> None:
+    def _update_challenge_display(self, snapshot: dict[str, Any]) -> None:
         if not self.challenge_text:
             return
         timers = snapshot.get("challengeTimers") or []
@@ -490,7 +499,7 @@ class TimerAlertFrame(wx.Frame):
             self.challenge_text.SetLabel("No active challenge timer detected.")
             self.challenge_text.Wrap(self._challenge_wrap_width())
             return
-        lines: List[str] = []
+        lines: list[str] = []
         for timer in timers:
             desc = timer.get("description") or timer.get("eventId") or "Challenge"
             state = timer.get("state") or "Unknown"

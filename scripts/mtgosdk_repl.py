@@ -1,6 +1,8 @@
 """Inspect pythonnet coreclr bootstrap state."""
+
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 try:
@@ -10,13 +12,15 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 pythonnet.load("coreclr")
 
-import clr  # type: ignore
-from System import AppDomain  # type: ignore
+clr = importlib.import_module("clr")  # type: ignore
+AppDomain = importlib.import_module("System").AppDomain  # type: ignore
 
 
 def _candidate_dirs() -> list[Path]:
     dotnet_root = Path(r"C:\Program Files\dotnet")
-    reference_root = Path(r"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework")
+    reference_root = Path(
+        r"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework"
+    )
     dirs: list[Path] = []
 
     windows_desktop = dotnet_root / "shared" / "Microsoft.WindowsDesktop.App"
@@ -56,7 +60,9 @@ _shared_dirs = _candidate_dirs()
 for _assembly in ("WindowsBase", "PresentationCore", "PresentationFramework", "System.Xaml"):
     _add_reference(_assembly, _shared_dirs)
 
-_publish_dir = Path(r"C:\Users\Pedro\Documents\GitHub\magic_online_metagame_crawler\dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish")
+_publish_dir = Path(
+    r"C:\Users\Pedro\Documents\GitHub\magic_online_metagame_crawler\dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish"
+)
 for _dll in ("MTGOSDK.Win32.dll", "MTGOSDK.dll"):
     _path = _publish_dir / _dll
     if not _path.exists():
@@ -65,9 +71,9 @@ for _dll in ("MTGOSDK.Win32.dll", "MTGOSDK.dll"):
 
 del _assembly, _dll, _path, _publish_dir, _shared_dirs
 
-import MTGOSDK  # type: ignore
-
-print("MTGOSDK loaded; call list_mtgosdk_namespaces(), list_methods_by_type(), or generate_stubs() for inspection.")
+print(
+    "MTGOSDK loaded; call list_mtgosdk_namespaces(), list_methods_by_type(), or generate_stubs() for inspection."
+)
 
 
 def explain_namespace_visibility() -> str:
@@ -118,13 +124,16 @@ def _get_mtgosdk_assembly():
 def list_methods_by_type(include_inherited: bool = False) -> None:
     """Print every public method for each MTGOSDK type."""
     from System.Reflection import BindingFlags  # type: ignore
+
     output_lines: list[str] = []
 
     def _format_type(dtype) -> str:
         name = dtype.FullName or dtype.Name
         if dtype.IsGenericType:
             generic_args = ", ".join(_format_type(arg) for arg in dtype.GetGenericArguments())
-            base = dtype.GetGenericTypeDefinition().FullName or dtype.GetGenericTypeDefinition().Name
+            base = (
+                dtype.GetGenericTypeDefinition().FullName or dtype.GetGenericTypeDefinition().Name
+            )
             base = base.split("`", 1)[0]
             return f"{base}<{generic_args}>"
         return name
@@ -137,7 +146,11 @@ def list_methods_by_type(include_inherited: bool = False) -> None:
             prefix.append("ref")
         if param.IsOptional:
             prefix.append("[optional]")
-        type_name = _format_type(param.ParameterType.GetElementType() if param.ParameterType.IsByRef else param.ParameterType)
+        type_name = _format_type(
+            param.ParameterType.GetElementType()
+            if param.ParameterType.IsByRef
+            else param.ParameterType
+        )
         prefix.append(type_name)
         prefix.append(param.Name or "_")
         return " ".join(prefix)
@@ -172,15 +185,15 @@ def list_methods_by_type(include_inherited: bool = False) -> None:
     print(f"\nWrote {len(output_lines)} lines to {output_path}")
 
 
-def generate_stubs(output_dir: Path | str | None = None, sample_namespace: str | None = None) -> None:
+def generate_stubs(
+    output_dir: Path | str | None = None, sample_namespace: str | None = None
+) -> None:
     """Generate .pyi stub files for MTGOSDK namespaces.
 
     Args:
         output_dir: Directory to write stub files. Defaults to 'stubs/MTGOSDK' relative to script dir.
         sample_namespace: If provided, only generate stubs for this namespace (e.g., 'MTGOSDK.API.Collection').
     """
-    from System.Reflection import BindingFlags  # type: ignore
-
     if output_dir is None:
         try:
             base_dir = Path(__file__).resolve().parent.parent
@@ -252,8 +265,7 @@ def _generate_namespace_stub(namespace: str, types: list) -> str:
 
     # Sort types: enums first, then classes, then interfaces
     sorted_types = sorted(
-        types,
-        key=lambda t: (0 if t.IsEnum else 1 if not t.IsInterface else 2, t.Name)
+        types, key=lambda t: (0 if t.IsEnum else 1 if not t.IsInterface else 2, t.Name)
     )
 
     for typ in sorted_types:
@@ -304,7 +316,12 @@ def _generate_class_stub(typ) -> str:
 
     lines.append('    """' + (typ.FullName or typ.Name) + '"""')
 
-    flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly
+    flags = (
+        BindingFlags.Instance
+        | BindingFlags.Static
+        | BindingFlags.Public
+        | BindingFlags.DeclaredOnly
+    )
 
     # Fields (public constants)
     fields = typ.GetFields(flags)
@@ -321,11 +338,13 @@ def _generate_class_stub(typ) -> str:
         prop_type = _map_dotnet_type_to_python(prop.PropertyType)
 
         # Static property
-        if (prop.GetMethod and prop.GetMethod.IsStatic) or (prop.SetMethod and prop.SetMethod.IsStatic):
-            lines.append(f"    @staticmethod")
+        if (prop.GetMethod and prop.GetMethod.IsStatic) or (
+            prop.SetMethod and prop.SetMethod.IsStatic
+        ):
+            lines.append("    @staticmethod")
             lines.append(f"    def {prop.Name}() -> {prop_type}: ...")
         else:
-            lines.append(f"    @property")
+            lines.append("    @property")
             lines.append(f"    def {prop.Name}(self) -> {prop_type}: ...")
             if prop.CanWrite:
                 lines.append(f"    @{prop.Name}.setter")
@@ -453,15 +472,25 @@ def _map_dotnet_type_to_python(dotnet_type) -> str:
     # Handle generics
     if dotnet_type.IsGenericType:
         generic_def = dotnet_type.GetGenericTypeDefinition().Name.split("`")[0]
-        generic_args = [_map_dotnet_type_to_python(arg) for arg in dotnet_type.GetGenericArguments()]
+        generic_args = [
+            _map_dotnet_type_to_python(arg) for arg in dotnet_type.GetGenericArguments()
+        ]
 
         generic_map = {
             "List": f"list[{generic_args[0]}]" if generic_args else "list[Any]",
             "IEnumerable": f"Iterable[{generic_args[0]}]" if generic_args else "Iterable[Any]",
             "ICollection": f"Iterable[{generic_args[0]}]" if generic_args else "Iterable[Any]",
             "IList": f"list[{generic_args[0]}]" if generic_args else "list[Any]",
-            "Dictionary": f"dict[{generic_args[0]}, {generic_args[1]}]" if len(generic_args) >= 2 else "dict[Any, Any]",
-            "IDictionary": f"dict[{generic_args[0]}, {generic_args[1]}]" if len(generic_args) >= 2 else "dict[Any, Any]",
+            "Dictionary": (
+                f"dict[{generic_args[0]}, {generic_args[1]}]"
+                if len(generic_args) >= 2
+                else "dict[Any, Any]"
+            ),
+            "IDictionary": (
+                f"dict[{generic_args[0]}, {generic_args[1]}]"
+                if len(generic_args) >= 2
+                else "dict[Any, Any]"
+            ),
             "Nullable": f"Optional[{generic_args[0]}]" if generic_args else "Optional[Any]",
         }
 

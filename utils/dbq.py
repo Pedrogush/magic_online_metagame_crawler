@@ -1,10 +1,11 @@
 import atexit
-import pymongo
 from dataclasses import asdict
-from utils.common import Card
 from datetime import datetime
+
+import pymongo
 from loguru import logger
 
+from utils.common import Card
 
 _CLIENT = None
 
@@ -37,9 +38,16 @@ def delete_card_records(card_name: str):
 
 # ============= Deck Management Functions =============
 
-def save_deck_to_db(deck_name: str, deck_content: str, format_type: str = None,
-                    archetype: str = None, player: str = None, source: str = "manual",
-                    metadata: dict = None):
+
+def save_deck_to_db(
+    deck_name: str,
+    deck_content: str,
+    format_type: str = None,
+    archetype: str = None,
+    player: str = None,
+    source: str = "manual",
+    metadata: dict = None,
+):
     """
     Save a deck to the database.
 
@@ -65,7 +73,7 @@ def save_deck_to_db(deck_name: str, deck_content: str, format_type: str = None,
         "player": player,
         "source": source,
         "date_saved": datetime.now(),
-        "metadata": metadata or {}
+        "metadata": metadata or {},
     }
 
     result = db.decks.insert_one(deck_doc)
@@ -112,6 +120,7 @@ def load_deck_from_db(deck_id):
 
     if isinstance(deck_id, str):
         from bson import ObjectId
+
         deck_id = ObjectId(deck_id)
 
     deck = db.decks.find_one({"_id": deck_id})
@@ -137,6 +146,7 @@ def delete_saved_deck(deck_id):
 
     if isinstance(deck_id, str):
         from bson import ObjectId
+
         deck_id = ObjectId(deck_id)
 
     result = db.decks.delete_one({"_id": deck_id})
@@ -149,8 +159,9 @@ def delete_saved_deck(deck_id):
         return False
 
 
-def update_deck_in_db(deck_id, deck_content: str = None, deck_name: str = None,
-                      metadata: dict = None):
+def update_deck_in_db(
+    deck_id, deck_content: str = None, deck_name: str = None, metadata: dict = None
+):
     """
     Update an existing deck in the database.
 
@@ -167,6 +178,7 @@ def update_deck_in_db(deck_id, deck_content: str = None, deck_name: str = None,
 
     if isinstance(deck_id, str):
         from bson import ObjectId
+
         deck_id = ObjectId(deck_id)
 
     update_fields = {"date_modified": datetime.now()}
@@ -183,10 +195,7 @@ def update_deck_in_db(deck_id, deck_content: str = None, deck_name: str = None,
             merged_metadata.update(metadata)
             update_fields["metadata"] = merged_metadata
 
-    result = db.decks.update_one(
-        {"_id": deck_id},
-        {"$set": update_fields}
-    )
+    result = db.decks.update_one({"_id": deck_id}, {"$set": update_fields})
 
     if result.modified_count > 0:
         logger.info(f"Updated deck with ID: {deck_id}")

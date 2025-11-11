@@ -33,23 +33,145 @@ function Write-Error-Custom {
     Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
-# Step 1: Check for Inno Setup
-Write-Info "Checking for Inno Setup..."
-$InnoSetupPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $InnoSetupPath)) {
-    $InnoSetupPath = "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
-    if (-not (Test-Path $InnoSetupPath)) {
-        Write-Error-Custom "Inno Setup not found. Please install Inno Setup 6 from https://jrsoftware.org/isdl.php"
-        exit 1
+function Ensure-GitSync {
+    $GitDir = Join-Path $ProjectRoot ".git"
+    if (-not (Test-Path $GitDir)) {
+        Write-Warn "Git repository not found in project root; skipping git pull."
+        return
+    }
+
+    Write-Info "Syncing with remote branch..."
+    $currentLocation = Get-Location
+    Push-Location $ProjectRoot
+    try {
+        git pull --ff-only
+    } catch {
+        Write-Warn "Git pull failed: $_"
+    } finally {
+        Pop-Location
     }
 }
+
+# Ensure we are on the latest branch before building
+Ensure-GitSync
+
+# Step 0: ensure vendor data directories exist
+Write-Info "Updating vendor data..."
+Push-Location $ProjectRoot
+try {
+    $VendorUpdateScript = Join-Path $ProjectRoot "scripts\update_vendor_data.py"
+    if (-not (Test-Path $VendorUpdateScript)) {
+        Write-Warn "Vendor update script not found; skipping vendor refresh."
+    } else {
+        $VendorPython = Join-Path $ProjectRoot "env\Scripts\python.exe"
+        $FallbackPython = Get-Command python -ErrorAction SilentlyContinue
+
+        if (Test-Path $VendorPython) {
+            & $VendorPython $VendorUpdateScript
+        } elseif ($FallbackPython) {
+            & $FallbackPython.Source $VendorUpdateScript
+        } else {
+            Write-Warn "Python not found; cannot update vendor data."
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Vendor update script exited with code $LASTEXITCODE"
+        }
+
+        $MtgoSdkScript = Join-Path $ProjectRoot "scripts\update_mtgosdk_vendor.py"
+        if (Test-Path $MtgoSdkScript) {
+            Write-Info "Updating MTGOSDK vendor data..."
+            if (Test-Path $VendorPython) {
+                & $VendorPython $MtgoSdkScript
+            } elseif ($FallbackPython) {
+                & $FallbackPython.Source $MtgoSdkScript
+            } else {
+                Write-Warn "Python not found; skipping MTGOSDK vendor update."
+            }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "MTGOSDK vendor script exited with code $LASTEXITCODE"
+            }
+        } else {
+            Write-Warn "MTGOSDK update script not found."
+        }
+    }
+    foreach ($vendorDir in @("vendor\mtgo_format_data", "vendor\mtgo_archetype_parser", "vendor\mtgosdk")) {
+        $fullPath = Join-Path $ProjectRoot $vendorDir
+        if (-not (Test-Path $fullPath)) {
+            Write-Info "Creating missing vendor directory: $vendorDir"
+            New-Item -ItemType Directory -Force -Path $fullPath | Out-Null
+        }
+    }
+} finally {
+    Pop-Location
+}
+
+# Step 1: Check for Inno Setup
+function Get-EnvValue {
+    param([string]$Name)
+
+    try {
+        $envItem = Get-Item "env:$Name" -ErrorAction Stop
+        return $envItem.Value
+    } catch {
+        return $null
+    }
+}
+
+Write-Info "Checking for Inno Setup..."
+$InnoSetupPath = $env:INNO_SETUP_PATH
+if (-not $InnoSetupPath) {
+    $ProgramFilesX86 = Get-EnvValue "ProgramFiles(x86)"
+    if ($ProgramFilesX86) {
+        $candidate = Join-Path $ProgramFilesX86 "Inno Setup 6\ISCC.exe"
+        if (Test-Path $candidate) {
+            $InnoSetupPath = $candidate
+        }
+    }
+}
+
+if (-not $InnoSetupPath) {
+    $ProgramFiles = Get-EnvValue "ProgramFiles"
+    if ($ProgramFiles) {
+        $candidate = Join-Path $ProgramFiles "Inno Setup 6\ISCC.exe"
+        if (Test-Path $candidate) {
+            $InnoSetupPath = $candidate
+        }
+    }
+}
+
+if (-not $InnoSetupPath) {
+    Write-Error-Custom "Inno Setup not found. Please install Inno Setup 6 from https://jrsoftware.org/isdl.php"
+    exit 1
+}
+
 Write-Info "Inno Setup found at: $InnoSetupPath"
+
+function Find-PyInstallerPath {
+    param([string]$ProjectRoot)
+
+    $explicit = Join-Path $ProjectRoot "env\Scripts\pyinstaller.exe"
+    Write-Info "Looking for PyInstaller at explicit path: $explicit"
+    if (Test-Path $explicit) {
+        Write-Info "PyInstaller found explicitly."
+        return $explicit
+    }
+
+    $fromEnv = Get-Command pyinstaller -ErrorAction SilentlyContinue
+    if ($fromEnv) {
+        Write-Info "PyInstaller found via PATH: $($fromEnv.Path)"
+        return $fromEnv.Path
+    }
+
+    Write-Warn "PyInstaller not found explicitly or via PATH."
+    return $null
+}
 
 # Step 2: Check for PyInstaller
 if (-not $SkipPyInstaller) {
     Write-Info "Checking for PyInstaller..."
-    $PyInstallerCheck = Get-Command pyinstaller -ErrorAction SilentlyContinue
-    if (-not $PyInstallerCheck) {
+    $PyInstallerPath = Find-PyInstallerPath -ProjectRoot $ProjectRoot
+    if (-not $PyInstallerPath) {
         Write-Error-Custom "PyInstaller is not installed. Install it with: pip install pyinstaller"
         exit 1
     }
@@ -69,7 +191,7 @@ if (-not $SkipPyInstaller) {
     $SpecFile = Join-Path $ProjectRoot "packaging\magic_online_metagame_crawler.spec"
     if (Test-Path $SpecFile) {
         Write-Info "Using existing spec file..."
-        & pyinstaller $SpecFile --clean --noconfirm
+        & $PyInstallerPath $SpecFile --clean --noconfirm
         if ($LASTEXITCODE -ne 0) {
             Write-Error-Custom "PyInstaller build failed!"
             Pop-Location
@@ -82,7 +204,7 @@ if (-not $SkipPyInstaller) {
     }
 
     # Verify the executable was created
-    $ExePath = Join-Path $DistDir "magic_online_metagame_crawler\magic_online_metagame_crawler.exe"
+    $ExePath = Join-Path $DistDir "magic_online_metagame_crawler.exe"
     if (-not (Test-Path $ExePath)) {
         Write-Error-Custom "PyInstaller build failed - executable not found at $ExePath"
         Pop-Location

@@ -5,15 +5,23 @@ from __future__ import annotations
 import json
 import time
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import Any
 
 from loguru import logger
 
-from navigators.mtgo_decklists import fetch_decklist_index, fetch_deck_event
+from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
 from utils.archetype_classifier import ArchetypeClassifier
 from utils.paths import MTGO_DECK_CACHE_FILE
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc  # noqa: UP017
+
+_FILTER_TOLERANCE = timedelta(seconds=5)
 
 
 def _load_cache() -> dict[str, Any]:
@@ -52,7 +60,7 @@ def update_mtgo_deck_cache(
     max_events: int = 40,
 ) -> list[dict[str, Any]]:
     """Fetch recent MTGO decklists from mtgo.com and cache them locally."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(days=days)
 
     cache = _load_cache()
@@ -94,7 +102,7 @@ def update_mtgo_deck_cache(
             if not publish_date:
                 continue
             if publish_date.tzinfo is None:
-                publish_date = publish_date.replace(tzinfo=timezone.utc)
+                publish_date = publish_date.replace(tzinfo=UTC)
             if not (start <= publish_date <= now):
                 continue
             url = entry.get("url")
@@ -130,7 +138,7 @@ def update_mtgo_deck_cache(
                 continue
             publish_date = _parse_iso(entry.get("publish_date")) or now
             if publish_date.tzinfo is None:
-                publish_date = publish_date.replace(tzinfo=timezone.utc)
+                publish_date = publish_date.replace(tzinfo=UTC)
             event_name = payload.get("name") or entry.get("title")
             decks = payload.get("decklists", [])
             for deck in decks:
@@ -165,9 +173,7 @@ def update_mtgo_deck_cache(
         if fmt:
             target_formats.add(fmt)
         else:
-            target_formats = {
-                deck.get("format") for deck in aggregated if deck.get("format")
-            }
+            target_formats = {deck.get("format") for deck in aggregated if deck.get("format")}
         for format_name in sorted(filter(None, target_formats)):
             try:
                 classifier.assign_archetypes(aggregated, format_name)
@@ -210,9 +216,9 @@ def _filter_decks(
     fmt: str | None = None,
     days: int | None = None,
 ) -> list[dict[str, Any]]:
-    cutoff = None
-    if days is not None:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    now = datetime.now(UTC)
+    window = timedelta(days=days) if days is not None else None
+    window_with_tolerance = (window + _FILTER_TOLERANCE) if window is not None else None
 
     filtered: list[dict[str, Any]] = []
     for deck in decks:
@@ -220,9 +226,13 @@ def _filter_decks(
             continue
         if fmt and (deck.get("format") or "").lower() != fmt.lower():
             continue
-        if cutoff:
+        if window_with_tolerance is not None:
             publish = _parse_iso(deck.get("publish_date"))
-            if not publish or publish < cutoff:
+            if not publish:
+                continue
+            if publish.tzinfo is None:
+                publish = publish.replace(tzinfo=UTC)
+            if now - publish > window_with_tolerance:
                 continue
         filtered.append(deck)
     return filtered

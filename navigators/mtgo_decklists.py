@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
-from collections.abc import Iterable
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -145,7 +145,12 @@ def iter_deck_events(entries: Iterable[dict[str, Any]]) -> Iterable[dict[str, An
         yield entry, payload
 
 
-__all__ = ["fetch_decklist_index", "fetch_deck_event", "iter_deck_events", "fetch_recent_event_history"]
+__all__ = [
+    "fetch_decklist_index",
+    "fetch_deck_event",
+    "iter_deck_events",
+    "fetch_recent_event_history",
+]
 
 
 def fetch_recent_event_history(limit: int = 10) -> list[dict[str, Any]]:
@@ -167,7 +172,9 @@ def fetch_recent_event_history(limit: int = 10) -> list[dict[str, Any]]:
                     "state": "Completed",
                     "isComplete": True,
                     "result": standing or record,
-                    "lastUpdated": deck.get("eventDate") or deck.get("updatedAt") or entry.get("publish_date"),
+                    "lastUpdated": deck.get("eventDate")
+                    or deck.get("updatedAt")
+                    or entry.get("publish_date"),
                 }
             )
         history.append(

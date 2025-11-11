@@ -1,11 +1,18 @@
 """Quick test of the new CardImageDisplay widget."""
 
-import wx
-from pathlib import Path
+import sys
+
+import pytest
+
+if sys.platform != "win32":
+    pytest.skip("Card display test requires Windows", allow_module_level=True)
+
+import wx  # noqa: E402
+
 from widgets.card_image_display import CardImageDisplay
 
 
-class TestFrame(wx.Frame):
+class CardDisplayDemoFrame(wx.Frame):
     def __init__(self):
         super().__init__(None, title="Card Image Display Test", size=(400, 600))
 
@@ -22,7 +29,9 @@ class TestFrame(wx.Frame):
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         placeholder_btn = wx.Button(panel, label="Show Placeholder")
-        placeholder_btn.Bind(wx.EVT_BUTTON, lambda e: self.card_display.show_placeholder("Test placeholder"))
+        placeholder_btn.Bind(
+            wx.EVT_BUTTON, lambda e: self.card_display.show_placeholder("Test placeholder")
+        )
         btn_sizer.Add(placeholder_btn, 0, wx.ALL, 5)
 
         load_btn = wx.Button(panel, label="Load Test Image")
@@ -55,6 +64,6 @@ class TestFrame(wx.Frame):
 
 if __name__ == "__main__":
     app = wx.App(False)
-    frame = TestFrame()
+    frame = CardDisplayDemoFrame()
     frame.Show()
     app.MainLoop()
