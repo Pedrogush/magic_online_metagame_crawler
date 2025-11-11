@@ -1,0 +1,20 @@
+# SSH connection configuration for pytest on Windows host
+# Copy this file to ~/.ssh/pytest_host.conf and fill in your values
+
+# Windows host SSH credentials
+HOST_USER="your_windows_username"
+HOST_IP="192.168.x.x"  # or use hostname like "host.docker.internal"
+
+# Path to pytest on Windows host
+# For WSL2: "/mnt/c/Users/YourUser/AppData/Local/Programs/Python/Python311/Scripts/pytest.exe"
+# For Python on Windows: "C:/Python311/Scripts/pytest.exe"
+# For pytest in PATH: "pytest"
+PYTEST_PATH="pytest"
+
+# Project path on Windows host
+# For WSL2: "/mnt/c/Users/YourUser/Projects/MyProject"
+# For Windows: "C:/Users/YourUser/Projects/MyProject"
+PROJECT_PATH="/path/to/your/project"
+
+# Optional: Custom SSH key path (defaults to ~/.ssh/id_ed25519)
+# SSH_KEY="${HOME}/.ssh/custom_key"
