@@ -6,8 +6,6 @@
 #define MyAppPublisher "MTGO Metagame Crawler Contributors"
 #define MyAppURL "https://github.com/yourusername/magic_online_metagame_crawler"
 #define MyAppExeName "magic_online_metagame_crawler.exe"
-#define BridgeExePath1 "{#SourcePath}\..\dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\mtgo_bridge.exe"
-#define BridgeExePath2 "{#SourcePath}\..\dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\publish\mtgo_bridge.exe"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -49,8 +47,8 @@ Source: "../dist/{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; All other files from PyInstaller bundle
 Source: "../dist/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; .NET Bridge executable
-Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: FileExists("../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe")
-Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: FileExists("../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/mtgo_bridge.exe")
+Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: FileExists(ExpandConstant('{#SourcePath}\..\dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\mtgo_bridge.exe'))
+Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion; Check: FileExists(ExpandConstant('{#SourcePath}\..\dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\publish\mtgo_bridge.exe'))
 ; Vendor data directories (if they exist)
 Source: "../vendor/mtgo_format_data/*"; DestDir: "{app}/vendor/mtgo_format_data"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VendorDirExists('mtgo_format_data')
 Source: "../vendor/mtgo_archetype_parser/*"; DestDir: "{app}/vendor/mtgo_archetype_parser"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VendorDirExists('mtgo_archetype_parser')
