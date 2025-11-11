@@ -55,6 +55,23 @@ function Ensure-GitSync {
 # Ensure we are on the latest branch before building
 Ensure-GitSync
 
+# Step 0: ensure vendor data directories exist
+Write-Info "Updating vendor data..."
+Push-Location $ProjectRoot
+try {
+    $VendorUpdateScript = Join-Path $ProjectRoot "scripts\update_vendor_data.py"
+    if (Test-Path $VendorUpdateScript) {
+        & "$($ProjectRoot)\env\Scripts\python.exe" $VendorUpdateScript
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Vendor update script exited with code $LASTEXITCODE"
+        }
+    } else {
+        Write-Warn "Vendor update script not found; skipping vendor refresh."
+    }
+} finally {
+    Pop-Location
+}
+
 # Step 1: Check for Inno Setup
 function Get-EnvValue {
     param([string]$Name)
