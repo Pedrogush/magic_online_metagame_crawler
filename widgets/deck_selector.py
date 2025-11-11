@@ -52,6 +52,7 @@ from widgets.match_history import MatchHistoryFrame
 from widgets.metagame_analysis import MetagameAnalysisFrame
 from widgets.timer_alert import TimerAlertFrame
 from widgets.buttons.deck_action_buttons import DeckActionButtons
+from widgets.buttons.mana_button import create_mana_button, get_mana_font
 from widgets.panels.card_inspector_panel import CardInspectorPanel
 from widgets.panels.card_table_panel import CardTablePanel
 from widgets.panels.deck_builder_panel import DeckBuilderPanel
@@ -580,43 +581,14 @@ class MTGDeckSelectionFrame(wx.Frame):
             self._schedule_settings_save()
 
     def _get_mana_font(self, size: int = 14) -> wx.Font:
-        if ManaIconFactory._FONT_LOADED:
-            return wx.Font(
-                size,
-                wx.FONTFAMILY_DEFAULT,
-                wx.FONTSTYLE_NORMAL,
-                wx.FONTWEIGHT_NORMAL,
-                False,
-                ManaIconFactory._FONT_NAME,
-            )
-        font = self.GetFont()
-        font.SetPointSize(size)
-        font.MakeBold()
-        return font
+        """Wrapper for get_mana_font that provides parent font."""
+        return get_mana_font(size, self.GetFont())
 
     def _create_mana_button(
         self, parent: wx.Window, token: str, handler: Callable[[str], None]
     ) -> wx.Button:
-        bmp: wx.Bitmap | None = None
-        try:
-            bmp = self.mana_icons.bitmap_for_symbol(token)
-        except Exception:
-            bmp = None
-        if bmp:
-            btn: wx.Button = wx.BitmapButton(
-                parent,
-                bitmap=bmp,
-                size=(bmp.GetWidth() + 10, bmp.GetHeight() + 10),
-                style=wx.BU_EXACTFIT,
-            )
-        else:
-            btn = wx.Button(parent, label=token, size=(44, 28))
-            btn.SetFont(self._get_mana_font(15))
-        btn.SetBackgroundColour(DARK_ALT)
-        btn.SetForegroundColour(LIGHT_TEXT)
-        btn.SetToolTip(token)
-        btn.Bind(wx.EVT_BUTTON, lambda _evt, sym=token: handler(sym))
-        return btn
+        """Wrapper for create_mana_button that provides mana_icons."""
+        return create_mana_button(parent, token, handler, self.mana_icons)
 
     def _open_full_mana_keyboard(self) -> None:
         if self.mana_keyboard_window and self.mana_keyboard_window.IsShown():
