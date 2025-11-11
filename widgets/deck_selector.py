@@ -2658,8 +2658,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             "Preparing download...",
             maximum=max_value,
             parent=self,
-            style=wx.PD_APP_MODAL
-            | wx.PD_AUTO_HIDE
+            style=wx.PD_AUTO_HIDE
             | wx.PD_CAN_ABORT
             | wx.PD_ELAPSED_TIME
             | wx.PD_REMAINING_TIME,
@@ -2740,8 +2739,25 @@ class MTGDeckSelectionFrame(wx.Frame):
             cancelled_flag[0] = True
             return
 
+        # Ensure the dialog range matches the total (total may be unknown during creation)
+        if total:
+            try:
+                dialog.SetRange(max(total, 1))
+            except Exception:
+                pass
+
+        # Clamp the reported completed count to the dialog range to avoid assertions
+        try:
+            current_range = dialog.GetRange()
+        except Exception:
+            current_range = None
+
+        value = completed
+        if current_range and current_range > 0:
+            value = min(completed, current_range)
+
         # Update progress
-        continue_download, skip = dialog.Update(completed, message)
+        continue_download, skip = dialog.Update(value, message)
         if not continue_download:
             # User clicked cancel
             cancelled_flag[0] = True
