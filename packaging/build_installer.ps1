@@ -34,15 +34,44 @@ function Write-Error-Custom {
 }
 
 # Step 1: Check for Inno Setup
-Write-Info "Checking for Inno Setup..."
-$InnoSetupPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $InnoSetupPath)) {
-    $InnoSetupPath = "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
-    if (-not (Test-Path $InnoSetupPath)) {
-        Write-Error-Custom "Inno Setup not found. Please install Inno Setup 6 from https://jrsoftware.org/isdl.php"
-        exit 1
+function Get-EnvValue {
+    param([string]$Name)
+
+    try {
+        $envItem = Get-Item "env:$Name" -ErrorAction Stop
+        return $envItem.Value
+    } catch {
+        return $null
     }
 }
+
+Write-Info "Checking for Inno Setup..."
+$InnoSetupPath = $env:INNO_SETUP_PATH
+if (-not $InnoSetupPath) {
+    $ProgramFilesX86 = Get-EnvValue "ProgramFiles(x86)"
+    if ($ProgramFilesX86) {
+        $candidate = Join-Path $ProgramFilesX86 "Inno Setup 6\ISCC.exe"
+        if (Test-Path $candidate) {
+            $InnoSetupPath = $candidate
+        }
+    }
+}
+
+if (-not $InnoSetupPath) {
+    $ProgramFiles = Get-EnvValue "ProgramFiles"
+    if ($ProgramFiles) {
+        $candidate = Join-Path $ProgramFiles "Inno Setup 6\ISCC.exe"
+        if (Test-Path $candidate) {
+            $InnoSetupPath = $candidate
+        }
+    }
+}
+
+if (-not $InnoSetupPath) {
+    Write-Error-Custom "Inno Setup not found. Please install Inno Setup 6 from https://jrsoftware.org/isdl.php"
+    exit 1
+}
+
 Write-Info "Inno Setup found at: $InnoSetupPath"
 
 # Step 2: Check for PyInstaller
