@@ -1735,7 +1735,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         if not meta:
             return
         faux_card = {"name": meta.get("name", "Unknown"), "qty": 1}
-        self._update_card_inspector(None, faux_card, meta)
+        self.card_inspector_panel.update_card(faux_card, zone=None, meta=meta)
 
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
     def _build_deck_text(self) -> str:
