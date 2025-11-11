@@ -230,19 +230,21 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         raising=False,
     )
 
-    monkeypatch.setattr(
-        mtggoldfish,
-        "get_archetypes",
-        lambda fmt, cache_ttl=3600, allow_stale=True: [
-            {"name": "Mono Red Aggro", "href": "mono-red-aggro"},
-            {"name": "Azorius Control", "href": "azorius-control"},
-        ],
-        raising=False,
-    )
-    monkeypatch.setattr(
-        mtggoldfish,
-        "get_archetype_decks",
-        lambda archetype: [
+    def fake_download(number: str) -> None:
+        (decks / "curr_deck.txt").write_text(
+            "4 Mountain\n4 Island\nSideboard\n2 Dispel\n", encoding="utf-8"
+        )
+
+    archetype_list = [
+        {"name": "Mono Red Aggro", "href": "mono-red-aggro"},
+        {"name": "Azorius Control", "href": "azorius-control"},
+    ]
+
+    def fake_archetypes(fmt: str, cache_ttl: int = 3600, allow_stale: bool = True):
+        return archetype_list
+
+    def fake_archetype_decks(archetype: str):
+        return [
             {
                 "name": archetype,
                 "number": "1",
@@ -251,16 +253,14 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
                 "result": "2-1",
                 "date": "2024-10-01",
             },
-        ],
-        raising=False,
-    )
+        ]
 
-    def fake_download(number: str) -> None:
-        (decks / "curr_deck.txt").write_text(
-            "4 Mountain\n4 Island\nSideboard\n2 Dispel\n", encoding="utf-8"
-        )
-
+    monkeypatch.setattr(mtggoldfish, "get_archetypes", fake_archetypes, raising=False)
+    monkeypatch.setattr(mtggoldfish, "get_archetype_decks", fake_archetype_decks, raising=False)
+    monkeypatch.setattr(deck_selector, "get_archetypes", fake_archetypes, raising=False)
+    monkeypatch.setattr(deck_selector, "get_archetype_decks", fake_archetype_decks, raising=False)
     monkeypatch.setattr(mtggoldfish, "download_deck", fake_download, raising=False)
+    monkeypatch.setattr(deck_selector, "download_deck", fake_download, raising=False)
 
     yield
 
