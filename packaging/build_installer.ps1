@@ -64,18 +64,35 @@ try {
         Write-Warn "Vendor update script not found; skipping vendor refresh."
     } else {
         $VendorPython = Join-Path $ProjectRoot "env\Scripts\python.exe"
+        $FallbackPython = Get-Command python -ErrorAction SilentlyContinue
+
         if (Test-Path $VendorPython) {
             & $VendorPython $VendorUpdateScript
+        } elseif ($FallbackPython) {
+            & $FallbackPython.Source $VendorUpdateScript
         } else {
-            $FallbackPython = Get-Command python -ErrorAction SilentlyContinue
-            if ($FallbackPython) {
-                & $FallbackPython.Source $VendorUpdateScript
-            } else {
-                Write-Warn "Python not found; cannot update vendor data."
-            }
+            Write-Warn "Python not found; cannot update vendor data."
         }
+
         if ($LASTEXITCODE -ne 0) {
             Write-Warn "Vendor update script exited with code $LASTEXITCODE"
+        }
+
+        $MtgoSdkScript = Join-Path $ProjectRoot "scripts\update_mtgosdk_vendor.py"
+        if (Test-Path $MtgoSdkScript) {
+            Write-Info "Updating MTGOSDK vendor data..."
+            if (Test-Path $VendorPython) {
+                & $VendorPython $MtgoSdkScript
+            } elseif ($FallbackPython) {
+                & $FallbackPython.Source $MtgoSdkScript
+            } else {
+                Write-Warn "Python not found; skipping MTGOSDK vendor update."
+            }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "MTGOSDK vendor script exited with code $LASTEXITCODE"
+            }
+        } else {
+            Write-Warn "MTGOSDK update script not found."
         }
     }
     foreach ($vendorDir in @("vendor\mtgo_format_data", "vendor\mtgo_archetype_parser", "vendor\mtgosdk")) {
