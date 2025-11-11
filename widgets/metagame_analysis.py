@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from collections import Counter
+from datetime import datetime, timedelta
 from typing import Any
 
 import wx
@@ -10,13 +12,7 @@ from loguru import logger
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from utils.metagame_stats import (
-    aggregate_archetypes_for_window,
-    calculate_metagame_changes,
-    calculate_metagame_percentages,
-    load_aggregated_decks,
-    update_mtgo_deck_cache,
-)
+from navigators.mtggoldfish import get_archetype_stats
 
 DARK_BG = wx.Colour(20, 22, 27)
 DARK_PANEL = wx.Colour(34, 39, 46)
@@ -32,11 +28,11 @@ class MetagameAnalysisFrame(wx.Frame):
         style = wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP
         super().__init__(parent, title="Metagame Analysis", size=(950, 650), style=style)
 
-        self.current_format: str = "Modern"
+        self.current_format: str = "modern"
         self.current_days: int = 1
         self.current_data: dict[str, int] = {}
         self.previous_data: dict[str, int] = {}
-        self.all_decks: list[dict[str, Any]] = []
+        self.stats_data: dict[str, Any] = {}
 
         self._build_ui()
         self.Centre(wx.BOTH)
@@ -65,8 +61,6 @@ class MetagameAnalysisFrame(wx.Frame):
                 "Legacy",
                 "Vintage",
                 "Pauper",
-                "Commander",
-                "Historic",
             ],
         )
         self.format_choice.SetSelection(0)
@@ -81,7 +75,7 @@ class MetagameAnalysisFrame(wx.Frame):
             wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
             5,
         )
-        self.days_spin = wx.SpinCtrl(panel, value="1", min=1, max=30, initial=1)
+        self.days_spin = wx.SpinCtrl(panel, value="1", min=1, max=7, initial=1)
         self.days_spin.SetBackgroundColour(DARK_ALT)
         self.days_spin.SetForegroundColour(LIGHT_TEXT)
         self.days_spin.Bind(wx.EVT_SPINCTRL, self.on_days_change)
@@ -139,8 +133,8 @@ class MetagameAnalysisFrame(wx.Frame):
         button.SetFont(font)
 
     def on_format_change(self, event: wx.CommandEvent) -> None:
-        self.current_format = self.format_choice.GetStringSelection()
-        self.update_visualization()
+        self.current_format = self.format_choice.GetStringSelection().lower()
+        self.refresh_data()
 
     def on_days_change(self, event: wx.SpinEvent) -> None:
         self.current_days = self.days_spin.GetValue()
@@ -149,18 +143,17 @@ class MetagameAnalysisFrame(wx.Frame):
     def refresh_data(self) -> None:
         if not self or not self.IsShown():
             return
-        self._set_busy(True, "Fetching metagame data...")
+        self._set_busy(True, "Fetching metagame data from MTGGoldfish...")
 
         def worker() -> None:
             try:
-                update_mtgo_deck_cache(days=30, max_events=100)
-                decks = load_aggregated_decks()
-                logger.debug(f"Loaded {len(decks)} decks from cache")
+                stats = get_archetype_stats(self.current_format)
+                logger.debug(f"Loaded archetype stats for {self.current_format}")
             except Exception as exc:
                 logger.exception("Failed to fetch metagame data")
                 wx.CallAfter(self._handle_error, str(exc))
                 return
-            wx.CallAfter(self._populate_data, decks)
+            wx.CallAfter(self._populate_data, stats)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -172,46 +165,78 @@ class MetagameAnalysisFrame(wx.Frame):
             f"Unable to load metagame data:\n{message}", "Metagame Analysis", wx.OK | wx.ICON_ERROR
         )
 
-    def _populate_data(self, decks: list[dict[str, Any]]) -> None:
+    def _populate_data(self, stats: dict[str, Any]) -> None:
         if not self or not self.IsShown():
             return
 
-        self.all_decks = decks
-        self._set_busy(False, f"Loaded {len(decks)} decks")
+        self.stats_data = stats
+        format_stats = stats.get(self.current_format, {})
+        archetype_count = len([k for k in format_stats.keys() if k != "timestamp"])
+        self._set_busy(False, f"Loaded {archetype_count} archetypes")
         self.update_visualization()
 
+    def _aggregate_for_days(self, days: int) -> dict[str, int]:
+        """Aggregate deck counts for the specified number of days."""
+        format_stats = self.stats_data.get(self.current_format, {})
+        today = datetime.now().date()
+
+        archetype_counts = Counter()
+        for archetype_name, archetype_data in format_stats.items():
+            if archetype_name == "timestamp":
+                continue
+
+            results = archetype_data.get("results", {})
+            for day_offset in range(days):
+                date_str = (today - timedelta(days=day_offset)).strftime("%Y-%m-%d")
+                count = results.get(date_str, 0)
+                archetype_counts[archetype_name] += count
+
+        return dict(archetype_counts)
+
     def update_visualization(self) -> None:
-        if not self.all_decks:
+        if not self.stats_data:
             return
 
-        current_data = aggregate_archetypes_for_window(
-            self.all_decks,
-            fmt=self.current_format,
-            days=self.current_days,
-        )
+        self.current_data = self._aggregate_for_days(self.current_days)
 
-        previous_data = aggregate_archetypes_for_window(
-            self.all_decks,
-            fmt=self.current_format,
-            days=self.current_days * 2,
-        )
-        for arch in current_data:
-            previous_data[arch] = previous_data.get(arch, 0) - current_data.get(arch, 0)
+        # Calculate previous period (same length, immediately before current period)
+        previous_start = self.current_days
+        previous_end = self.current_days * 2
 
-        self.current_data = current_data
-        self.previous_data = previous_data
+        format_stats = self.stats_data.get(self.current_format, {})
+        today = datetime.now().date()
+
+        previous_counts = Counter()
+        for archetype_name, archetype_data in format_stats.items():
+            if archetype_name == "timestamp":
+                continue
+
+            results = archetype_data.get("results", {})
+            for day_offset in range(previous_start, previous_end):
+                date_str = (today - timedelta(days=day_offset)).strftime("%Y-%m-%d")
+                count = results.get(date_str, 0)
+                previous_counts[archetype_name] += count
+
+        self.previous_data = dict(previous_counts)
 
         self._draw_pie_chart()
         self._update_changes_display()
 
+    def _calculate_percentages(self, counts: dict[str, int]) -> dict[str, float]:
+        """Calculate percentage share for each archetype."""
+        total = sum(counts.values())
+        if total == 0:
+            return {}
+        return {archetype: (count / total) * 100 for archetype, count in counts.items()}
+
     def _draw_pie_chart(self) -> None:
         self.ax.clear()
 
-        if not self.current_data:
+        if not self.current_data or sum(self.current_data.values()) == 0:
             self.ax.text(
                 0.5,
                 0.5,
-                "No data available",
+                "No data available for selected period",
                 ha="center",
                 va="center",
                 color="#b9bfca",
@@ -220,7 +245,7 @@ class MetagameAnalysisFrame(wx.Frame):
             self.canvas.draw()
             return
 
-        percentages = calculate_metagame_percentages(self.current_data)
+        percentages = self._calculate_percentages(self.current_data)
         sorted_archetypes = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
 
         top_archetypes = sorted_archetypes[:10]
@@ -256,7 +281,7 @@ class MetagameAnalysisFrame(wx.Frame):
         )
 
         self.ax.axis("equal")
-        title = f"{self.current_format} Metagame (Last {self.current_days} day{'s' if self.current_days > 1 else ''})"
+        title = f"{self.current_format.title()} Metagame (Last {self.current_days} day{'s' if self.current_days > 1 else ''})"
         self.ax.set_title(title, color="#ecececec", fontsize=12, pad=20)
 
         self.canvas.draw()
@@ -266,7 +291,16 @@ class MetagameAnalysisFrame(wx.Frame):
             self.changes_text.SetValue("No comparison data available")
             return
 
-        changes = calculate_metagame_changes(self.current_data, self.previous_data)
+        current_pct = self._calculate_percentages(self.current_data)
+        previous_pct = self._calculate_percentages(self.previous_data)
+
+        all_archetypes = set(current_pct.keys()) | set(previous_pct.keys())
+        changes = {}
+        for archetype in all_archetypes:
+            current = current_pct.get(archetype, 0.0)
+            previous = previous_pct.get(archetype, 0.0)
+            changes[archetype] = current - previous
+
         sorted_changes = sorted(changes.items(), key=lambda x: abs(x[1]), reverse=True)
 
         lines = [f"Changes vs previous {self.current_days} day period:\n"]
@@ -274,8 +308,8 @@ class MetagameAnalysisFrame(wx.Frame):
             if abs(change) < 0.1:
                 continue
             symbol = "+" if change > 0 else ""
-            current_pct = calculate_metagame_percentages(self.current_data).get(archetype, 0.0)
-            lines.append(f"{symbol}{change:+.1f}% {archetype} (now {current_pct:.1f}%)")
+            current_val = current_pct.get(archetype, 0.0)
+            lines.append(f"{symbol}{change:+.1f}% {archetype} (now {current_val:.1f}%)")
 
         if len(lines) == 1:
             lines.append("No significant changes")
