@@ -1,12 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 import pathlib
-
-from PyInstaller.utils.hooks import Tree
 
 block_cipher = None
 
 project_root = pathlib.Path(__file__).resolve().parents[1]
+
+def tree(src: pathlib.Path, dest: str) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    if not src.exists():
+        return result
+    for root, _dirs, files in os.walk(src):
+        for file in files:
+            path = pathlib.Path(root) / file
+            rel = path.relative_to(src)
+            target_dir = pathlib.Path(dest) / rel.parent
+            result.append((str(path), str(target_dir)))
+    return result
 
 datas = []
 for rel in [
@@ -16,7 +27,7 @@ for rel in [
 ]:
     src = project_root / rel
     if src.exists():
-        datas += Tree(str(src), rel)
+        datas += tree(src, rel)
 
 binaries = []
 bridge_candidates = [

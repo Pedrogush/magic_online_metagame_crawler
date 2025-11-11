@@ -32,7 +32,7 @@ ssh -i "$SSH_KEY" \
     -o StrictHostKeyChecking=ask \
     -o PasswordAuthentication=no \
     "$HOST_USER@$HOST_IP" \
-    "cd \"$PROJECT_PATH\" && $BUILD_COMMAND $BUILD_ARGS"
+    "cd \"$PROJECT_PATH\" && git pull --ff-only && $BUILD_COMMAND $BUILD_ARGS"
 
 EXIT_CODE=$?
 
