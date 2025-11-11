@@ -144,21 +144,25 @@ class MetagameAnalysisFrame(wx.Frame):
         if not self or not self.IsShown():
             return
         self._set_busy(True, "Fetching metagame data from MTGGoldfish...")
+        logger.info(f"Starting metagame data fetch for format: {self.current_format}")
 
         def worker() -> None:
             try:
+                logger.debug(f"Worker thread started for {self.current_format}")
                 stats = get_archetype_stats(self.current_format)
-                logger.debug(f"Loaded archetype stats for {self.current_format}")
+                logger.info(f"Successfully loaded archetype stats for {self.current_format}")
+                logger.debug(f"Stats keys: {list(stats.keys())}")
+                wx.CallAfter(self._populate_data, stats)
             except Exception as exc:
-                logger.exception("Failed to fetch metagame data")
+                logger.exception(f"Failed to fetch metagame data for {self.current_format}")
                 wx.CallAfter(self._handle_error, str(exc))
-                return
-            wx.CallAfter(self._populate_data, stats)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _handle_error(self, message: str) -> None:
+        logger.error(f"_handle_error called with message: {message}")
         if not self or not self.IsShown():
+            logger.warning("Widget not shown, skipping error display")
             return
         self._set_busy(False)
         wx.MessageBox(
@@ -166,14 +170,26 @@ class MetagameAnalysisFrame(wx.Frame):
         )
 
     def _populate_data(self, stats: dict[str, Any]) -> None:
+        logger.info(f"_populate_data called with stats for format: {self.current_format}")
         if not self or not self.IsShown():
+            logger.warning("Widget not shown, skipping populate")
             return
 
-        self.stats_data = stats
-        format_stats = stats.get(self.current_format, {})
-        archetype_count = len([k for k in format_stats.keys() if k != "timestamp"])
-        self._set_busy(False, f"Loaded {archetype_count} archetypes")
-        self.update_visualization()
+        try:
+            self.stats_data = stats
+            format_stats = stats.get(self.current_format, {})
+            archetype_count = len([k for k in format_stats.keys() if k != "timestamp"])
+            logger.info(f"Found {archetype_count} archetypes in data")
+            self._set_busy(False, f"Loaded {archetype_count} archetypes")
+            self.update_visualization()
+        except Exception as exc:
+            logger.exception("Error in _populate_data")
+            self._set_busy(False)
+            wx.MessageBox(
+                f"Error processing metagame data:\n{exc}",
+                "Metagame Analysis",
+                wx.OK | wx.ICON_ERROR,
+            )
 
     def _aggregate_for_days(self, days: int) -> dict[str, int]:
         """Aggregate deck counts for the specified number of days."""
@@ -194,10 +210,13 @@ class MetagameAnalysisFrame(wx.Frame):
         return dict(archetype_counts)
 
     def update_visualization(self) -> None:
+        logger.debug(f"update_visualization called, stats_data empty: {not self.stats_data}")
         if not self.stats_data:
+            logger.warning("No stats data available for visualization")
             return
 
         self.current_data = self._aggregate_for_days(self.current_days)
+        logger.debug(f"Current data aggregated: {len(self.current_data)} archetypes, total decks: {sum(self.current_data.values())}")
 
         # Calculate previous period (same length, immediately before current period)
         previous_start = self.current_days
@@ -317,8 +336,10 @@ class MetagameAnalysisFrame(wx.Frame):
         self.changes_text.SetValue("\n".join(lines))
 
     def _set_busy(self, busy: bool, message: str | None = None) -> None:
+        logger.debug(f"_set_busy called: busy={busy}, message={message}")
         if self.refresh_button:
             self.refresh_button.Enable(not busy)
+            logger.debug(f"Refresh button enabled: {not busy}")
         if message:
             self.status_label.SetLabel(message)
         elif busy:
