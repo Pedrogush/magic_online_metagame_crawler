@@ -20,7 +20,7 @@ import json
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -254,7 +254,7 @@ class CardImageCache:
                     collector_number,
                     image_size,
                     file_path_str,
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                     scryfall_uri,
                     artist,
                 ),
@@ -341,7 +341,7 @@ class BulkImageDownloader:
                     INSERT OR REPLACE INTO bulk_data_meta (id, downloaded_at, total_cards, bulk_data_uri)
                     VALUES (1, ?, ?, ?)
                 """,
-                    (datetime.now(timezone.utc).isoformat(), 0, download_uri),
+                    (datetime.now(UTC).isoformat(), 0, download_uri),
                 )
                 conn.commit()
 
@@ -563,7 +563,7 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
 
     payload = {
         "version": PRINTING_INDEX_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "bulk_mtime": bulk_mtime,
         "unique_names": len(by_name),
         "total_printings": total_printings,

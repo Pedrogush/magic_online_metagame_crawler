@@ -3,10 +3,9 @@ from __future__ import annotations
 import sys
 import time as time_module
 from pathlib import Path
+from typing import Any
 
 import pytest
-
-from typing import Any
 
 if sys.platform != "win32":
     pytest.skip("wxPython UI tests must run on Windows", allow_module_level=True)
