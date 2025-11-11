@@ -927,9 +927,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.out_table.set_cards(self.zone_cards["out"])
         self.current_deck_text = ""
         self._update_stats("")
-        self.deck_notes_text.ChangeValue("")
-        self.guide_view.DeleteAllItems()
-        self.guide_exclusions_label.SetLabel("Exclusions: —")
+        self.deck_notes_panel.clear()
+        self.sideboard_guide_panel.clear()
+        self.card_inspector_panel.reset()
 
     def _on_archetypes_loaded(self, items: list[dict[str, Any]]) -> None:
         self.loading_archetypes = False
