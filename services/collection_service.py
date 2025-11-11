@@ -28,6 +28,7 @@ class CollectionService:
         """
         self.card_repo = card_repository or get_card_repository()
         self._collection: dict[str, int] = {}
+        self._collection_path: Path | None = None
         self._collection_loaded = False
 
     # ============= Collection Loading =============
@@ -53,6 +54,7 @@ class CollectionService:
             if not filepath.exists():
                 logger.info("No collection file found")
                 self._collection = {}
+                self._collection_path = None
                 self._collection_loaded = True
                 return True
 
@@ -67,8 +69,9 @@ class CollectionService:
                 if name:
                     self._collection[name] = self._collection.get(name, 0) + quantity
 
+            self._collection_path = filepath
             self._collection_loaded = True
-            logger.info(f"Loaded collection with {len(self._collection)} unique cards")
+            logger.info(f"Loaded collection from {filepath} with {len(self._collection)} unique cards")
             return True
 
         except Exception as exc:
@@ -325,6 +328,51 @@ class CollectionService:
             self._collection[card_name] = count
 
         logger.debug(f"Set {card_name} count to {count}")
+
+    # ============= State Access Methods =============
+
+    def get_inventory(self) -> dict[str, int]:
+        """
+        Get the collection inventory dictionary.
+
+        Returns:
+            Dictionary mapping card names (lowercase) to quantities
+        """
+        return self._collection
+
+    def set_inventory(self, inventory: dict[str, int]) -> None:
+        """
+        Set the collection inventory dictionary directly.
+
+        Args:
+            inventory: Dictionary mapping card names to quantities
+        """
+        self._collection = inventory
+        self._collection_loaded = True
+
+    def clear_inventory(self) -> None:
+        """Clear the collection inventory."""
+        self._collection = {}
+        self._collection_path = None
+        self._collection_loaded = False
+
+    def get_collection_path(self) -> Path | None:
+        """
+        Get the path to the currently loaded collection file.
+
+        Returns:
+            Path to collection file, or None if not loaded from file
+        """
+        return self._collection_path
+
+    def set_collection_path(self, path: Path | None) -> None:
+        """
+        Set the path to the collection file.
+
+        Args:
+            path: Path to collection file
+        """
+        self._collection_path = path
 
 
 # Global instance for backward compatibility

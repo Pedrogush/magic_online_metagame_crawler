@@ -24,7 +24,7 @@ from utils.card_images import (
 
 
 class CardRepository:
-    """Repository for card data access operations."""
+    """Repository for card data access operations and card data state management."""
 
     def __init__(self, card_data_manager: CardDataManager | None = None):
         """
@@ -34,6 +34,10 @@ class CardRepository:
             card_data_manager: CardDataManager instance. If None, creates a new one.
         """
         self._card_data_manager = card_data_manager
+
+        # State management for UI layer
+        self._card_data_loading: bool = False
+        self._card_data_ready: bool = False
 
     @property
     def card_data_manager(self) -> CardDataManager:
@@ -261,6 +265,34 @@ class CardRepository:
         from utils.paths import CACHE_DIR
 
         return CACHE_DIR / "collection.json"
+
+    # ============= Card Data State Management (for UI layer) =============
+
+    def is_card_data_loading(self) -> bool:
+        """Check if card data is currently loading."""
+        return self._card_data_loading
+
+    def set_card_data_loading(self, loading: bool) -> None:
+        """Set the card data loading state."""
+        self._card_data_loading = loading
+
+    def is_card_data_ready(self) -> bool:
+        """Check if card data is ready for use."""
+        return self._card_data_ready
+
+    def set_card_data_ready(self, ready: bool) -> None:
+        """Set the card data ready state."""
+        self._card_data_ready = ready
+
+    def get_card_manager(self) -> CardDataManager | None:
+        """Get the CardDataManager instance."""
+        return self._card_data_manager
+
+    def set_card_manager(self, manager: CardDataManager | None) -> None:
+        """Set the CardDataManager instance."""
+        self._card_data_manager = manager
+        if manager and manager.is_loaded():
+            self._card_data_ready = True
 
 
 # Global instance for backward compatibility

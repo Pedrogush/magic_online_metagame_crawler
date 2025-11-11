@@ -294,15 +294,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         self.archetypes: list[dict[str, Any]] = []
         self.filtered_archetypes: list[dict[str, Any]] = []
-        self.decks: list[dict[str, Any]] = []
-        self.current_deck: dict[str, Any] | None = None
-        self.current_deck_text: str = ""
         self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": [], "out": []}
-        self.collection_inventory: dict[str, int] = {}
-        self.collection_path: Path | None = None
-        self.card_data_loading = False
-        self.card_data_ready = False
-        self.card_manager: CardDataManager | None = None
 
         # Load deck metadata stores via repository
         self.deck_notes_store = self._load_store(NOTES_STORE)
@@ -317,8 +309,6 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.research_panel: DeckResearchPanel | None = None
         self.builder_panel: DeckBuilderPanel | None = None
 
-        self.deck_buffer: dict[str, float] = {}
-        self.decks_added: int = 0
         self.loading_archetypes = False
         self.loading_decks = False
         self.loading_daily_average = False
@@ -461,7 +451,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         upper_split.Add(inspector_sizer, 2, wx.EXPAND)
 
         self.card_inspector_panel = CardInspectorPanel(
-            inspector_box, card_manager=self.card_manager, mana_icons=self.mana_icons
+            inspector_box, card_manager=self.card_repo.get_card_manager(), mana_icons=self.mana_icons
         )
         inspector_sizer.Add(self.card_inspector_panel, 1, wx.EXPAND)
 
@@ -556,7 +546,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         # Deck Stats Panel (replaces ~24 lines of inline UI code)
         self.deck_stats_panel = DeckStatsPanel(
-            self.deck_tabs, card_manager=self.card_manager, deck_service=self.deck_service
+            self.deck_tabs, card_manager=self.card_repo.get_card_manager(), deck_service=self.deck_service
         )
         self.deck_tabs.AddPage(self.deck_stats_panel, "Stats")
 
@@ -676,13 +666,13 @@ class MTGDeckSelectionFrame(wx.Frame):
             self.out_table.set_cards(self.zone_cards["out"])
         saved_text = self.settings.get("saved_deck_text", "")
         if saved_text:
-            self.current_deck_text = saved_text
+            self.deck_repo.set_current_deck_text(saved_text)
             self._update_stats(saved_text)
             self.copy_button.Enable(True)
             self.save_button.Enable(True)
         saved_deck = self.settings.get("saved_deck_info")
         if isinstance(saved_deck, dict):
-            self.current_deck = saved_deck
+            self.deck_repo.set_current_deck(saved_deck)
 
     def _run_initial_loads(self) -> None:
         self._restore_session_state()
@@ -716,12 +706,13 @@ class MTGDeckSelectionFrame(wx.Frame):
                 "window_size": [size.width, size.height],
                 "screen_pos": [pos.x, pos.y],
                 "left_mode": self.left_mode,
-                "saved_deck_text": self.current_deck_text,
+                "saved_deck_text": self.deck_repo.get_current_deck_text(),
                 "saved_zone_cards": self._serialize_zone_cards(),
             }
         )
-        if self.current_deck:
-            data["saved_deck_info"] = self.current_deck
+        current_deck = self.deck_repo.get_current_deck()
+        if current_deck:
+            data["saved_deck_info"] = current_deck
         elif "saved_deck_info" in data:
             data.pop("saved_deck_info")
         try:
@@ -813,8 +804,8 @@ class MTGDeckSelectionFrame(wx.Frame):
         idx = self.deck_list.GetSelection()
         if idx == wx.NOT_FOUND:
             return
-        deck = self.decks[idx]
-        self.current_deck = deck
+        deck = self.deck_repo.get_decks_list()[idx]
+        self.deck_repo.set_current_deck(deck)
         self.load_button.Enable()
         self.copy_button.Enable(self._has_deck_loaded())
         self.save_button.Enable(self._has_deck_loaded())
@@ -823,12 +814,13 @@ class MTGDeckSelectionFrame(wx.Frame):
         self._schedule_settings_save()
 
     def on_load_deck_clicked(self, _event: wx.CommandEvent) -> None:
-        if not self.current_deck or self.loading_decks:
+        current_deck = self.deck_repo.get_current_deck()
+        if not current_deck or self.loading_decks:
             return
-        self._download_and_display_deck(self.current_deck)
+        self._download_and_display_deck(current_deck)
 
     def on_daily_average_clicked(self, _event: wx.CommandEvent) -> None:
-        if self.loading_daily_average or not self.decks:
+        if self.loading_daily_average or not self.deck_repo.get_decks_list():
             return
         self._build_daily_average_deck()
 
@@ -852,8 +844,9 @@ class MTGDeckSelectionFrame(wx.Frame):
             wx.MessageBox("Load a deck first.", "Save Deck", wx.OK | wx.ICON_INFORMATION)
             return
         default_name = "saved_deck"
-        if self.current_deck:
-            default_name = format_deck_name(self.current_deck).replace(" | ", "_")
+        current_deck = self.deck_repo.get_current_deck()
+        if current_deck:
+            default_name = format_deck_name(current_deck).replace(" | ", "_")
         dlg = wx.TextEntryDialog(self, "Deck name:", "Save Deck", default_name=default_name)
         if dlg.ShowModal() != wx.ID_OK:
             dlg.Destroy()
@@ -877,10 +870,10 @@ class MTGDeckSelectionFrame(wx.Frame):
                 deck_name=deck_name,
                 deck_content=deck_content,
                 format_type=self.current_format,
-                archetype=self.current_deck.get("name") if self.current_deck else None,
-                player=self.current_deck.get("player") if self.current_deck else None,
-                source="mtggoldfish" if self.current_deck else "manual",
-                metadata=(self.current_deck or {}),
+                archetype=current_deck.get("name") if current_deck else None,
+                player=current_deck.get("player") if current_deck else None,
+                source="mtggoldfish" if current_deck else "manual",
+                metadata=(current_deck or {}),
             )
             logger.info(f"Deck saved to database: {deck_name} (ID: {deck_id})")
         except Exception as exc:  # pragma: no cover
@@ -919,13 +912,13 @@ class MTGDeckSelectionFrame(wx.Frame):
         ).start()
 
     def _clear_deck_display(self) -> None:
-        self.current_deck = None
+        self.deck_repo.set_current_deck(None)
         self.summary_text.ChangeValue("Select an archetype to view decks.")
         self.zone_cards = {"main": [], "side": [], "out": []}
         self.main_table.set_cards([])
         self.side_table.set_cards([])
         self.out_table.set_cards(self.zone_cards["out"])
-        self.current_deck_text = ""
+        self.deck_repo.set_current_deck_text("")
         self._update_stats("")
         self.deck_notes_panel.clear()
         self.sideboard_guide_panel.clear()
@@ -979,7 +972,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _on_decks_loaded(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
         self.loading_decks = False
-        self.decks = decks
+        self.deck_repo.set_decks_list(decks)
         self.deck_list.Clear()
         if not decks:
             self.deck_list.Append("No decks found.")
@@ -1044,7 +1037,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_content_ready(self, deck_text: str, source: str = "manual") -> None:
-        self.current_deck_text = deck_text
+        self.deck_repo.set_current_deck_text(deck_text)
         stats = self.deck_service.analyze_deck(deck_text)
         self.zone_cards["main"] = [
             {"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]
@@ -1074,7 +1067,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         """Load collection from cached file without calling bridge. Returns True if loaded."""
         files = sorted(DECK_SAVE_DIR.glob("collection_full_trade_*.json"))
         if not files:
-            self.collection_inventory = {}
+            self.collection_service.clear_inventory()
             self.collection_status_label.SetLabel(
                 "No collection found. Click 'Refresh Collection' to fetch from MTGO."
             )
@@ -1088,8 +1081,8 @@ class MTGDeckSelectionFrame(wx.Frame):
                 for entry in data
                 if isinstance(entry, dict)
             }
-            self.collection_inventory = mapping
-            self.collection_path = latest
+            self.collection_service.set_inventory(mapping)
+            self.collection_service.set_collection_path(latest)
 
             # Show file age in status
             from datetime import datetime
@@ -1107,7 +1100,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             return True
         except Exception as exc:
             logger.warning(f"Failed to load cached collection {latest}: {exc}")
-            self.collection_inventory = {}
+            self.collection_service.clear_inventory()
             self.collection_status_label.SetLabel(f"Collection cache load failed: {exc}")
             return False
 
@@ -1191,8 +1184,8 @@ class MTGDeckSelectionFrame(wx.Frame):
                 for entry in cards
                 if isinstance(entry, dict)
             }
-            self.collection_inventory = mapping
-            self.collection_path = filepath
+            self.collection_service.set_inventory(mapping)
+            self.collection_service.set_collection_path(filepath)
             self.collection_status_label.SetLabel(
                 f"Collection: {filepath.name} ({len(mapping)} entries)"
             )
@@ -1205,7 +1198,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _on_collection_fetch_failed(self, error_msg: str) -> None:
         """Handle collection fetch failure."""
-        self.collection_inventory = {}
+        self.collection_service.clear_inventory()
         self.collection_status_label.SetLabel(f"Collection fetch failed: {error_msg}")
         logger.warning(f"Collection fetch failed: {error_msg}")
 
@@ -1343,9 +1336,10 @@ class MTGDeckSelectionFrame(wx.Frame):
 
 
     def _owned_status(self, name: str, required: int) -> tuple[str, wx.Colour]:
-        if not self.collection_inventory:
+        collection_inventory = self.collection_service.get_inventory()
+        if not collection_inventory:
             return ("Owned —", SUBDUED_TEXT)
-        have = self.collection_inventory.get(name.lower(), 0)
+        have = collection_inventory.get(name.lower(), 0)
         if have >= required:
             return (f"Owned {have}/{required}", wx.Colour(120, 200, 120))
         if have > 0:
@@ -1431,8 +1425,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         else:
             self.out_table.set_cards(self.zone_cards["out"])
             self._persist_outboard_for_current()
-        self.current_deck_text = self._build_deck_text()
-        self._update_stats(self.current_deck_text)
+        deck_text = self._build_deck_text()
+        self.deck_repo.set_current_deck_text(deck_text)
+        self._update_stats(deck_text)
         self.copy_button.Enable(self._has_deck_loaded())
         self.save_button.Enable(self._has_deck_loaded())
         self._schedule_settings_save()
@@ -1461,9 +1456,10 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _get_card_metadata(self, card_name: str) -> dict[str, Any] | None:
         """Get card metadata from the card manager if available."""
-        if not self.card_manager:
+        card_manager = self.card_repo.get_card_manager()
+        if not card_manager:
             return None
-        return self.card_manager.get_card(card_name)
+        return card_manager.get_card(card_name)
 
     # ------------------------------------------------------------------ Stats + notes --------------------------------------------------------
     def _update_stats(self, deck_text: str) -> None:
@@ -1604,7 +1600,7 @@ class MTGDeckSelectionFrame(wx.Frame):
     # ------------------------------------------------------------------ Daily average --------------------------------------------------------
     def _build_daily_average_deck(self) -> None:
         today = time.strftime("%Y-%m-%d").lower()
-        todays_decks = [deck for deck in self.decks if today in deck.get("date", "").lower()]
+        todays_decks = [deck for deck in self.deck_repo.get_decks_list() if today in deck.get("date", "").lower()]
 
         if not todays_decks:
             wx.MessageBox(
@@ -1654,9 +1650,9 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def ensure_card_data_loaded(self) -> None:
         """Ensure card data is loaded in background if not already loading/loaded."""
-        if self.card_manager or self.card_data_loading:
+        if self.card_repo.get_card_manager() or self.card_repo.is_card_data_loading():
             return
-        self.card_data_loading = True
+        self.card_repo.set_card_data_loading(True)
         self._set_status("Loading card database...")
 
         def worker():
@@ -1664,16 +1660,16 @@ class MTGDeckSelectionFrame(wx.Frame):
             return load_card_manager()
 
         def on_success(manager: CardDataManager):
-            self.card_manager = manager
+            self.card_repo.set_card_manager(manager)
             # Update panels with card manager
             self.card_inspector_panel.set_card_manager(manager)
             self.deck_stats_panel.set_card_manager(manager)
-            self.card_data_loading = False
-            self.card_data_ready = True
+            self.card_repo.set_card_data_loading(False)
+            self.card_repo.set_card_data_ready(True)
             self._set_status("Card database loaded")
 
         def on_error(error: Exception):
-            self.card_data_loading = False
+            self.card_repo.set_card_data_loading(False)
             logger.error(f"Failed to load card data: {error}")
             self._set_status(f"Card database load failed: {error}")
             wx.MessageBox(
@@ -1686,8 +1682,9 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _on_builder_search(self) -> None:
         """Handle search button click from builder panel."""
-        if not self.card_manager:
-            if not self.card_data_loading:
+        card_manager = self.card_repo.get_card_manager()
+        if not card_manager:
+            if not self.card_repo.is_card_data_loading():
                 self.ensure_card_data_loaded()
             wx.MessageBox(
                 "Card database is still loading. Please try again in a moment.",
@@ -1720,7 +1717,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         # Perform search
         query = filters.get("name") or filters.get("text") or ""
-        results = self.card_manager.search_cards(query=query, format_filter=None)
+        results = card_manager.search_cards(query=query, format_filter=None)
 
         # Apply filters
         filtered: list[dict[str, Any]] = []
@@ -1783,8 +1780,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         return "\n".join(lines).strip()
 
     def _current_deck_key(self) -> str:
-        if self.current_deck:
-            return self.current_deck.get("href") or self.current_deck.get("name", "manual").lower()
+        current_deck = self.deck_repo.get_current_deck()
+        if current_deck:
+            return current_deck.get("href") or current_deck.get("name", "manual").lower()
         return "manual"
 
     def _widget_exists(self, window: wx.Window | None) -> bool:

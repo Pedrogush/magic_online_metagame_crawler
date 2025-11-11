@@ -31,7 +31,7 @@ GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
 
 
 class DeckRepository:
-    """Repository for deck data access operations."""
+    """Repository for deck data access operations and deck state management."""
 
     def __init__(self, mongo_client: pymongo.MongoClient | None = None):
         """
@@ -42,6 +42,13 @@ class DeckRepository:
         """
         self._client = mongo_client
         self._db = None
+
+        # State management for UI layer
+        self._decks: list[dict[str, Any]] = []
+        self._current_deck: dict[str, Any] | None = None
+        self._current_deck_text: str = ""
+        self._deck_buffer: dict[str, float] = {}
+        self._decks_added: int = 0
 
     def _get_db(self):
         """Get or create database connection."""
@@ -383,6 +390,57 @@ class DeckRepository:
         data = self._load_json_store(GUIDE_STORE)
         data[deck_key] = guide
         self._save_json_store(GUIDE_STORE, data)
+
+    # ============= State Management (for UI layer) =============
+
+    def get_decks_list(self) -> list[dict[str, Any]]:
+        """Get the list of currently loaded decks."""
+        return self._decks
+
+    def set_decks_list(self, decks: list[dict[str, Any]]) -> None:
+        """Set the list of currently loaded decks."""
+        self._decks = decks
+
+    def clear_decks_list(self) -> None:
+        """Clear the list of currently loaded decks."""
+        self._decks = []
+
+    def get_current_deck(self) -> dict[str, Any] | None:
+        """Get the currently selected deck."""
+        return self._current_deck
+
+    def set_current_deck(self, deck: dict[str, Any] | None) -> None:
+        """Set the currently selected deck."""
+        self._current_deck = deck
+
+    def get_current_deck_text(self) -> str:
+        """Get the text representation of the current deck."""
+        return self._current_deck_text
+
+    def set_current_deck_text(self, deck_text: str) -> None:
+        """Set the text representation of the current deck."""
+        self._current_deck_text = deck_text
+
+    def get_deck_buffer(self) -> dict[str, float]:
+        """Get the deck averaging buffer."""
+        return self._deck_buffer
+
+    def set_deck_buffer(self, buffer: dict[str, float]) -> None:
+        """Set the deck averaging buffer."""
+        self._deck_buffer = buffer
+
+    def get_decks_added_count(self) -> int:
+        """Get the count of decks added to buffer."""
+        return self._decks_added
+
+    def set_decks_added_count(self, count: int) -> None:
+        """Set the count of decks added to buffer."""
+        self._decks_added = count
+
+    def reset_averaging_state(self) -> None:
+        """Reset the deck averaging state."""
+        self._deck_buffer = {}
+        self._decks_added = 0
 
     # ============= Private Helper Methods =============
 
