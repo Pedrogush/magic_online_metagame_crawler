@@ -1,4 +1,8 @@
+from loguru import logger
 from utils.paths import CURR_DECK_FILE
+from pathlib import Path
+LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
+LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
 
 
 def deck_to_dictionary(deck: str):
@@ -97,6 +101,49 @@ def analyze_deck(deck_content: str):
         "sideboard_cards": sideboard,
         "estimated_lands": estimated_lands,
     }
+
+
+def render_average_deck(buffer: dict[str, float], decks_added: int) -> str:
+    if not buffer or decks_added <= 0:
+        return ""
+    lines: list[str] = []
+    sideboard_lines: list[str] = []
+    for card, total in sorted(
+        buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0])
+    ):
+        display_name = card.replace("Sideboard ", "")
+        average = float(total) / decks_added
+        value = f"{average:.2f}" if not average.is_integer() else str(int(average))
+        output = f"{value} {display_name}"
+        if card.lower().startswith("sideboard"):
+            sideboard_lines.append(output)
+        else:
+            lines.append(output)
+    if sideboard_lines:
+        lines.append("")
+        lines.extend(sideboard_lines)
+    return "\n".join(lines)
+
+
+def read_curr_deck_file() -> str:
+    candidates = [CURR_DECK_FILE, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
+    for candidate in candidates:
+        if candidate.exists():
+            with candidate.open("r", encoding="utf-8") as fh:
+                contents = fh.read()
+            if candidate != CURR_DECK_FILE:
+                try:
+                    CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    with CURR_DECK_FILE.open("w", encoding="utf-8") as target:
+                        target.write(contents)
+                    try:
+                        candidate.unlink()
+                    except OSError:
+                        logger.debug(f"Unable to remove legacy deck file {candidate}")
+                except OSError as exc:  # pragma: no cover
+                    logger.debug(f"Failed to migrate curr_deck.txt from {candidate}: {exc}")
+            return contents
+    raise FileNotFoundError("Current deck file not found")
 
 
 def add_dicts(dict1, dict2):
