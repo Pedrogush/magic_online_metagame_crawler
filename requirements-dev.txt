@@ -11,3 +11,4 @@ pygetwindow>=0.0.9
 defusedxml>=0.7.1
 pyinstaller>=5.13.0
 matplotlib>=3.5.0
+lxml>=4.9.0

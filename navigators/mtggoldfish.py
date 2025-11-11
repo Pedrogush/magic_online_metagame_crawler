@@ -81,7 +81,7 @@ def get_archetypes(mtg_format: str, cache_ttl: int = 60 * 60, allow_stale: bool 
                 return stale
         raise
 
-    soup = bs4.BeautifulSoup(page.text, "html.parser")
+    soup = bs4.BeautifulSoup(page.text, "lxml")
     metagame_decks = soup.select_one("#metagame-decks-container")
     if not metagame_decks:
         raise RuntimeError("Failed to locate metagame deck container")
@@ -110,7 +110,7 @@ def get_archetype_decks(archetype: str):
         logger.error(f"Failed to fetch decks for archetype {archetype}: {exc}")
         return []
 
-    soup = bs4.BeautifulSoup(page.text, "html.parser")
+    soup = bs4.BeautifulSoup(page.text, "lxml")
     table = soup.select_one("table.table-striped")
     if not table:
         logger.warning(f"Deck table missing for archetype {archetype}")
@@ -204,7 +204,7 @@ def get_daily_decks(mtg_format: str):
         logger.error(f"Failed to fetch daily decks for {mtg_format}: {exc}")
         return {}
 
-    soup = bs4.BeautifulSoup(page.text, "html.parser")
+    soup = bs4.BeautifulSoup(page.text, "lxml")
     table_container = soup.select_one("div.similar-events-container")
     if not table_container:
         logger.warning(f"Daily decks container missing for format {mtg_format}")
