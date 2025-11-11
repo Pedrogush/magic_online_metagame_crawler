@@ -893,7 +893,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.loading_archetypes = True
         self._set_status(f"Loading archetypes for {self.current_format}…")
         self.research_panel.set_loading_state()
-        self.decks.clear()
+        self.deck_repo.clear_decks_list()
         self.deck_list.Clear()
         self._clear_deck_display()
         self.daily_average_button.Disable()

@@ -59,14 +59,13 @@ class CardRepository:
             Dictionary with card metadata or None if not found
         """
         try:
-            # Access the card data from the manager
-            if not self.card_data_manager.is_loaded():
-                logger.warning("Card data not loaded yet")
-                return None
-
             # Get card info from the manager
             card_info = self.card_data_manager.get_card(card_name)
             return card_info
+        except RuntimeError as exc:
+            # Card data not loaded yet
+            logger.warning(f"Card data not loaded: {exc}")
+            return None
         except Exception as exc:
             logger.warning(f"Failed to get metadata for {card_name}: {exc}")
             return None
@@ -91,22 +90,22 @@ class CardRepository:
             List of matching card dictionaries
         """
         try:
-            if not self.card_data_manager.is_loaded():
-                logger.warning("Card data not loaded yet")
-                return []
-
             # Use the card data manager's search functionality
-            results = self.card_data_manager.search(
-                query=query, colors=colors, types=types, mana_value=mana_value
+            results = self.card_data_manager.search_cards(
+                query=query or "", color_identity=colors, type_filter=types
             )
             return results
+        except RuntimeError as exc:
+            # Card data not loaded yet
+            logger.warning(f"Card data not loaded: {exc}")
+            return []
         except Exception as exc:
             logger.error(f"Failed to search cards: {exc}")
             return []
 
     def is_card_data_loaded(self) -> bool:
         """Check if card data has been loaded."""
-        return self.card_data_manager.is_loaded()
+        return self.card_data_manager._cards is not None
 
     def load_card_data(self, force: bool = False) -> bool:
         """
@@ -119,10 +118,10 @@ class CardRepository:
             True if loaded successfully, False otherwise
         """
         try:
-            if not force and self.card_data_manager.is_loaded():
+            if not force and self.card_data_manager._cards is not None:
                 return True
 
-            self.card_data_manager.load()
+            self.card_data_manager.ensure_latest(force=force)
             return True
         except Exception as exc:
             logger.error(f"Failed to load card data: {exc}")
@@ -291,7 +290,7 @@ class CardRepository:
     def set_card_manager(self, manager: CardDataManager | None) -> None:
         """Set the CardDataManager instance."""
         self._card_data_manager = manager
-        if manager and manager.is_loaded():
+        if manager is not None:
             self._card_data_ready = True
 
 
