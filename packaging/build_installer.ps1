@@ -18,6 +18,21 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 $DistDir = Join-Path $ProjectRoot "dist"
 $InstallerDir = Join-Path $DistDir "installer"
 
+function Write-Info {
+    param([string]$Message)
+    Write-Host "[INFO] $Message" -ForegroundColor Green
+}
+
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "[WARN] $Message" -ForegroundColor Yellow
+}
+
+function Write-Error-Custom {
+    param([string]$Message)
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
+}
+
 function Ensure-GitSync {
     $GitDir = Join-Path $ProjectRoot ".git"
     if (-not (Test-Path $GitDir)) {
@@ -39,21 +54,6 @@ function Ensure-GitSync {
 
 # Ensure we are on the latest branch before building
 Ensure-GitSync
-
-function Write-Info {
-    param([string]$Message)
-    Write-Host "[INFO] $Message" -ForegroundColor Green
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "[WARN] $Message" -ForegroundColor Yellow
-}
-
-function Write-Error-Custom {
-    param([string]$Message)
-    Write-Host "[ERROR] $Message" -ForegroundColor Red
-}
 
 # Step 1: Check for Inno Setup
 function Get-EnvValue {
