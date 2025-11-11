@@ -51,6 +51,7 @@ from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.match_history import MatchHistoryFrame
 from widgets.metagame_analysis import MetagameAnalysisFrame
 from widgets.timer_alert import TimerAlertFrame
+from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.panels.card_inspector_panel import CardInspectorPanel
 from widgets.panels.card_table_panel import CardTablePanel
 from widgets.panels.deck_builder_panel import DeckBuilderPanel
@@ -475,32 +476,21 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.deck_list.Bind(wx.EVT_LISTBOX, self.on_deck_selected)
         deck_sizer.Add(self.deck_list, 1, wx.EXPAND | wx.ALL, 6)
 
-        button_row = wx.BoxSizer(wx.HORIZONTAL)
-        deck_sizer.Add(button_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        # Deck Action Buttons (replaces ~26 lines of inline button code)
+        self.deck_action_buttons = DeckActionButtons(
+            deck_box,
+            on_load=lambda: self.on_load_deck_clicked(None),
+            on_copy=lambda: self.on_copy_clicked(None),
+            on_save=lambda: self.on_save_clicked(None),
+            on_daily_average=lambda: self.on_daily_average_clicked(None),
+        )
+        deck_sizer.Add(self.deck_action_buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
-        self.load_button = wx.Button(deck_box, label="Load Deck")
-        stylize_button(self.load_button)
-        self.load_button.Disable()
-        self.load_button.Bind(wx.EVT_BUTTON, self.on_load_deck_clicked)
-        button_row.Add(self.load_button, 0, wx.RIGHT, 6)
-
-        self.daily_average_button = wx.Button(deck_box, label="Today's Average")
-        stylize_button(self.daily_average_button)
-        self.daily_average_button.Disable()
-        self.daily_average_button.Bind(wx.EVT_BUTTON, self.on_daily_average_clicked)
-        button_row.Add(self.daily_average_button, 0, wx.RIGHT, 6)
-
-        self.copy_button = wx.Button(deck_box, label="Copy")
-        stylize_button(self.copy_button)
-        self.copy_button.Disable()
-        self.copy_button.Bind(wx.EVT_BUTTON, self.on_copy_clicked)
-        button_row.Add(self.copy_button, 0, wx.RIGHT, 6)
-
-        self.save_button = wx.Button(deck_box, label="Save Deck")
-        stylize_button(self.save_button)
-        self.save_button.Disable()
-        self.save_button.Bind(wx.EVT_BUTTON, self.on_save_clicked)
-        button_row.Add(self.save_button, 0)
+        # Keep references for backward compatibility
+        self.load_button = self.deck_action_buttons.load_button
+        self.daily_average_button = self.deck_action_buttons.daily_average_button
+        self.copy_button = self.deck_action_buttons.copy_button
+        self.save_button = self.deck_action_buttons.save_button
 
         detail_box = wx.StaticBox(right_panel, label="Deck Workspace")
         detail_box.SetForegroundColour(LIGHT_TEXT)
