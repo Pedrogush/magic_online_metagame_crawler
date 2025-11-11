@@ -36,7 +36,7 @@ class ArchetypeService:
             return self._cache[cache_key]
 
         logger.info(f"Fetching archetypes for {format_name}")
-        archetypes = get_archetypes(format_name)
+        archetypes = get_archetypes(format_name.lower())
         self._cache[cache_key] = archetypes
         return archetypes
 

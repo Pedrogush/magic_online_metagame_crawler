@@ -12,6 +12,10 @@ import wx.dataview as dv
 from loguru import logger
 
 from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
+from services.archetype_service import ArchetypeService
+from services.collection_service import CollectionService
+from services.deck_analysis_service import DeckAnalysisService
+from services.deck_service import DeckService
 from utils.card_data import CardDataManager
 from utils.card_images import (
     BULK_DATA_CACHE,
@@ -881,6 +885,12 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def __init__(self, parent: wx.Window | None = None):
         super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
+
+        # Initialize services
+        self.deck_service = DeckService(DECK_SAVE_DIR)
+        self.archetype_service = ArchetypeService()
+        self.collection_service = CollectionService(CACHE_DIR)
+        self.analysis_service = DeckAnalysisService()
 
         self.settings = self._load_window_settings()
         self.current_format = self.settings.get("format", "Modern")
@@ -2093,7 +2103,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.save_button.Disable()
 
         def loader(fmt: str):
-            return get_archetypes(fmt.lower(), allow_stale=not force)
+            return self.archetype_service.fetch_archetypes(fmt.lower(), force=force)
 
         _Worker(
             loader,
