@@ -60,13 +60,23 @@ Write-Info "Updating vendor data..."
 Push-Location $ProjectRoot
 try {
     $VendorUpdateScript = Join-Path $ProjectRoot "scripts\update_vendor_data.py"
-    if (Test-Path $VendorUpdateScript) {
-        & "$($ProjectRoot)\env\Scripts\python.exe" $VendorUpdateScript
+    if (-not (Test-Path $VendorUpdateScript)) {
+        Write-Warn "Vendor update script not found; skipping vendor refresh."
+    } else {
+        $VendorPython = Join-Path $ProjectRoot "env\Scripts\python.exe"
+        if (Test-Path $VendorPython) {
+            & $VendorPython $VendorUpdateScript
+        } else {
+            $FallbackPython = Get-Command python -ErrorAction SilentlyContinue
+            if ($FallbackPython) {
+                & $FallbackPython.Source $VendorUpdateScript
+            } else {
+                Write-Warn "Python not found; cannot update vendor data."
+            }
+        }
         if ($LASTEXITCODE -ne 0) {
             Write-Warn "Vendor update script exited with code $LASTEXITCODE"
         }
-    } else {
-        Write-Warn "Vendor update script not found; skipping vendor refresh."
     }
 } finally {
     Pop-Location
