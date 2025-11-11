@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from typing import Any
+
 if sys.platform != "win32":
     pytest.skip("wxPython UI tests must run on Windows", allow_module_level=True)
 
@@ -193,6 +195,18 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         decks / "curr_deck.txt",
         raising=False,
     )
+    monkeypatch.setattr(
+        deck_selector,
+        "CURR_DECK_FILE",
+        replacements["CURR_DECK_FILE"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        deck_selector,
+        "DECKS_DIR",
+        replacements["DECKS_DIR"],
+        raising=False,
+    )
 
     monkeypatch.setattr(
         identify_opponent,
@@ -261,6 +275,34 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(deck_selector, "get_archetype_decks", fake_archetype_decks, raising=False)
     monkeypatch.setattr(mtggoldfish, "download_deck", fake_download, raising=False)
     monkeypatch.setattr(deck_selector, "download_deck", fake_download, raising=False)
+
+    payload_data: dict[str, list[dict[str, Any]]] = {}
+    for card in SAMPLE_CARDS:
+        key = card["name_lower"]
+        payload_data.setdefault(key, []).append(
+            {
+                "id": f"{key}-id",
+                "set": "TEST",
+                "set_name": "Test Set",
+                "collector_number": "1",
+                "released_at": "2024-01-01",
+            }
+        )
+
+    fake_printing_index_payload: dict[str, Any] = {
+        "version": 1,
+        "bulk_mtime": time_module.time(),
+        "unique_names": len(payload_data),
+        "total_printings": sum(len(entries) for entries in payload_data.values()),
+        "data": payload_data,
+    }
+
+    monkeypatch.setattr(
+        card_images,
+        "ensure_printing_index_cache",
+        lambda force=False: fake_printing_index_payload,
+        raising=False,
+    )
 
     yield
 
