@@ -18,6 +18,28 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 $DistDir = Join-Path $ProjectRoot "dist"
 $InstallerDir = Join-Path $DistDir "installer"
 
+function Ensure-GitSync {
+    $GitDir = Join-Path $ProjectRoot ".git"
+    if (-not (Test-Path $GitDir)) {
+        Write-Warn "Git repository not found in project root; skipping git pull."
+        return
+    }
+
+    Write-Info "Syncing with remote branch..."
+    $currentLocation = Get-Location
+    Push-Location $ProjectRoot
+    try {
+        git pull --ff-only
+    } catch {
+        Write-Warn "Git pull failed: $_"
+    } finally {
+        Pop-Location
+    }
+}
+
+# Ensure we are on the latest branch before building
+Ensure-GitSync
+
 function Write-Info {
     param([string]$Message)
     Write-Host "[INFO] $Message" -ForegroundColor Green
