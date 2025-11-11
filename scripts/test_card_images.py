@@ -113,7 +113,9 @@ def download_full_database(size: str = "normal"):
         )
 
     result = download_bulk_images(
-        size=size, max_cards=None, progress_callback=progress  # Download all
+        size=size,
+        max_cards=None,
+        progress_callback=progress,  # Download all
     )
 
     print("\n")  # New line after progress

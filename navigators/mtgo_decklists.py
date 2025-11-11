@@ -74,7 +74,7 @@ def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
 
     url = DECKLIST_INDEX_URL.format(year=year, month=month)
     html = _fetch_html(url)
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, "lxml")
     entries: list[dict[str, Any]] = []
     for li in soup.select("li.decklists-item"):
         link = li.find("a", class_="decklists-link")
