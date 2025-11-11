@@ -74,11 +74,27 @@ if (-not $InnoSetupPath) {
 
 Write-Info "Inno Setup found at: $InnoSetupPath"
 
+function Find-PyInstallerPath {
+    param([string]$ProjectRoot)
+
+    $explicit = Join-Path $ProjectRoot "env\Scripts\pyinstaller.exe"
+    if (Test-Path $explicit) {
+        return $explicit
+    }
+
+    $fromEnv = Get-Command pyinstaller -ErrorAction SilentlyContinue
+    if ($fromEnv) {
+        return $fromEnv.Path
+    }
+
+    return $null
+}
+
 # Step 2: Check for PyInstaller
 if (-not $SkipPyInstaller) {
     Write-Info "Checking for PyInstaller..."
-    $PyInstallerCheck = Get-Command pyinstaller -ErrorAction SilentlyContinue
-    if (-not $PyInstallerCheck) {
+    $PyInstallerPath = Find-PyInstallerPath -ProjectRoot $ProjectRoot
+    if (-not $PyInstallerPath) {
         Write-Error-Custom "PyInstaller is not installed. Install it with: pip install pyinstaller"
         exit 1
     }
@@ -98,7 +114,7 @@ if (-not $SkipPyInstaller) {
     $SpecFile = Join-Path $ProjectRoot "packaging\magic_online_metagame_crawler.spec"
     if (Test-Path $SpecFile) {
         Write-Info "Using existing spec file..."
-        & pyinstaller $SpecFile --clean --noconfirm
+        & $PyInstallerPath $SpecFile --clean --noconfirm
         if ($LASTEXITCODE -ne 0) {
             Write-Error-Custom "PyInstaller build failed!"
             Pop-Location
