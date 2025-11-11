@@ -49,7 +49,7 @@ function Run-Test {
     )
 
     $script:TestCount++
-    Write-Test "Test $TestCount: $TestName"
+    Write-Test "Test ${TestCount}: $TestName"
 
     try {
         $result = & $TestCommand
