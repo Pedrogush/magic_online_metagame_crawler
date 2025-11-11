@@ -11,7 +11,7 @@ import wx
 import wx.dataview as dv
 from loguru import logger
 
-from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
+from navigators.mtggoldfish import get_archetype_decks
 from services.archetype_service import ArchetypeService
 from services.collection_service import CollectionService
 from services.deck_analysis_service import DeckAnalysisService
@@ -25,7 +25,7 @@ from utils.card_images import (
     get_card_image,
 )
 from utils.dbq import save_deck_to_db
-from utils.deck import add_dicts, analyze_deck, deck_to_dictionary
+from utils.deck import add_dicts
 from utils.paths import (
     CACHE_DIR,
     CONFIG_FILE,
@@ -1741,13 +1741,10 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.fetch_archetypes(force=True)
 
     def on_archetype_filter(self, _event: wx.CommandEvent) -> None:
-        query = self.search_ctrl.GetValue().strip().lower()
-        if not query:
-            self.filtered_archetypes = list(self.archetypes)
-        else:
-            self.filtered_archetypes = [
-                entry for entry in self.archetypes if query in entry.get("name", "").lower()
-            ]
+        query = self.search_ctrl.GetValue().strip()
+        self.filtered_archetypes = self.archetype_service.filter_archetypes(
+            self.archetypes, query
+        )
         self._populate_archetype_list()
 
     def on_archetype_selected(self, _event: wx.CommandEvent) -> None:
@@ -2228,8 +2225,8 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.save_button.Disable()
 
         def worker(number: str):
-            download_deck(number)
-            return self._read_curr_deck_file()
+            deck_dict = {"number": number}
+            return self.deck_service.download_deck(deck_dict)
 
         def on_success(content: str):
             self._on_deck_content_ready(content, source="mtggoldfish")
@@ -2246,7 +2243,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _on_deck_content_ready(self, deck_text: str, source: str = "manual") -> None:
         self.current_deck_text = deck_text
-        stats = analyze_deck(deck_text)
+        stats = self.analysis_service.analyze(deck_text)
         self.zone_cards["main"] = [
             {"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]
         ]
@@ -2313,12 +2310,10 @@ class MTGDeckSelectionFrame(wx.Frame):
         latest = files[-1]
         try:
             data = json.loads(latest.read_text(encoding="utf-8"))
-            mapping = {
-                entry.get("name", "").lower(): int(entry.get("quantity", 0))
-                for entry in data
-                if isinstance(entry, dict)
-            }
-            self.collection_inventory = mapping
+            # Use collection service to build inventory
+            inventory = self.collection_service.build_inventory(data)
+            # Convert to lowercase keys for UI compatibility
+            self.collection_inventory = {k.lower(): v for k, v in inventory.items()}
             self.collection_path = latest
 
             # Show file age in status
@@ -2329,11 +2324,11 @@ class MTGDeckSelectionFrame(wx.Frame):
             age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
 
             self.collection_status_label.SetLabel(
-                f"Collection: {latest.name} ({len(mapping)} entries, {age_str})"
+                f"Collection: {latest.name} ({len(self.collection_inventory)} entries, {age_str})"
             )
             self.main_table.set_cards(self.zone_cards["main"])
             self.side_table.set_cards(self.zone_cards["side"])
-            logger.info(f"Loaded collection from cache: {len(mapping)} unique cards")
+            logger.info(f"Loaded collection from cache: {len(self.collection_inventory)} unique cards")
             return True
         except Exception as exc:
             logger.warning(f"Failed to load cached collection {latest}: {exc}")
@@ -2416,19 +2411,17 @@ class MTGDeckSelectionFrame(wx.Frame):
     def _on_collection_fetched(self, filepath: Path, cards: list) -> None:
         """Handle successful collection fetch."""
         try:
-            mapping = {
-                entry.get("name", "").lower(): int(entry.get("quantity", 0))
-                for entry in cards
-                if isinstance(entry, dict)
-            }
-            self.collection_inventory = mapping
+            # Use collection service to build inventory
+            inventory = self.collection_service.build_inventory(cards)
+            # Convert to lowercase keys for UI compatibility
+            self.collection_inventory = {k.lower(): v for k, v in inventory.items()}
             self.collection_path = filepath
             self.collection_status_label.SetLabel(
-                f"Collection: {filepath.name} ({len(mapping)} entries)"
+                f"Collection: {filepath.name} ({len(self.collection_inventory)} entries)"
             )
             self.main_table.set_cards(self.zone_cards["main"])
             self.side_table.set_cards(self.zone_cards["side"])
-            logger.info(f"Collection loaded: {len(mapping)} unique cards")
+            logger.info(f"Collection loaded: {len(self.collection_inventory)} unique cards")
         except Exception as exc:
             logger.exception(f"Failed to process collection data: {exc}")
             self.collection_status_label.SetLabel(f"Collection load failed: {exc}")
@@ -3094,7 +3087,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             self.curve_list.DeleteAllItems()
             self.color_list.DeleteAllItems()
             return
-        stats = analyze_deck(deck_text)
+        stats = self.analysis_service.analyze(deck_text)
         summary = (
             f"Mainboard: {stats['mainboard_count']} cards ({stats['unique_mainboard']} unique)  |  "
             f"Sideboard: {stats['sideboard_count']} cards ({stats['unique_sideboard']} unique)  |  "
@@ -3321,9 +3314,8 @@ class MTGDeckSelectionFrame(wx.Frame):
         def worker(rows: list[dict[str, Any]]):
             buffer: dict[str, float] = {}
             for index, deck in enumerate(rows, start=1):
-                download_deck(deck["number"])
-                deck_content = self._read_curr_deck_file()
-                buffer = add_dicts(buffer, deck_to_dictionary(deck_content))
+                deck_content = self.deck_service.download_deck(deck)
+                buffer = add_dicts(buffer, self.deck_service.deck_to_dictionary(deck_content))
                 wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{len(rows)} decks…")
             return buffer
 
@@ -3331,7 +3323,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             progress_dialog.Destroy()
             self.loading_daily_average = False
             self.daily_average_button.Enable()
-            deck_text = self._render_average_deck(buffer, len(todays_decks))
+            deck_text = self.deck_service.render_average_deck(buffer, len(todays_decks))
             self._on_deck_content_ready(deck_text, source="average")
 
         def on_error(error: Exception):
