@@ -153,7 +153,7 @@ if (-not $SkipPyInstaller) {
     }
 
     # Verify the executable was created
-    $ExePath = Join-Path $DistDir "magic_online_metagame_crawler\magic_online_metagame_crawler.exe"
+    $ExePath = Join-Path $DistDir "magic_online_metagame_crawler.exe"
     if (-not (Test-Path $ExePath)) {
         Write-Error-Custom "PyInstaller build failed - executable not found at $ExePath"
         Pop-Location
