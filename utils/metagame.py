@@ -29,7 +29,7 @@ def get_latest_deck(player: str, option: str):
     except Exception as exc:
         logger.error(f"Failed to fetch player page for {player}: {exc}")
         return "Unknown"
-    soup = bs4.BeautifulSoup(res.text, "html.parser")
+    soup = bs4.BeautifulSoup(res.text, "lxml")
     table = soup.find("table")
     if not table and player[0] == "0":
         logger.debug("ocr possibly mistook the letter O for a zero")
@@ -41,7 +41,7 @@ def get_latest_deck(player: str, option: str):
         except Exception as exc:
             logger.error(f"Failed retry fetch for player {player}: {exc}")
             return "Unknown"
-        soup = bs4.BeautifulSoup(res.text, "html.parser")
+        soup = bs4.BeautifulSoup(res.text, "lxml")
         table = soup.find("table")
     if not table:
         logger.debug(f"No results table found for player {player}")

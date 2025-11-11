@@ -32,6 +32,7 @@ from utils.paths import (
 from widgets.card_image_display import CardImageDisplay
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.match_history import MatchHistoryFrame
+from widgets.metagame_analysis import MetagameAnalysisFrame
 from widgets.timer_alert import TimerAlertFrame
 
 FORMAT_OPTIONS = [
@@ -931,6 +932,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.tracker_window: MTGOpponentDeckSpy | None = None
         self.timer_window: TimerAlertFrame | None = None
         self.history_window: MatchHistoryFrame | None = None
+        self.metagame_window: MetagameAnalysisFrame | None = None
         self.mana_keyboard_window: ManaKeyboardFrame | None = None
 
         self._build_ui()
@@ -989,6 +991,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         history_btn = wx.Button(right_panel, label="Match History")
         history_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_match_history())
         toolbar.Add(history_btn, 0, wx.RIGHT, 6)
+        metagame_btn = wx.Button(right_panel, label="Metagame Analysis")
+        metagame_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_metagame_analysis())
+        toolbar.Add(metagame_btn, 0, wx.RIGHT, 6)
         reload_collection_btn = wx.Button(right_panel, label="Load Collection")
         reload_collection_btn.Bind(
             wx.EVT_BUTTON, lambda _evt: self._refresh_collection_inventory(force=True)
@@ -2430,23 +2435,41 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         needs_download = False
 
+        if self.image_downloader is None:
+            self.image_downloader = BulkImageDownloader(self.image_cache)
+
         if BULK_DATA_CACHE.exists():
-            # Check age - if older than 24 hours, download in background
+            # Prefer vendor metadata to determine freshness; fallback to age when metadata checks fail
             try:
-                age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-                if age_seconds < 86400:  # Less than 24 hours
-                    logger.info(f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)")
-                    # Still need to load into memory
+                needs_download, metadata = self.image_downloader.is_bulk_data_outdated()
+                if not needs_download:
+                    logger.info(
+                        "Bulk data cache is current (vendor updated_at={updated})",
+                        updated=metadata.get("updated_at"),
+                    )
                     self._load_bulk_data_into_memory()
                     return
-                else:
-                    logger.info(
-                        f"Bulk data cache is stale ({age_seconds/3600:.1f}h old), updating..."
-                    )
-                    needs_download = True
+                logger.info(
+                    "Bulk data cache is stale (vendor updated_at={updated})",
+                    updated=metadata.get("updated_at"),
+                )
             except Exception as exc:
-                logger.warning(f"Failed to check bulk data age: {exc}")
-                return
+                logger.warning(f"Failed to check bulk data metadata: {exc}")
+                try:
+                    age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
+                    if age_seconds < 86400:  # Less than 24 hours
+                        logger.info(f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)")
+                        # Still need to load into memory
+                        self._load_bulk_data_into_memory()
+                        return
+                    else:
+                        logger.info(
+                            f"Bulk data cache is stale ({age_seconds/3600:.1f}h old), updating..."
+                        )
+                        needs_download = True
+                except Exception as exc2:
+                    logger.warning(f"Failed to check bulk data age: {exc2}")
+                    return
         else:
             needs_download = True
 
@@ -2478,6 +2501,8 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _load_bulk_data_into_memory(self, force: bool = False) -> None:
         """Load the compact card printings index in the background."""
+        if force:
+            logger.warning(f"Load bulk data method called with force set to {force}")
         if self.printing_index_loading and not force:
             return
         if self.bulk_data_by_name and not force:
@@ -2510,9 +2535,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.bulk_data_by_name = by_name
         self._set_status("Ready")
         logger.info(
-            "Printings index ready: %s names / %s printings",
-            stats.get("unique_names"),
-            stats.get("total_printings"),
+            "Printings index ready: {unique} names / {total} printings",
+            unique=stats.get("unique_names"),
+            total=stats.get("total_printings"),
         )
 
     def _on_bulk_data_load_failed(self, error_msg: str) -> None:
@@ -2640,11 +2665,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             "Preparing download...",
             maximum=max_value,
             parent=self,
-            style=wx.PD_APP_MODAL
-            | wx.PD_AUTO_HIDE
-            | wx.PD_CAN_ABORT
-            | wx.PD_ELAPSED_TIME
-            | wx.PD_REMAINING_TIME,
+            style=wx.PD_AUTO_HIDE | wx.PD_CAN_ABORT | wx.PD_ELAPSED_TIME | wx.PD_REMAINING_TIME,
         )
 
         # Track cancellation
@@ -2722,8 +2743,25 @@ class MTGDeckSelectionFrame(wx.Frame):
             cancelled_flag[0] = True
             return
 
+        # Ensure the dialog range matches the total (total may be unknown during creation)
+        if total:
+            try:
+                dialog.SetRange(max(total, 1))
+            except Exception:
+                pass
+
+        # Clamp the reported completed count to the dialog range to avoid assertions
+        try:
+            current_range = dialog.GetRange()
+        except Exception:
+            current_range = None
+
+        value = completed
+        if current_range and current_range > 0:
+            value = min(completed, current_range)
+
         # Update progress
-        continue_download, skip = dialog.Update(completed, message)
+        continue_download, skip = dialog.Update(value, message)
         if not continue_download:
             # User clicked cancel
             cancelled_flag[0] = True
@@ -3413,6 +3451,24 @@ class MTGDeckSelectionFrame(wx.Frame):
             logger.error(f"Failed to open match history: {exc}")
             wx.MessageBox(
                 f"Unable to open match history:\n{exc}", "Match History", wx.OK | wx.ICON_ERROR
+            )
+
+    def open_metagame_analysis(self) -> None:
+        if self._widget_exists(self.metagame_window):
+            self.metagame_window.Raise()
+            return
+        try:
+            self.metagame_window = MetagameAnalysisFrame(self)
+            self.metagame_window.Bind(
+                wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "metagame_window")
+            )
+            self.metagame_window.Show()
+        except Exception as exc:
+            logger.error(f"Failed to open metagame analysis: {exc}")
+            wx.MessageBox(
+                f"Unable to open metagame analysis:\n{exc}",
+                "Metagame Analysis",
+                wx.OK | wx.ICON_ERROR,
             )
 
     def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
