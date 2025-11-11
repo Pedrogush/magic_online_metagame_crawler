@@ -12,6 +12,12 @@ import wx.dataview as dv
 from loguru import logger
 
 from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
+from repositories.card_repository import CardRepository, get_card_repository
+from repositories.deck_repository import DeckRepository, get_deck_repository
+from repositories.metagame_repository import MetagameRepository, get_metagame_repository
+from services.collection_service import CollectionService, get_collection_service
+from services.deck_service import DeckService, get_deck_service
+from services.search_service import SearchService, get_search_service
 from utils.card_data import CardDataManager
 from utils.card_images import (
     BULK_DATA_CACHE,
@@ -268,6 +274,14 @@ class MTGDeckSelectionFrame(wx.Frame):
     def __init__(self, parent: wx.Window | None = None):
         super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
 
+        # Initialize repositories and services
+        self.deck_repo = get_deck_repository()
+        self.metagame_repo = get_metagame_repository()
+        self.card_repo = get_card_repository()
+        self.deck_service = get_deck_service()
+        self.search_service = get_search_service()
+        self.collection_service = get_collection_service()
+
         self.settings = self._load_window_settings()
         self.current_format = self.settings.get("format", "Modern")
         if self.current_format not in FORMAT_OPTIONS:
@@ -285,6 +299,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.card_data_ready = False
         self.card_manager: CardDataManager | None = None
 
+        # Load deck metadata stores via repository
         self.deck_notes_store = self._load_store(NOTES_STORE)
         self.outboard_store = self._load_store(OUTBOARD_STORE)
         self.guide_store = self._load_store(GUIDE_STORE)
@@ -998,7 +1013,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             return
 
         try:
-            deck_id = save_deck_to_db(
+            deck_id = self.deck_repo.save_to_db(
                 deck_name=deck_name,
                 deck_content=deck_content,
                 format_type=self.current_format,
@@ -1170,7 +1185,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _on_deck_content_ready(self, deck_text: str, source: str = "manual") -> None:
         self.current_deck_text = deck_text
-        stats = analyze_deck(deck_text)
+        stats = self.deck_service.analyze_deck(deck_text)
         self.zone_cards["main"] = [
             {"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]
         ]
@@ -1724,7 +1739,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             self.curve_list.DeleteAllItems()
             self.color_list.DeleteAllItems()
             return
-        stats = analyze_deck(deck_text)
+        stats = self.deck_service.analyze_deck(deck_text)
         summary = (
             f"Mainboard: {stats['mainboard_count']} cards ({stats['unique_mainboard']} unique)  |  "
             f"Sideboard: {stats['sideboard_count']} cards ({stats['unique_sideboard']} unique)  |  "
@@ -1953,7 +1968,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             for index, deck in enumerate(rows, start=1):
                 download_deck(deck["number"])
                 deck_content = read_curr_deck_file()
-                buffer = add_dicts(buffer, deck_to_dictionary(deck_content))
+                buffer = self.deck_service.add_deck_to_buffer(buffer, deck_content)
                 wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{len(rows)} decks…")
             return buffer
 
@@ -1961,7 +1976,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             progress_dialog.Destroy()
             self.loading_daily_average = False
             self.daily_average_button.Enable()
-            deck_text = render_average_deck(buffer, len(todays_decks))
+            deck_text = self.deck_service.render_average_deck(buffer, len(todays_decks))
             self._on_deck_content_ready(deck_text, source="average")
 
         def on_error(error: Exception):

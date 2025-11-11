@@ -1,0 +1,419 @@
+"""
+Deck Repository - Centralized data access layer for deck operations.
+
+This module handles all deck-related data persistence including:
+- Database operations (MongoDB)
+- File system operations
+- Cache management
+- Deck file format conversion
+"""
+
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import pymongo
+from loguru import logger
+
+from utils.paths import (
+    CACHE_DIR,
+    CURR_DECK_FILE,
+    DECKS_DIR,
+)
+
+# Legacy file paths for migration
+LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
+LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
+NOTES_STORE = CACHE_DIR / "deck_notes.json"
+OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
+GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
+
+
+class DeckRepository:
+    """Repository for deck data access operations."""
+
+    def __init__(self, mongo_client: pymongo.MongoClient | None = None):
+        """
+        Initialize the deck repository.
+
+        Args:
+            mongo_client: MongoDB client instance. If None, creates a default client.
+        """
+        self._client = mongo_client
+        self._db = None
+
+    def _get_db(self):
+        """Get or create database connection."""
+        if self._db is None:
+            if self._client is None:
+                self._client = pymongo.MongoClient("mongodb://localhost:27017/")
+            self._db = self._client.get_database("lm_scraper")
+        return self._db
+
+    # ============= Database Operations =============
+
+    def save_to_db(
+        self,
+        deck_name: str,
+        deck_content: str,
+        format_type: str | None = None,
+        archetype: str | None = None,
+        player: str | None = None,
+        source: str = "manual",
+        metadata: dict | None = None,
+    ):
+        """
+        Save a deck to the database.
+
+        Args:
+            deck_name: Name of the deck
+            deck_content: Full deck list as text
+            format_type: MTG format (Modern, Standard, etc.)
+            archetype: Deck archetype name
+            player: Player name if from tournament
+            source: Source of deck ("mtggoldfish", "manual", "averaged", etc.)
+            metadata: Additional metadata dict
+
+        Returns:
+            ObjectId of the saved deck
+        """
+        db = self._get_db()
+
+        deck_doc = {
+            "name": deck_name,
+            "content": deck_content,
+            "format": format_type,
+            "archetype": archetype,
+            "player": player,
+            "source": source,
+            "date_saved": datetime.now(),
+            "metadata": metadata or {},
+        }
+
+        result = db.decks.insert_one(deck_doc)
+        logger.info(f"Saved deck '{deck_name}' to database with ID: {result.inserted_id}")
+        return result.inserted_id
+
+    def get_decks(
+        self,
+        format_type: str | None = None,
+        archetype: str | None = None,
+        sort_by: str = "date_saved",
+    ) -> list[dict]:
+        """
+        Retrieve saved decks from database.
+
+        Args:
+            format_type: Filter by format (optional)
+            archetype: Filter by archetype (optional)
+            sort_by: Field to sort by (default: "date_saved")
+
+        Returns:
+            List of deck documents
+        """
+        db = self._get_db()
+
+        query = {}
+        if format_type:
+            query["format"] = format_type
+        if archetype:
+            query["archetype"] = archetype
+
+        decks = list(db.decks.find(query).sort(sort_by, pymongo.DESCENDING))
+        logger.debug(f"Retrieved {len(decks)} decks from database")
+        return decks
+
+    def load_from_db(self, deck_id):
+        """
+        Load a specific deck by ID.
+
+        Args:
+            deck_id: MongoDB ObjectId or string ID
+
+        Returns:
+            Deck document or None if not found
+        """
+        db = self._get_db()
+
+        if isinstance(deck_id, str):
+            from bson import ObjectId
+
+            deck_id = ObjectId(deck_id)
+
+        deck = db.decks.find_one({"_id": deck_id})
+        if deck:
+            logger.debug(f"Loaded deck: {deck['name']}")
+        else:
+            logger.warning(f"Deck with ID {deck_id} not found")
+
+        return deck
+
+    def delete_from_db(self, deck_id) -> bool:
+        """
+        Delete a saved deck from database.
+
+        Args:
+            deck_id: MongoDB ObjectId or string ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        db = self._get_db()
+
+        if isinstance(deck_id, str):
+            from bson import ObjectId
+
+            deck_id = ObjectId(deck_id)
+
+        result = db.decks.delete_one({"_id": deck_id})
+
+        if result.deleted_count > 0:
+            logger.info(f"Deleted deck with ID: {deck_id}")
+            return True
+        else:
+            logger.warning(f"Deck with ID {deck_id} not found for deletion")
+            return False
+
+    def update_in_db(
+        self,
+        deck_id,
+        deck_content: str | None = None,
+        deck_name: str | None = None,
+        metadata: dict | None = None,
+    ) -> bool:
+        """
+        Update an existing deck in the database.
+
+        Args:
+            deck_id: MongoDB ObjectId or string ID
+            deck_content: New deck content (optional)
+            deck_name: New deck name (optional)
+            metadata: Metadata to merge with existing (optional)
+
+        Returns:
+            True if updated, False if not found
+        """
+        db = self._get_db()
+
+        if isinstance(deck_id, str):
+            from bson import ObjectId
+
+            deck_id = ObjectId(deck_id)
+
+        update_fields = {"date_modified": datetime.now()}
+
+        if deck_content is not None:
+            update_fields["content"] = deck_content
+        if deck_name is not None:
+            update_fields["name"] = deck_name
+        if metadata is not None:
+            # Merge metadata
+            existing_deck = db.decks.find_one({"_id": deck_id})
+            if existing_deck:
+                merged_metadata = existing_deck.get("metadata", {})
+                merged_metadata.update(metadata)
+                update_fields["metadata"] = merged_metadata
+
+        result = db.decks.update_one({"_id": deck_id}, {"$set": update_fields})
+
+        if result.modified_count > 0:
+            logger.info(f"Updated deck with ID: {deck_id}")
+            return True
+        else:
+            logger.warning(f"Deck with ID {deck_id} not found or no changes made")
+            return False
+
+    # ============= File System Operations =============
+
+    def read_current_deck_file(self) -> str:
+        """
+        Read the current deck file, handling legacy locations.
+
+        Returns:
+            Deck content as string
+
+        Raises:
+            FileNotFoundError: If no deck file found
+        """
+        candidates = [CURR_DECK_FILE, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
+        for candidate in candidates:
+            if candidate.exists():
+                with candidate.open("r", encoding="utf-8") as fh:
+                    contents = fh.read()
+                # Migrate from legacy locations
+                if candidate != CURR_DECK_FILE:
+                    try:
+                        CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+                        with CURR_DECK_FILE.open("w", encoding="utf-8") as target:
+                            target.write(contents)
+                        try:
+                            candidate.unlink()
+                        except OSError:
+                            logger.debug(f"Unable to remove legacy deck file {candidate}")
+                    except OSError as exc:
+                        logger.debug(f"Failed to migrate curr_deck.txt from {candidate}: {exc}")
+                return contents
+        raise FileNotFoundError("Current deck file not found")
+
+    def save_deck_to_file(self, deck_name: str, deck_content: str, directory: Path | None = None) -> Path:
+        """
+        Save a deck to a file.
+
+        Args:
+            deck_name: Name for the deck file
+            deck_content: Deck list content
+            directory: Target directory (defaults to DECKS_DIR)
+
+        Returns:
+            Path to the saved file
+        """
+        if directory is None:
+            directory = DECKS_DIR
+
+        directory.mkdir(parents=True, exist_ok=True)
+
+        # Sanitize filename
+        safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in deck_name)
+        file_path = directory / f"{safe_name}.txt"
+
+        # Handle duplicate names
+        counter = 1
+        while file_path.exists():
+            file_path = directory / f"{safe_name}_{counter}.txt"
+            counter += 1
+
+        with file_path.open("w", encoding="utf-8") as f:
+            f.write(deck_content)
+
+        logger.info(f"Saved deck to file: {file_path}")
+        return file_path
+
+    def list_deck_files(self, directory: Path | None = None) -> list[Path]:
+        """
+        List all deck files in a directory.
+
+        Args:
+            directory: Directory to search (defaults to DECKS_DIR)
+
+        Returns:
+            List of deck file paths
+        """
+        if directory is None:
+            directory = DECKS_DIR
+
+        if not directory.exists():
+            return []
+
+        return sorted(directory.glob("*.txt"))
+
+    # ============= Deck Metadata/Notes Storage =============
+
+    def load_notes(self, deck_key: str) -> str:
+        """
+        Load notes for a specific deck.
+
+        Args:
+            deck_key: Unique identifier for the deck
+
+        Returns:
+            Notes content or empty string
+        """
+        data = self._load_json_store(NOTES_STORE)
+        return data.get(deck_key, "")
+
+    def save_notes(self, deck_key: str, notes: str) -> None:
+        """
+        Save notes for a specific deck.
+
+        Args:
+            deck_key: Unique identifier for the deck
+            notes: Notes content to save
+        """
+        data = self._load_json_store(NOTES_STORE)
+        data[deck_key] = notes
+        self._save_json_store(NOTES_STORE, data)
+
+    def load_outboard(self, deck_key: str) -> list[dict[str, Any]]:
+        """
+        Load outboard cards for a specific deck.
+
+        Args:
+            deck_key: Unique identifier for the deck
+
+        Returns:
+            List of outboard card dictionaries
+        """
+        data = self._load_json_store(OUTBOARD_STORE)
+        return data.get(deck_key, [])
+
+    def save_outboard(self, deck_key: str, outboard: list[dict[str, Any]]) -> None:
+        """
+        Save outboard cards for a specific deck.
+
+        Args:
+            deck_key: Unique identifier for the deck
+            outboard: List of outboard card dictionaries
+        """
+        data = self._load_json_store(OUTBOARD_STORE)
+        data[deck_key] = outboard
+        self._save_json_store(OUTBOARD_STORE, data)
+
+    def load_sideboard_guide(self, deck_key: str) -> list[dict[str, Any]]:
+        """
+        Load sideboard guide for a specific deck.
+
+        Args:
+            deck_key: Unique identifier for the deck
+
+        Returns:
+            List of sideboard guide entries
+        """
+        data = self._load_json_store(GUIDE_STORE)
+        return data.get(deck_key, [])
+
+    def save_sideboard_guide(self, deck_key: str, guide: list[dict[str, Any]]) -> None:
+        """
+        Save sideboard guide for a specific deck.
+
+        Args:
+            deck_key: Unique identifier for the deck
+            guide: List of sideboard guide entries
+        """
+        data = self._load_json_store(GUIDE_STORE)
+        data[deck_key] = guide
+        self._save_json_store(GUIDE_STORE, data)
+
+    # ============= Private Helper Methods =============
+
+    def _load_json_store(self, path: Path) -> dict[str, Any]:
+        """Load JSON data from a file store."""
+        if not path.exists():
+            return {}
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(f"Failed to load {path}: {exc}")
+            return {}
+
+    def _save_json_store(self, path: Path, data: dict[str, Any]) -> None:
+        """Save JSON data to a file store."""
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError as exc:
+            logger.error(f"Failed to save {path}: {exc}")
+
+
+# Global instance for backward compatibility
+_default_repository = None
+
+
+def get_deck_repository() -> DeckRepository:
+    """Get the default deck repository instance."""
+    global _default_repository
+    if _default_repository is None:
+        _default_repository = DeckRepository()
+    return _default_repository
