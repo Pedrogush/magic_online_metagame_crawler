@@ -26,10 +26,11 @@ class MetagameAnalysisFrame(wx.Frame):
 
     def __init__(self, parent: wx.Window | None = None) -> None:
         style = wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP
-        super().__init__(parent, title="Metagame Analysis", size=(950, 650), style=style)
+        super().__init__(parent, title="Metagame Analysis", size=(1100, 750), style=style)
 
         self.current_format: str = "modern"
         self.current_days: int = 1
+        self.base_day_offset: int = 0
         self.current_data: dict[str, int] = {}
         self.previous_data: dict[str, int] = {}
         self.stats_data: dict[str, Any] = {}
@@ -80,6 +81,18 @@ class MetagameAnalysisFrame(wx.Frame):
         self.days_spin.SetForegroundColour(LIGHT_TEXT)
         self.days_spin.Bind(wx.EVT_SPINCTRL, self.on_days_change)
         toolbar.Add(self.days_spin, 0, wx.RIGHT, 15)
+
+        toolbar.Add(
+            wx.StaticText(panel, label="Starting from day:"),
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            5,
+        )
+        self.offset_spin = wx.SpinCtrl(panel, value="0", min=0, max=30, initial=0)
+        self.offset_spin.SetBackgroundColour(DARK_ALT)
+        self.offset_spin.SetForegroundColour(LIGHT_TEXT)
+        self.offset_spin.Bind(wx.EVT_SPINCTRL, self.on_offset_change)
+        toolbar.Add(self.offset_spin, 0, wx.RIGHT, 15)
 
         self.refresh_button = wx.Button(panel, label="Refresh Data")
         self._stylize_button(self.refresh_button)
@@ -140,6 +153,10 @@ class MetagameAnalysisFrame(wx.Frame):
         self.current_days = self.days_spin.GetValue()
         self.update_visualization()
 
+    def on_offset_change(self, event: wx.SpinEvent) -> None:
+        self.base_day_offset = self.offset_spin.GetValue()
+        self.update_visualization()
+
     def refresh_data(self) -> None:
         if not self or not self.IsShown():
             return
@@ -191,8 +208,13 @@ class MetagameAnalysisFrame(wx.Frame):
                 wx.OK | wx.ICON_ERROR,
             )
 
-    def _aggregate_for_days(self, days: int) -> dict[str, int]:
-        """Aggregate deck counts for the specified number of days."""
+    def _aggregate_for_days(self, days: int, base_offset: int = 0) -> dict[str, int]:
+        """Aggregate deck counts for the specified number of days starting from base_offset.
+
+        Args:
+            days: Number of days to aggregate
+            base_offset: Days ago to start from (0=today, 1=yesterday, etc.)
+        """
         format_stats = self.stats_data.get(self.current_format, {})
         today = datetime.now().date()
 
@@ -202,7 +224,7 @@ class MetagameAnalysisFrame(wx.Frame):
                 continue
 
             results = archetype_data.get("results", {})
-            for day_offset in range(days):
+            for day_offset in range(base_offset, base_offset + days):
                 date_str = (today - timedelta(days=day_offset)).strftime("%Y-%m-%d")
                 count = results.get(date_str, 0)
                 archetype_counts[archetype_name] += count
@@ -210,33 +232,25 @@ class MetagameAnalysisFrame(wx.Frame):
         return dict(archetype_counts)
 
     def update_visualization(self) -> None:
-        logger.debug(f"update_visualization called, stats_data empty: {not self.stats_data}")
+        logger.debug(
+            f"update_visualization called, offset={self.base_day_offset}, days={self.current_days}"
+        )
         if not self.stats_data:
             logger.warning("No stats data available for visualization")
             return
 
-        self.current_data = self._aggregate_for_days(self.current_days)
-        logger.debug(f"Current data aggregated: {len(self.current_data)} archetypes, total decks: {sum(self.current_data.values())}")
+        # Aggregate current period starting from base_day_offset
+        self.current_data = self._aggregate_for_days(self.current_days, self.base_day_offset)
+        logger.debug(
+            f"Current data aggregated: {len(self.current_data)} archetypes, total decks: {sum(self.current_data.values())}"
+        )
 
         # Calculate previous period (same length, immediately before current period)
-        previous_start = self.current_days
-        previous_end = self.current_days * 2
-
-        format_stats = self.stats_data.get(self.current_format, {})
-        today = datetime.now().date()
-
-        previous_counts = Counter()
-        for archetype_name, archetype_data in format_stats.items():
-            if archetype_name == "timestamp":
-                continue
-
-            results = archetype_data.get("results", {})
-            for day_offset in range(previous_start, previous_end):
-                date_str = (today - timedelta(days=day_offset)).strftime("%Y-%m-%d")
-                count = results.get(date_str, 0)
-                previous_counts[archetype_name] += count
-
-        self.previous_data = dict(previous_counts)
+        previous_offset = self.base_day_offset + self.current_days
+        self.previous_data = self._aggregate_for_days(self.current_days, previous_offset)
+        logger.debug(
+            f"Previous data aggregated: {len(self.previous_data)} archetypes, total decks: {sum(self.previous_data.values())}"
+        )
 
         self._draw_pie_chart()
         self._update_changes_display()
@@ -300,7 +314,16 @@ class MetagameAnalysisFrame(wx.Frame):
         )
 
         self.ax.axis("equal")
-        title = f"{self.current_format.title()} Metagame (Last {self.current_days} day{'s' if self.current_days > 1 else ''})"
+        if self.base_day_offset == 0:
+            period_desc = f"Last {self.current_days} day{'s' if self.current_days > 1 else ''}"
+        else:
+            end_day = self.base_day_offset
+            start_day = self.base_day_offset + self.current_days - 1
+            if start_day == end_day:
+                period_desc = f"{end_day} day{'s' if end_day > 1 else ''} ago"
+            else:
+                period_desc = f"{start_day}-{end_day} days ago"
+        title = f"{self.current_format.title()} Metagame ({period_desc})"
         self.ax.set_title(title, color="#ecececec", fontsize=12, pad=20)
 
         self.canvas.draw()
@@ -322,7 +345,15 @@ class MetagameAnalysisFrame(wx.Frame):
 
         sorted_changes = sorted(changes.items(), key=lambda x: abs(x[1]), reverse=True)
 
-        lines = [f"Changes vs previous {self.current_days} day period:\n"]
+        # Build header describing the comparison
+        prev_start = self.base_day_offset + self.current_days
+        prev_end = self.base_day_offset + self.current_days * 2 - 1
+        if prev_start == prev_end:
+            prev_desc = f"{prev_start} day{'s' if prev_start > 1 else ''} ago"
+        else:
+            prev_desc = f"days {prev_end}-{prev_start} ago"
+
+        lines = [f"Changes vs {prev_desc}:\n"]
         for archetype, change in sorted_changes[:15]:
             if abs(change) < 0.1:
                 continue
