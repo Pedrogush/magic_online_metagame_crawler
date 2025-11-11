@@ -2430,23 +2430,41 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         needs_download = False
 
+        if self.image_downloader is None:
+            self.image_downloader = BulkImageDownloader(self.image_cache)
+
         if BULK_DATA_CACHE.exists():
-            # Check age - if older than 24 hours, download in background
+            # Prefer vendor metadata to determine freshness; fallback to age when metadata checks fail
             try:
-                age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-                if age_seconds < 86400:  # Less than 24 hours
-                    logger.info(f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)")
-                    # Still need to load into memory
+                needs_download, metadata = self.image_downloader.is_bulk_data_outdated()
+                if not needs_download:
+                    logger.info(
+                        "Bulk data cache is current (vendor updated_at=%s)",
+                        metadata.get("updated_at"),
+                    )
                     self._load_bulk_data_into_memory()
                     return
-                else:
-                    logger.info(
-                        f"Bulk data cache is stale ({age_seconds/3600:.1f}h old), updating..."
-                    )
-                    needs_download = True
+                logger.info(
+                    "Bulk data cache is stale (vendor updated_at=%s)",
+                    metadata.get("updated_at"),
+                )
             except Exception as exc:
-                logger.warning(f"Failed to check bulk data age: {exc}")
-                return
+                logger.warning(f"Failed to check bulk data metadata: {exc}")
+                try:
+                    age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
+                    if age_seconds < 86400:  # Less than 24 hours
+                        logger.info(f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)")
+                        # Still need to load into memory
+                        self._load_bulk_data_into_memory()
+                        return
+                    else:
+                        logger.info(
+                            f"Bulk data cache is stale ({age_seconds/3600:.1f}h old), updating..."
+                        )
+                        needs_download = True
+                except Exception as exc2:
+                    logger.warning(f"Failed to check bulk data age: {exc2}")
+                    return
         else:
             needs_download = True
 
