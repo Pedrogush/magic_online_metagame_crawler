@@ -62,8 +62,10 @@ for candidate in bridge_candidates:
         binaries.append((str(candidate), "mtgo_bridge.exe"))
         break
 
+entry_point = project_root / "main.py"
+
 a = Analysis(
-    ["main.py"],
+    [str(entry_point)],
     pathex=[str(project_root)],
     binaries=binaries,
     datas=datas,
