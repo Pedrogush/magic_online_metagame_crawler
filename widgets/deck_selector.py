@@ -2496,6 +2496,8 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _load_bulk_data_into_memory(self, force: bool = False) -> None:
         """Load the compact card printings index in the background."""
+        if force:
+            logger.warning(f"Load bulk data method called with force set to {force}")
         if self.printing_index_loading and not force:
             return
         if self.bulk_data_by_name and not force:
