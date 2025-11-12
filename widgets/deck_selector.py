@@ -1037,44 +1037,27 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _load_collection_from_cache(self) -> bool:
         """Load collection from cached file without calling bridge. Returns True if loaded."""
-        files = sorted(DECK_SAVE_DIR.glob("collection_full_trade_*.json"))
-        if not files:
-            self.collection_service.clear_inventory()
+        success, info = self.collection_service.load_from_cached_file(DECK_SAVE_DIR)
+
+        if not success:
+            error = info.get("error", "Unknown error")
             self.collection_status_label.SetLabel(
                 "No collection found. Click 'Refresh Collection' to fetch from MTGO."
             )
             return False
 
-        latest = files[-1]
-        try:
-            data = json.loads(latest.read_text(encoding="utf-8"))
-            mapping = {
-                entry.get("name", "").lower(): int(entry.get("quantity", 0))
-                for entry in data
-                if isinstance(entry, dict)
-            }
-            self.collection_service.set_inventory(mapping)
-            self.collection_service.set_collection_path(latest)
+        # Update UI with collection info
+        filepath = info["filepath"]
+        card_count = info["card_count"]
+        age_hours = info["age_hours"]
+        age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
 
-            # Show file age in status
-            from datetime import datetime
-
-            file_age_seconds = datetime.now().timestamp() - latest.stat().st_mtime
-            age_hours = int(file_age_seconds / 3600)
-            age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
-
-            self.collection_status_label.SetLabel(
-                f"Collection: {latest.name} ({len(mapping)} entries, {age_str})"
-            )
-            self.main_table.set_cards(self.zone_cards["main"])
-            self.side_table.set_cards(self.zone_cards["side"])
-            logger.info(f"Loaded collection from cache: {len(mapping)} unique cards")
-            return True
-        except Exception as exc:
-            logger.warning(f"Failed to load cached collection {latest}: {exc}")
-            self.collection_service.clear_inventory()
-            self.collection_status_label.SetLabel(f"Collection cache load failed: {exc}")
-            return False
+        self.collection_status_label.SetLabel(
+            f"Collection: {filepath.name} ({card_count} entries, {age_str})"
+        )
+        self.main_table.set_cards(self.zone_cards["main"])
+        self.side_table.set_cards(self.zone_cards["side"])
+        return True
 
     def _refresh_collection_inventory(self, force: bool = False) -> None:
         """Fetch collection from MTGO Bridge and export to JSON."""
@@ -1084,14 +1067,11 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         # Check if we already have a recent collection export (unless forced)
         if not force:
-            files = sorted(DECK_SAVE_DIR.glob("collection_full_trade_*.json"))
-            if files:
-                latest = files[-1]
-                # Check if file is less than 1 hour old
+            latest = self.collection_service.find_latest_cached_file(DECK_SAVE_DIR)
+            if latest:
                 try:
                     file_age_seconds = datetime.now().timestamp() - latest.stat().st_mtime
                     if file_age_seconds < 3600:  # Less than 1 hour
-                        # Load from cache
                         if self._load_collection_from_cache():
                             return
                 except Exception as exc:
@@ -1112,25 +1092,16 @@ class MTGDeckSelectionFrame(wx.Frame):
                     )
                     return
 
-                # Export to JSON file with timestamp
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"collection_full_trade_{timestamp}.json"
-                filepath = DECK_SAVE_DIR / filename
-
-                # Convert collection data to list format expected by the UI
-                # The bridge returns: {"cards": [{"name": "...", "quantity": ...}, ...]}
+                # Get cards from bridge response
                 cards = collection_data.get("cards", [])
                 if not cards:
                     wx.CallAfter(self._on_collection_fetch_failed, "No cards in collection data")
                     return
 
-                # Write to file
-                try:
-                    with filepath.open("w", encoding="utf-8") as f:
-                        json.dump(cards, f, indent=2)
-                    logger.info(f"Exported collection to {filepath} ({len(cards)} cards)")
-                except Exception as exc:
-                    wx.CallAfter(self._on_collection_fetch_failed, f"Failed to write file: {exc}")
+                # Export to file using service
+                success, filepath = self.collection_service.export_to_file(cards, DECK_SAVE_DIR)
+                if not success:
+                    wx.CallAfter(self._on_collection_fetch_failed, "Failed to write file")
                     return
 
                 # Load the newly created file
@@ -1150,23 +1121,19 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _on_collection_fetched(self, filepath: Path, cards: list) -> None:
         """Handle successful collection fetch."""
-        try:
-            mapping = {
-                entry.get("name", "").lower(): int(entry.get("quantity", 0))
-                for entry in cards
-                if isinstance(entry, dict)
-            }
-            self.collection_service.set_inventory(mapping)
-            self.collection_service.set_collection_path(filepath)
-            self.collection_status_label.SetLabel(
-                f"Collection: {filepath.name} ({len(mapping)} entries)"
-            )
-            self.main_table.set_cards(self.zone_cards["main"])
-            self.side_table.set_cards(self.zone_cards["side"])
-            logger.info(f"Collection loaded: {len(mapping)} unique cards")
-        except Exception as exc:
-            logger.exception(f"Failed to process collection data: {exc}")
-            self.collection_status_label.SetLabel(f"Collection load failed: {exc}")
+        success, info = self.collection_service.load_from_card_list(cards, filepath)
+
+        if not success:
+            error = info.get("error", "Unknown error")
+            self.collection_status_label.SetLabel(f"Collection load failed: {error}")
+            return
+
+        card_count = info["card_count"]
+        self.collection_status_label.SetLabel(
+            f"Collection: {filepath.name} ({card_count} entries)"
+        )
+        self.main_table.set_cards(self.zone_cards["main"])
+        self.side_table.set_cards(self.zone_cards["side"])
 
     def _on_collection_fetch_failed(self, error_msg: str) -> None:
         """Handle collection fetch failure."""

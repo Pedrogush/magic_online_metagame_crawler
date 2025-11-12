@@ -8,6 +8,8 @@ This module contains all the business logic for managing card collections:
 - Collection statistics
 """
 
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +79,126 @@ class CollectionService:
         except Exception as exc:
             logger.error(f"Failed to load collection: {exc}")
             return False
+
+    def find_latest_cached_file(self, directory: Path, pattern: str = "collection_full_trade_*.json") -> Path | None:
+        """
+        Find the most recent cached collection file.
+
+        Args:
+            directory: Directory to search for collection files
+            pattern: Glob pattern for collection files
+
+        Returns:
+            Path to latest file, or None if none found
+        """
+        files = sorted(directory.glob(pattern))
+        return files[-1] if files else None
+
+    def load_from_cached_file(self, directory: Path, pattern: str = "collection_full_trade_*.json") -> tuple[bool, dict[str, Any]]:
+        """
+        Load collection from the most recent cached file.
+
+        Args:
+            directory: Directory to search for collection files
+            pattern: Glob pattern for collection files
+
+        Returns:
+            Tuple of (success, info_dict)
+            info_dict contains: filepath, mapping, age_hours, error (if failed)
+        """
+        latest = self.find_latest_cached_file(directory, pattern)
+
+        if not latest:
+            self.clear_inventory()
+            return False, {"error": "No cached collection files found"}
+
+        try:
+            data = json.loads(latest.read_text(encoding="utf-8"))
+            mapping = {
+                entry.get("name", "").lower(): int(entry.get("quantity", 0))
+                for entry in data
+                if isinstance(entry, dict)
+            }
+
+            self.set_inventory(mapping)
+            self.set_collection_path(latest)
+
+            # Calculate file age
+            file_age_seconds = datetime.now().timestamp() - latest.stat().st_mtime
+            age_hours = int(file_age_seconds / 3600)
+
+            logger.info(f"Loaded collection from cache: {len(mapping)} unique cards from {latest.name}")
+
+            return True, {
+                "filepath": latest,
+                "mapping": mapping,
+                "age_hours": age_hours,
+                "card_count": len(mapping),
+            }
+        except Exception as exc:
+            logger.warning(f"Failed to load cached collection {latest}: {exc}")
+            self.clear_inventory()
+            return False, {"filepath": latest, "error": str(exc)}
+
+    def load_from_card_list(self, cards: list[dict[str, Any]], filepath: Path | None = None) -> tuple[bool, dict[str, Any]]:
+        """
+        Load collection from a list of card dictionaries.
+
+        Args:
+            cards: List of card dicts with 'name' and 'quantity' keys
+            filepath: Optional path to associate with this collection
+
+        Returns:
+            Tuple of (success, info_dict)
+            info_dict contains: mapping, card_count, error (if failed)
+        """
+        try:
+            mapping = {
+                entry.get("name", "").lower(): int(entry.get("quantity", 0))
+                for entry in cards
+                if isinstance(entry, dict)
+            }
+
+            self.set_inventory(mapping)
+            if filepath:
+                self.set_collection_path(filepath)
+
+            logger.info(f"Loaded collection from card list: {len(mapping)} unique cards")
+
+            return True, {
+                "mapping": mapping,
+                "card_count": len(mapping),
+            }
+        except Exception as exc:
+            logger.error(f"Failed to load collection from card list: {exc}")
+            return False, {"error": str(exc)}
+
+    def export_to_file(self, cards: list[dict[str, Any]], directory: Path, filename_prefix: str = "collection_full_trade") -> tuple[bool, Path | None]:
+        """
+        Export collection cards to a JSON file.
+
+        Args:
+            cards: List of card dicts to export
+            directory: Directory to write file to
+            filename_prefix: Prefix for the filename (timestamp will be added)
+
+        Returns:
+            Tuple of (success, filepath)
+        """
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{filename_prefix}_{timestamp}.json"
+            filepath = directory / filename
+
+            with filepath.open("w", encoding="utf-8") as f:
+                json.dump(cards, f, indent=2)
+
+            logger.info(f"Exported collection to {filepath} ({len(cards)} cards)")
+            return True, filepath
+        except Exception as exc:
+            logger.error(f"Failed to export collection: {exc}")
+            return False, None
 
     def is_loaded(self) -> bool:
         """Check if collection has been loaded."""
