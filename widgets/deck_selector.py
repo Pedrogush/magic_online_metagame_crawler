@@ -1071,74 +1071,32 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _refresh_collection_inventory(self, force: bool = False) -> None:
         """Fetch collection from MTGO Bridge and export to JSON."""
-        from datetime import datetime
-
-        from utils import mtgo_bridge
-
-        # Check if we already have a recent collection export (unless forced)
-        if not force:
-            latest = self.collection_service.find_latest_cached_file(DECK_SAVE_DIR)
-            if latest:
-                try:
-                    file_age_seconds = datetime.now().timestamp() - latest.stat().st_mtime
-                    if file_age_seconds < 3600:  # Less than 1 hour
-                        if self._load_collection_from_cache():
-                            return
-                except Exception as exc:
-                    logger.warning(f"Failed to check collection file age: {exc}")
-
-        # Fetch fresh collection from MTGO Bridge
         self.collection_status_label.SetLabel("Fetching collection from MTGO...")
         logger.info("Fetching collection from MTGO Bridge")
 
-        def worker():
-            try:
-                # Call the bridge to get collection
-                collection_data = mtgo_bridge.get_collection_snapshot(timeout=60.0)
-
-                if not collection_data:
-                    wx.CallAfter(
-                        self._on_collection_fetch_failed, "Bridge returned empty collection"
-                    )
-                    return
-
-                # Get cards from bridge response
-                cards = collection_data.get("cards", [])
-                if not cards:
-                    wx.CallAfter(self._on_collection_fetch_failed, "No cards in collection data")
-                    return
-
-                # Export to file using service
-                success, filepath = self.collection_service.export_to_file(cards, DECK_SAVE_DIR)
-                if not success:
-                    wx.CallAfter(self._on_collection_fetch_failed, "Failed to write file")
-                    return
-
-                # Load the newly created file
-                wx.CallAfter(self._on_collection_fetched, filepath, cards)
-
-            except FileNotFoundError as exc:
-                wx.CallAfter(
-                    self._on_collection_fetch_failed,
-                    "MTGO Bridge not found. Build the bridge executable.",
-                )
-                logger.error(f"Bridge not found: {exc}")
-            except Exception as exc:
-                wx.CallAfter(self._on_collection_fetch_failed, str(exc))
-                logger.exception("Failed to fetch collection from bridge")
-
-        threading.Thread(target=worker, daemon=True).start()
+        # Use service to handle the fetch asynchronously
+        self.collection_service.refresh_from_bridge_async(
+            directory=DECK_SAVE_DIR,
+            force=force,
+            on_success=lambda filepath, cards: wx.CallAfter(self._on_collection_fetched, filepath, cards),
+            on_error=lambda error_msg: wx.CallAfter(self._on_collection_fetch_failed, error_msg),
+            cache_max_age_seconds=3600,  # 1 hour
+        )
 
     def _on_collection_fetched(self, filepath: Path, cards: list) -> None:
         """Handle successful collection fetch."""
-        success, info = self.collection_service.load_from_card_list(cards, filepath)
+        # If cards list is empty, this was a cache hit - collection is already loaded
+        if cards:
+            success, info = self.collection_service.load_from_card_list(cards, filepath)
+            if not success:
+                error = info.get("error", "Unknown error")
+                self.collection_status_label.SetLabel(f"Collection load failed: {error}")
+                return
+            card_count = info["card_count"]
+        else:
+            # Cache hit - get card count from already-loaded inventory
+            card_count = len(self.collection_service.get_inventory())
 
-        if not success:
-            error = info.get("error", "Unknown error")
-            self.collection_status_label.SetLabel(f"Collection load failed: {error}")
-            return
-
-        card_count = info["card_count"]
         self.collection_status_label.SetLabel(
             f"Collection: {filepath.name} ({card_count} entries)"
         )

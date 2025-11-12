@@ -9,9 +9,10 @@ This module contains all the business logic for managing card collections:
 """
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -199,6 +200,94 @@ class CollectionService:
         except Exception as exc:
             logger.error(f"Failed to export collection: {exc}")
             return False, None
+
+    # ============= Async Collection Refresh =============
+
+    def refresh_from_bridge_async(
+        self,
+        directory: Path,
+        force: bool = False,
+        on_success: Callable[[Path, list], None] | None = None,
+        on_error: Callable[[str], None] | None = None,
+        cache_max_age_seconds: int = 3600,
+    ) -> bool:
+        """
+        Fetch collection from MTGO Bridge and export to file (async).
+
+        This method runs in a background thread and uses callbacks to report results.
+        It will check for a recent cached collection first (unless forced).
+
+        Args:
+            directory: Directory to save collection file to
+            force: If True, always fetch from bridge (skip cache check)
+            on_success: Callback for successful fetch (receives filepath, cards)
+            on_error: Callback for failed fetch (receives error message)
+            cache_max_age_seconds: Max age of cached file before fetching new (default 1 hour)
+
+        Returns:
+            True if fetch was started, False if recent cache was used
+        """
+        from utils import mtgo_bridge
+
+        # Check if we have a recent cached collection (unless forced)
+        if not force:
+            latest = self.find_latest_cached_file(directory)
+            if latest:
+                try:
+                    file_age_seconds = datetime.now().timestamp() - latest.stat().st_mtime
+                    if file_age_seconds < cache_max_age_seconds:
+                        logger.info(
+                            f"Using cached collection ({file_age_seconds:.0f}s old, max {cache_max_age_seconds}s)"
+                        )
+                        # Load from cache and call success callback
+                        success, info = self.load_from_cached_file(directory)
+                        if success and on_success:
+                            on_success(info["filepath"], [])  # Empty cards list for cache hits
+                        return False  # Didn't start new fetch
+                except Exception as exc:
+                    logger.warning(f"Failed to check collection file age: {exc}")
+
+        # Fetch fresh collection from MTGO Bridge in background
+        def worker():
+            try:
+                # Call the bridge to get collection
+                collection_data = mtgo_bridge.get_collection_snapshot(timeout=60.0)
+
+                if not collection_data:
+                    if on_error:
+                        on_error("Bridge returned empty collection")
+                    return
+
+                # Get cards from bridge response
+                cards = collection_data.get("cards", [])
+                if not cards:
+                    if on_error:
+                        on_error("No cards in collection data")
+                    return
+
+                # Export to file using service
+                success, filepath = self.export_to_file(cards, directory)
+                if not success:
+                    if on_error:
+                        on_error("Failed to write collection file")
+                    return
+
+                # Call success callback
+                if on_success:
+                    on_success(filepath, cards)
+
+            except FileNotFoundError as exc:
+                logger.error(f"Bridge not found: {exc}")
+                if on_error:
+                    on_error("MTGO Bridge not found. Build the bridge executable.")
+
+            except Exception as exc:
+                logger.exception("Failed to fetch collection from bridge")
+                if on_error:
+                    on_error(str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True  # Started new fetch
 
     def is_loaded(self) -> bool:
         """Check if collection has been loaded."""
