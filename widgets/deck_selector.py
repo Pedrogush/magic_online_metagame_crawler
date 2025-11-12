@@ -335,23 +335,35 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     # ------------------------------------------------------------------ UI ------------------------------------------------------------------
     def _build_ui(self) -> None:
+        """Build the main UI structure."""
         self.SetBackgroundColour(DARK_BG)
-
-        self.status_bar = self.CreateStatusBar()
-        self.status_bar.SetBackgroundColour(DARK_PANEL)
-        self.status_bar.SetForegroundColour(LIGHT_TEXT)
-        self._set_status("Ready")
+        self._setup_status_bar()
 
         root_panel = wx.Panel(self)
         root_panel.SetBackgroundColour(DARK_BG)
         root_sizer = wx.BoxSizer(wx.HORIZONTAL)
         root_panel.SetSizer(root_sizer)
 
-        left_panel = wx.Panel(root_panel)
+        # Build left and right panels
+        left_panel = self._build_left_panel(root_panel)
+        root_sizer.Add(left_panel, 0, wx.EXPAND | wx.ALL, 10)
+
+        right_panel = self._build_right_panel(root_panel)
+        root_sizer.Add(right_panel, 1, wx.EXPAND | wx.ALL, 10)
+
+    def _setup_status_bar(self) -> None:
+        """Set up the status bar."""
+        self.status_bar = self.CreateStatusBar()
+        self.status_bar.SetBackgroundColour(DARK_PANEL)
+        self.status_bar.SetForegroundColour(LIGHT_TEXT)
+        self._set_status("Ready")
+
+    def _build_left_panel(self, parent: wx.Window) -> wx.Panel:
+        """Build the left panel with research/builder panels."""
+        left_panel = wx.Panel(parent)
         left_panel.SetBackgroundColour(DARK_PANEL)
         left_sizer = wx.BoxSizer(wx.VERTICAL)
         left_panel.SetSizer(left_sizer)
-        root_sizer.Add(left_panel, 0, wx.EXPAND | wx.ALL, 10)
 
         self.left_stack = wx.Simplebook(left_panel)
         self.left_stack.SetBackgroundColour(DARK_PANEL)
@@ -383,32 +395,63 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.left_stack.AddPage(self.builder_panel, "Builder")
         self._show_left_panel(self.left_mode, force=True)
 
-        right_panel = wx.Panel(root_panel)
+        return left_panel
+
+    def _build_right_panel(self, parent: wx.Window) -> wx.Panel:
+        """Build the right panel with all deck management components."""
+        right_panel = wx.Panel(parent)
         right_panel.SetBackgroundColour(DARK_BG)
         right_sizer = wx.BoxSizer(wx.VERTICAL)
         right_panel.SetSizer(right_sizer)
-        root_sizer.Add(right_panel, 1, wx.EXPAND | wx.ALL, 10)
 
-        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        # Toolbar
+        toolbar = self._build_toolbar(right_panel)
         right_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 6)
-        tracker_btn = wx.Button(right_panel, label="Opponent Tracker")
+
+        # Upper section with summary/decklist and card inspector
+        upper_split = wx.BoxSizer(wx.HORIZONTAL)
+        right_sizer.Add(upper_split, 1, wx.EXPAND | wx.BOTTOM, 10)
+
+        # Left side: Summary and deck list
+        summary_column = self._build_summary_and_deck_list(right_panel)
+        upper_split.Add(summary_column, 1, wx.EXPAND | wx.RIGHT, 10)
+
+        # Right side: Card inspector
+        inspector_sizer = self._build_card_inspector(right_panel)
+        upper_split.Add(inspector_sizer, 2, wx.EXPAND)
+
+        # Lower section: Deck workspace
+        self._build_deck_workspace(right_panel, right_sizer)
+
+        return right_panel
+
+    def _build_toolbar(self, parent: wx.Window) -> wx.BoxSizer:
+        """Build the toolbar with utility buttons."""
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+
+        tracker_btn = wx.Button(parent, label="Opponent Tracker")
         tracker_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_opponent_tracker())
         toolbar.Add(tracker_btn, 0, wx.RIGHT, 6)
-        timer_btn = wx.Button(right_panel, label="Timer Alert")
+
+        timer_btn = wx.Button(parent, label="Timer Alert")
         timer_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_timer_alert())
         toolbar.Add(timer_btn, 0, wx.RIGHT, 6)
-        history_btn = wx.Button(right_panel, label="Match History")
+
+        history_btn = wx.Button(parent, label="Match History")
         history_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_match_history())
-        toolbar.Add(history_btn, 0, wx.RIGHT, 6)
-        metagame_btn = wx.Button(right_panel, label="Metagame Analysis")
+        toolbar.Add(timer_btn, 0, wx.RIGHT, 6)
+
+        metagame_btn = wx.Button(parent, label="Metagame Analysis")
         metagame_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_metagame_analysis())
         toolbar.Add(metagame_btn, 0, wx.RIGHT, 6)
-        reload_collection_btn = wx.Button(right_panel, label="Load Collection")
+
+        reload_collection_btn = wx.Button(parent, label="Load Collection")
         reload_collection_btn.Bind(
             wx.EVT_BUTTON, lambda _evt: self._refresh_collection_inventory(force=True)
         )
         toolbar.Add(reload_collection_btn, 0, wx.RIGHT, 6)
-        download_images_btn = wx.Button(right_panel, label="Download Card Images")
+
+        download_images_btn = wx.Button(parent, label="Download Card Images")
         download_images_btn.Bind(
             wx.EVT_BUTTON,
             lambda _evt: show_image_download_dialog(
@@ -418,13 +461,14 @@ class MTGDeckSelectionFrame(wx.Frame):
         toolbar.Add(download_images_btn, 0)
         toolbar.AddStretchSpacer(1)
 
-        upper_split = wx.BoxSizer(wx.HORIZONTAL)
-        right_sizer.Add(upper_split, 1, wx.EXPAND | wx.BOTTOM, 10)
+        return toolbar
 
+    def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
+        """Build the summary text and deck list column."""
         summary_column = wx.BoxSizer(wx.VERTICAL)
-        upper_split.Add(summary_column, 1, wx.EXPAND | wx.RIGHT, 10)
 
-        summary_box = wx.StaticBox(right_panel, label="Archetype Summary")
+        # Archetype summary
+        summary_box = wx.StaticBox(parent, label="Archetype Summary")
         summary_box.SetForegroundColour(LIGHT_TEXT)
         summary_box.SetBackgroundColour(DARK_PANEL)
         summary_sizer = wx.StaticBoxSizer(summary_box, wx.VERTICAL)
@@ -438,36 +482,19 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.summary_text.SetMinSize((-1, 110))
         summary_sizer.Add(self.summary_text, 1, wx.EXPAND | wx.ALL, 6)
 
-        deck_box = wx.StaticBox(right_panel, label="Deck Results")
+        # Deck list
+        deck_box = wx.StaticBox(parent, label="Deck Results")
         deck_box.SetForegroundColour(LIGHT_TEXT)
         deck_box.SetBackgroundColour(DARK_PANEL)
         deck_sizer = wx.StaticBoxSizer(deck_box, wx.VERTICAL)
         summary_column.Add(deck_sizer, 1, wx.EXPAND)
-
-        # Card Inspector Panel (replaces ~100 lines of inline UI code)
-        inspector_box = wx.StaticBox(right_panel, label="Card Inspector")
-        inspector_box.SetForegroundColour(LIGHT_TEXT)
-        inspector_box.SetBackgroundColour(DARK_PANEL)
-        inspector_sizer = wx.StaticBoxSizer(inspector_box, wx.VERTICAL)
-        upper_split.Add(inspector_sizer, 2, wx.EXPAND)
-
-        self.card_inspector_panel = CardInspectorPanel(
-            inspector_box, card_manager=self.card_repo.get_card_manager(), mana_icons=self.mana_icons
-        )
-        inspector_sizer.Add(self.card_inspector_panel, 1, wx.EXPAND)
-
-        # Keep references for backward compatibility
-        self.image_cache = get_cache()
-        self.image_downloader: BulkImageDownloader | None = None
-        self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
-        self.printing_index_loading: bool = False
 
         self.deck_list = wx.ListBox(deck_box, style=wx.LB_SINGLE)
         stylize_listbox(self.deck_list)
         self.deck_list.Bind(wx.EVT_LISTBOX, self.on_deck_selected)
         deck_sizer.Add(self.deck_list, 1, wx.EXPAND | wx.ALL, 6)
 
-        # Deck Action Buttons (replaces ~26 lines of inline button code)
+        # Deck action buttons
         self.deck_action_buttons = DeckActionButtons(
             deck_box,
             on_load=lambda: self.on_load_deck_clicked(None),
@@ -483,75 +510,48 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.copy_button = self.deck_action_buttons.copy_button
         self.save_button = self.deck_action_buttons.save_button
 
-        detail_box = wx.StaticBox(right_panel, label="Deck Workspace")
+        return summary_column
+
+    def _build_card_inspector(self, parent: wx.Window) -> wx.StaticBoxSizer:
+        """Build the card inspector panel."""
+        inspector_box = wx.StaticBox(parent, label="Card Inspector")
+        inspector_box.SetForegroundColour(LIGHT_TEXT)
+        inspector_box.SetBackgroundColour(DARK_PANEL)
+        inspector_sizer = wx.StaticBoxSizer(inspector_box, wx.VERTICAL)
+
+        self.card_inspector_panel = CardInspectorPanel(
+            inspector_box, card_manager=self.card_repo.get_card_manager(), mana_icons=self.mana_icons
+        )
+        inspector_sizer.Add(self.card_inspector_panel, 1, wx.EXPAND)
+
+        # Keep references for backward compatibility
+        self.image_cache = get_cache()
+        self.image_downloader: BulkImageDownloader | None = None
+        self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
+        self.printing_index_loading: bool = False
+
+        return inspector_sizer
+
+    def _build_deck_workspace(self, parent: wx.Window, parent_sizer: wx.BoxSizer) -> None:
+        """Build the deck workspace with tables, stats, guide, and notes."""
+        detail_box = wx.StaticBox(parent, label="Deck Workspace")
         detail_box.SetForegroundColour(LIGHT_TEXT)
         detail_box.SetBackgroundColour(DARK_PANEL)
         detail_sizer = wx.StaticBoxSizer(detail_box, wx.VERTICAL)
-        right_sizer.Add(detail_sizer, 1, wx.EXPAND)
+        parent_sizer.Add(detail_sizer, 1, wx.EXPAND)
 
         self.deck_tabs = wx.Notebook(detail_box)
         detail_sizer.Add(self.deck_tabs, 1, wx.EXPAND | wx.ALL, 6)
 
-        self.deck_tables_page = wx.Panel(self.deck_tabs)
-        self.deck_tabs.AddPage(self.deck_tables_page, "Deck Tables")
-        tables_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.deck_tables_page.SetSizer(tables_sizer)
+        # Deck tables tab
+        self._build_deck_tables_tab()
 
-        self.zone_notebook = wx.Notebook(self.deck_tables_page)
-        tables_sizer.Add(self.zone_notebook, 1, wx.EXPAND | wx.BOTTOM, 6)
-
-        self.main_table = CardTablePanel(
-            self.zone_notebook,
-            "main",
-            self.mana_icons,
-            self._get_card_metadata,
-            self._owned_status,
-            self._handle_zone_delta,
-            self._handle_zone_remove,
-            self._handle_zone_add,
-            self._handle_card_focus,
-        )
-        self.zone_notebook.AddPage(self.main_table, "Mainboard")
-
-        self.side_table = CardTablePanel(
-            self.zone_notebook,
-            "side",
-            self.mana_icons,
-            self._get_card_metadata,
-            self._owned_status,
-            self._handle_zone_delta,
-            self._handle_zone_remove,
-            self._handle_zone_add,
-            self._handle_card_focus,
-        )
-        self.zone_notebook.AddPage(self.side_table, "Sideboard")
-
-        self.out_table = CardTablePanel(
-            self.zone_notebook,
-            "out",
-            self.mana_icons,
-            self._get_card_metadata,
-            lambda name, qty: ("Out", wx.Colour(255, 255, 255)),
-            self._handle_zone_delta,
-            self._handle_zone_remove,
-            self._handle_zone_add,
-            self._handle_card_focus,
-        )
-        self.zone_notebook.AddPage(self.out_table, "Outboard")
-
-        self.collection_status_label = wx.StaticText(
-            self.deck_tables_page, label="Collection inventory not loaded."
-        )
-        self.collection_status_label.SetForegroundColour(SUBDUED_TEXT)
-        tables_sizer.Add(self.collection_status_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
-
-        # Deck Stats Panel (replaces ~24 lines of inline UI code)
+        # Stats, guide, and notes tabs
         self.deck_stats_panel = DeckStatsPanel(
             self.deck_tabs, card_manager=self.card_repo.get_card_manager(), deck_service=self.deck_service
         )
         self.deck_tabs.AddPage(self.deck_stats_panel, "Stats")
 
-        # Sideboard Guide Panel (replaces ~32 lines of inline UI code)
         self.sideboard_guide_panel = SideboardGuidePanel(
             self.deck_tabs,
             on_add_callback=lambda: self._on_add_guide_entry(),
@@ -561,11 +561,53 @@ class MTGDeckSelectionFrame(wx.Frame):
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
-        # Deck Notes Panel (replaces ~14 lines of inline UI code)
         self.deck_notes_panel = DeckNotesPanel(
             self.deck_tabs, on_save_callback=lambda notes: self._save_current_notes()
         )
         self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
+
+    def _build_deck_tables_tab(self) -> None:
+        """Build the deck tables tab with main/side/out boards."""
+        self.deck_tables_page = wx.Panel(self.deck_tabs)
+        self.deck_tabs.AddPage(self.deck_tables_page, "Deck Tables")
+        tables_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.deck_tables_page.SetSizer(tables_sizer)
+
+        self.zone_notebook = wx.Notebook(self.deck_tables_page)
+        tables_sizer.Add(self.zone_notebook, 1, wx.EXPAND | wx.BOTTOM, 6)
+
+        # Create zone tables
+        self.main_table = self._create_zone_table("main", "Mainboard")
+        self.side_table = self._create_zone_table("side", "Sideboard")
+        self.out_table = self._create_zone_table(
+            "out", "Outboard", owned_status_func=lambda name, qty: ("Out", wx.Colour(255, 255, 255))
+        )
+
+        # Collection status
+        self.collection_status_label = wx.StaticText(
+            self.deck_tables_page, label="Collection inventory not loaded."
+        )
+        self.collection_status_label.SetForegroundColour(SUBDUED_TEXT)
+        tables_sizer.Add(self.collection_status_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
+
+    def _create_zone_table(self, zone: str, tab_name: str, owned_status_func=None) -> CardTablePanel:
+        """Create a CardTablePanel for a specific zone."""
+        if owned_status_func is None:
+            owned_status_func = self._owned_status
+
+        table = CardTablePanel(
+            self.zone_notebook,
+            zone,
+            self.mana_icons,
+            self._get_card_metadata,
+            owned_status_func,
+            self._handle_zone_delta,
+            self._handle_zone_remove,
+            self._handle_zone_add,
+            self._handle_card_focus,
+        )
+        self.zone_notebook.AddPage(table, tab_name)
+        return table
 
     # ------------------------------------------------------------------ Left panel helpers -------------------------------------------------
     def _show_left_panel(self, mode: str, force: bool = False) -> None:
@@ -1634,63 +1676,23 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         # Get filters from the panel
         filters = self.builder_panel.get_filters()
-        mana_query = normalize_mana_query(filters.get("mana", ""))
-        mana_mode = "exact" if filters.get("mana_exact") else "contains"
-        mv_cmp = filters.get("mv_comparator", "Any")
 
-        # Parse mana value
-        mv_value = None
+        # Validate mana value if provided
         mv_value_text = filters.get("mv_value", "")
         if mv_value_text:
             try:
-                mv_value = float(mv_value_text)
+                float(mv_value_text)
             except ValueError:
                 wx.MessageBox(
                     "Mana value must be numeric.", "Card Search", wx.OK | wx.ICON_WARNING
                 )
                 return
 
-        selected_formats = filters.get("formats", [])
-        color_mode = filters.get("color_mode", "Any")
-        selected_colors = filters.get("selected_colors", [])
-
-        # Perform search
-        query = filters.get("name") or filters.get("text") or ""
-        results = card_manager.search_cards(query=query, format_filter=None)
-
-        # Apply filters
-        filtered: list[dict[str, Any]] = []
-        for card in results:
-            name_lower = card.get("name_lower", "")
-            if filters.get("name") and filters["name"].lower() not in name_lower:
-                continue
-            type_line = (card.get("type_line") or "").lower()
-            if filters.get("type") and filters["type"].lower() not in type_line:
-                continue
-            mana_cost = (card.get("mana_cost") or "").upper()
-            if mana_query and not matches_mana_cost(mana_cost, mana_query, mana_mode):
-                continue
-            oracle_text = (card.get("oracle_text") or "").lower()
-            if filters.get("text") and filters["text"].lower() not in oracle_text:
-                continue
-            if selected_formats:
-                legalities = card.get("legalities", {}) or {}
-                if not all(legalities.get(fmt) == "Legal" for fmt in selected_formats):
-                    continue
-            if mv_value is not None and mv_cmp != "Any":
-                if not matches_mana_value(card.get("mana_value"), mv_value, mv_cmp):
-                    continue
-            if selected_colors and color_mode != "Any":
-                if not matches_color_filter(
-                    card.get("color_identity") or [], selected_colors, color_mode
-                ):
-                    continue
-            filtered.append(card)
-            if len(filtered) >= 300:
-                break
+        # Perform search using service
+        results = self.search_service.search_with_builder_filters(filters, card_manager)
 
         # Update panel with results
-        self.builder_panel.update_results(filtered)
+        self.builder_panel.update_results(results)
 
     def _on_builder_clear(self) -> None:
         """Handle clear button click from builder panel."""

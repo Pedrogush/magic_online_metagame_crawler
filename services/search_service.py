@@ -14,7 +14,8 @@ from typing import Any
 from loguru import logger
 
 from repositories.card_repository import CardRepository, get_card_repository
-from utils.search_filters import matches_color_filter, matches_mana_cost, matches_mana_value
+from utils.card_data import CardDataManager
+from utils.search_filters import matches_color_filter, matches_mana_cost, matches_mana_value, normalize_mana_query
 
 
 class SearchService:
@@ -132,6 +133,119 @@ class SearchService:
                 if self._matches_text_filter(card, text_contains)
             ]
 
+        return filtered
+
+    # ============= Builder Search with Complex Filters =============
+
+    def search_with_builder_filters(
+        self,
+        filters: dict[str, Any],
+        card_manager: CardDataManager,
+        limit: int = 300,
+    ) -> list[dict[str, Any]]:
+        """
+        Perform a comprehensive card search with all builder panel filters.
+
+        This method handles the complex filtering logic used by the deck builder,
+        including name, type, mana cost, oracle text, format legality, mana value,
+        and color identity filters.
+
+        Args:
+            filters: Dictionary of filter criteria from builder panel
+            card_manager: CardDataManager instance to search
+            limit: Maximum number of results to return (default 300)
+
+        Returns:
+            List of filtered card dictionaries
+
+        Filter keys expected:
+            - name: str - Card name filter
+            - type: str - Type line filter
+            - text: str - Oracle text filter
+            - mana: str - Mana cost pattern
+            - mana_exact: bool - Whether mana cost must be exact match
+            - mv_value: str - Mana value to compare
+            - mv_comparator: str - Mana value comparator ("<", "≤", "=", "≥", ">", "Any")
+            - formats: list[str] - Format legality filters
+            - color_mode: str - Color filter mode
+            - selected_colors: list[str] - Colors to filter by
+        """
+        # Parse and normalize filters
+        mana_query = normalize_mana_query(filters.get("mana", ""))
+        mana_mode = "exact" if filters.get("mana_exact") else "contains"
+        mv_cmp = filters.get("mv_comparator", "Any")
+
+        # Parse mana value
+        mv_value = None
+        mv_value_text = filters.get("mv_value", "")
+        if mv_value_text:
+            try:
+                mv_value = float(mv_value_text)
+            except ValueError:
+                logger.warning(f"Invalid mana value: {mv_value_text}")
+                mv_value = None
+
+        selected_formats = filters.get("formats", [])
+        color_mode = filters.get("color_mode", "Any")
+        selected_colors = filters.get("selected_colors", [])
+
+        # Perform initial search
+        query = filters.get("name") or filters.get("text") or ""
+        results = card_manager.search_cards(query=query, format_filter=None)
+
+        # Apply all filters
+        filtered: list[dict[str, Any]] = []
+        for card in results:
+            # Name filter
+            if filters.get("name"):
+                name_lower = card.get("name_lower", "")
+                if filters["name"].lower() not in name_lower:
+                    continue
+
+            # Type filter
+            if filters.get("type"):
+                type_line = (card.get("type_line") or "").lower()
+                if filters["type"].lower() not in type_line:
+                    continue
+
+            # Mana cost filter
+            if mana_query:
+                mana_cost = (card.get("mana_cost") or "").upper()
+                if not matches_mana_cost(mana_cost, mana_query, mana_mode):
+                    continue
+
+            # Oracle text filter
+            if filters.get("text"):
+                oracle_text = (card.get("oracle_text") or "").lower()
+                if filters["text"].lower() not in oracle_text:
+                    continue
+
+            # Format legality filter
+            if selected_formats:
+                legalities = card.get("legalities", {}) or {}
+                if not all(legalities.get(fmt) == "Legal" for fmt in selected_formats):
+                    continue
+
+            # Mana value filter
+            if mv_value is not None and mv_cmp != "Any":
+                if not matches_mana_value(card.get("mana_value"), mv_value, mv_cmp):
+                    continue
+
+            # Color identity filter
+            if selected_colors and color_mode != "Any":
+                if not matches_color_filter(
+                    card.get("color_identity") or [], selected_colors, color_mode
+                ):
+                    continue
+
+            # Add to results
+            filtered.append(card)
+            if len(filtered) >= limit:
+                break
+
+        logger.debug(
+            f"Search completed: {len(results)} initial results, {len(filtered)} after filtering"
+        )
         return filtered
 
     # ============= Private Filter Methods =============
