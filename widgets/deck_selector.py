@@ -439,7 +439,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         history_btn = wx.Button(parent, label="Match History")
         history_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_match_history())
-        toolbar.Add(timer_btn, 0, wx.RIGHT, 6)
+        toolbar.Add(history_btn, 0, wx.RIGHT, 6)
 
         metagame_btn = wx.Button(parent, label="Metagame Analysis")
         metagame_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_metagame_analysis())
