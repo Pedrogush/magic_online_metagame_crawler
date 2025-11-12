@@ -17,6 +17,7 @@ from repositories.deck_repository import DeckRepository, get_deck_repository
 from repositories.metagame_repository import MetagameRepository, get_metagame_repository
 from services.collection_service import CollectionService, get_collection_service
 from services.deck_service import DeckService, get_deck_service
+from services.image_service import ImageService, get_image_service
 from services.search_service import SearchService, get_search_service
 from utils.card_data import CardDataManager
 from utils.card_images import (
@@ -36,7 +37,7 @@ from utils.constants import (
     FULL_MANA_SYMBOLS
 )
 from utils.dbq import save_deck_to_db
-from utils.deck import add_dicts, analyze_deck, deck_to_dictionary, read_curr_deck_file, render_average_deck
+from utils.deck import add_dicts, analyze_deck, deck_to_dictionary, read_curr_deck_file, render_average_deck, sanitize_filename, sanitize_zone_cards
 from utils.mana_icon_factory import ManaIconFactory, type_global_mana_symbol, normalize_mana_query
 from utils.paths import (
     CACHE_DIR,
@@ -287,6 +288,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.deck_service = get_deck_service()
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
+        self.image_service = get_image_service()
 
         self.settings = self._load_window_settings()
         self.current_format = self.settings.get("format", "Modern")
@@ -524,11 +526,9 @@ class MTGDeckSelectionFrame(wx.Frame):
         )
         inspector_sizer.Add(self.card_inspector_panel, 1, wx.EXPAND)
 
-        # Keep references for backward compatibility
-        self.image_cache = get_cache()
-        self.image_downloader: BulkImageDownloader | None = None
-        self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
-        self.printing_index_loading: bool = False
+        # Keep backward compatibility references (delegate to image service)
+        self.image_cache = self.image_service.image_cache
+        self.image_downloader = self.image_service.image_downloader
 
         return inspector_sizer
 
@@ -656,21 +656,7 @@ class MTGDeckSelectionFrame(wx.Frame):
             entries = saved_zones.get(zone, [])
             if not isinstance(entries, list):
                 continue
-            sanitized: list[dict[str, Any]] = []
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                name = entry.get("name")
-                qty = entry.get("qty", 0)
-                if not name:
-                    continue
-                try:
-                    qty_int = max(0, int(qty))
-                except (TypeError, ValueError):
-                    continue
-                if qty_int <= 0:
-                    continue
-                sanitized.append({"name": name, "qty": qty_int})
+            sanitized = sanitize_zone_cards(entries)
             if sanitized:
                 self.zone_cards[zone] = sanitized
                 changed = True
@@ -737,23 +723,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.settings = data
 
     def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
-        serialized: dict[str, list[dict[str, Any]]] = {}
-        for zone, cards in self.zone_cards.items():
-            cleaned: list[dict[str, Any]] = []
-            for entry in cards:
-                name = entry.get("name")
-                qty = entry.get("qty", 0)
-                if not name:
-                    continue
-                try:
-                    qty_int = max(0, int(qty))
-                except (TypeError, ValueError):
-                    qty_int = 0
-                if qty_int <= 0:
-                    continue
-                cleaned.append({"name": name, "qty": qty_int})
-            serialized[zone] = cleaned
-        return serialized
+        return {zone: sanitize_zone_cards(cards) for zone, cards in self.zone_cards.items()}
 
     def _apply_window_preferences(self) -> None:
         size = self.settings.get("window_size")
@@ -868,9 +838,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         deck_name = dlg.GetValue().strip() or default_name
         dlg.Destroy()
 
-        safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in deck_name).strip()
-        if not safe_name:
-            safe_name = "saved_deck"
+        safe_name = sanitize_filename(deck_name)
         file_path = DECK_SAVE_DIR / f"{safe_name}.txt"
         try:
             with file_path.open("w", encoding="utf-8") as fh:
@@ -1185,108 +1153,46 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _check_and_download_bulk_data(self) -> None:
         """Check if bulk data exists, and download/load in background if needed."""
-        from datetime import datetime
+        needs_download, reason = self.image_service.check_bulk_data_freshness()
 
-        needs_download = False
+        if not needs_download:
+            # Data is fresh, just load into memory
+            self._load_bulk_data_into_memory()
+            return
 
-        if self.image_downloader is None:
-            self.image_downloader = BulkImageDownloader(self.image_cache)
+        # Data is stale or missing - attempt to load cached data while we download
+        if not self.image_service.get_bulk_data():
+            self._load_bulk_data_into_memory()
 
-        if BULK_DATA_CACHE.exists():
-            # Prefer vendor metadata to determine freshness; fallback to age when metadata checks fail
-            try:
-                needs_download, metadata = self.image_downloader.is_bulk_data_outdated()
-                if not needs_download:
-                    logger.info(
-                        "Bulk data cache is current (vendor updated_at={updated})",
-                        updated=metadata.get("updated_at"),
-                    )
-                    self._load_bulk_data_into_memory()
-                    return
-                logger.info(
-                    "Bulk data cache is stale (vendor updated_at={updated})",
-                    updated=metadata.get("updated_at"),
-                )
-            except Exception as exc:
-                logger.warning(f"Failed to check bulk data metadata: {exc}")
-                try:
-                    age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-                    if age_seconds < 86400:  # Less than 24 hours
-                        logger.info(f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)")
-                        # Still need to load into memory
-                        self._load_bulk_data_into_memory()
-                        return
-                    else:
-                        logger.info(
-                            f"Bulk data cache is stale ({age_seconds/3600:.1f}h old), updating..."
-                        )
-                        needs_download = True
-                except Exception as exc2:
-                    logger.warning(f"Failed to check bulk data age: {exc2}")
-                    return
-        else:
-            needs_download = True
+        logger.info(f"Bulk data needs update: {reason}")
+        self._set_status("Downloading card image database...")
 
-        if needs_download:
-            # Attempt to use any cached printings index while we refresh metadata
-            if not self.bulk_data_by_name:
-                self._load_bulk_data_into_memory()
-
-            logger.info("Bulk data not found or stale, downloading in background...")
-            self._set_status("Downloading card image database...")
-
-            def worker():
-                try:
-                    if self.image_downloader is None:
-                        self.image_downloader = BulkImageDownloader(self.image_cache)
-
-                    success, msg = self.image_downloader.download_bulk_metadata(force=True)
-
-                    if success:
-                        wx.CallAfter(self._on_bulk_data_downloaded, msg)
-                    else:
-                        wx.CallAfter(self._on_bulk_data_failed, msg)
-
-                except Exception as exc:
-                    wx.CallAfter(self._on_bulk_data_failed, str(exc))
-                    logger.exception("Failed to download bulk data")
-
-            threading.Thread(target=worker, daemon=True).start()
+        # Download in background using service
+        self.image_service.download_bulk_metadata_async(
+            on_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
+            on_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
+        )
 
     def _load_bulk_data_into_memory(self, force: bool = False) -> None:
         """Load the compact card printings index in the background."""
-        if force:
-            logger.warning(f"Load bulk data method called with force set to {force}")
-        if self.printing_index_loading and not force:
-            return
-        if self.bulk_data_by_name and not force:
-            return
-        self.printing_index_loading = True
         self._set_status("Preparing card printings cache…")
 
-        def worker() -> None:
-            try:
-                payload = ensure_printing_index_cache(force=force)
-                data = payload.get("data", {})
-                stats = {
-                    "unique_names": payload.get("unique_names", len(data)),
-                    "total_printings": payload.get(
-                        "total_printings", sum(len(v) for v in data.values())
-                    ),
-                }
-                wx.CallAfter(self._on_bulk_data_loaded, data, stats)
-            except Exception as exc:
-                wx.CallAfter(self._on_bulk_data_load_failed, str(exc))
-                logger.exception("Failed to prepare card printings index")
+        # Load using service
+        started = self.image_service.load_printing_index_async(
+            force=force,
+            on_success=lambda data, stats: wx.CallAfter(self._on_bulk_data_loaded, data, stats),
+            on_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
+        )
 
-        threading.Thread(target=worker, daemon=True).start()
+        if not started:
+            self._set_status("Ready")  # Already loading or loaded
 
     def _on_bulk_data_loaded(
         self, by_name: dict[str, list[dict[str, Any]]], stats: dict[str, Any]
     ) -> None:
         """Handle successful printings index load."""
-        self.printing_index_loading = False
-        self.bulk_data_by_name = by_name
+        self.image_service.clear_printing_index_loading()
+        self.image_service.set_bulk_data(by_name)
         # Update card inspector panel with bulk data
         self.card_inspector_panel.set_bulk_data(by_name)
         self._set_status("Ready")
@@ -1298,7 +1204,7 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     def _on_bulk_data_load_failed(self, error_msg: str) -> None:
         """Handle printings index loading failure."""
-        self.printing_index_loading = False
+        self.image_service.clear_printing_index_loading()
         self._set_status("Ready")
         logger.warning(f"Card printings index load failed: {error_msg}")
 
@@ -1734,73 +1640,43 @@ class MTGDeckSelectionFrame(wx.Frame):
         except wx.PyDeadObjectError:
             return False
 
-    def open_opponent_tracker(self) -> None:
-        if self._widget_exists(self.tracker_window):
-            self.tracker_window.Raise()
+    def _open_child_window(
+        self,
+        attr: str,
+        window_class: type,
+        title: str,
+        *args,
+        **kwargs
+    ) -> None:
+        """Generic factory method for opening child windows."""
+        existing = getattr(self, attr, None)
+        if self._widget_exists(existing):
+            existing.Raise()
             return
         try:
-            self.tracker_window = MTGOpponentDeckSpy(self)
-            self.tracker_window.Bind(
-                wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "tracker_window")
-            )
-            self.tracker_window.Show()
+            window = window_class(self, *args, **kwargs)
+            window.Bind(wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, attr))
+            window.Show()
+            setattr(self, attr, window)
         except Exception as exc:
-            logger.error(f"Failed to launch opponent tracker: {exc}")
+            logger.error(f"Failed to open {title.lower()}: {exc}")
             wx.MessageBox(
-                f"Unable to launch opponent tracker:\n{exc}",
-                "Opponent Tracker",
+                f"Unable to open {title.lower()}:\n{exc}",
+                title,
                 wx.OK | wx.ICON_ERROR,
             )
+
+    def open_opponent_tracker(self) -> None:
+        self._open_child_window("tracker_window", MTGOpponentDeckSpy, "Opponent Tracker")
 
     def open_timer_alert(self) -> None:
-        if self._widget_exists(self.timer_window):
-            self.timer_window.Raise()
-            return
-        try:
-            self.timer_window = TimerAlertFrame(self)
-            self.timer_window.Bind(
-                wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "timer_window")
-            )
-            self.timer_window.Show()
-        except Exception as exc:
-            logger.error(f"Failed to open timer alert: {exc}")
-            wx.MessageBox(
-                f"Unable to open timer alert:\n{exc}", "Timer Alert", wx.OK | wx.ICON_ERROR
-            )
+        self._open_child_window("timer_window", TimerAlertFrame, "Timer Alert")
 
     def open_match_history(self) -> None:
-        if self._widget_exists(self.history_window):
-            self.history_window.Raise()
-            return
-        try:
-            self.history_window = MatchHistoryFrame(self)
-            self.history_window.Bind(
-                wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "history_window")
-            )
-            self.history_window.Show()
-        except Exception as exc:
-            logger.error(f"Failed to open match history: {exc}")
-            wx.MessageBox(
-                f"Unable to open match history:\n{exc}", "Match History", wx.OK | wx.ICON_ERROR
-            )
+        self._open_child_window("history_window", MatchHistoryFrame, "Match History")
 
     def open_metagame_analysis(self) -> None:
-        if self._widget_exists(self.metagame_window):
-            self.metagame_window.Raise()
-            return
-        try:
-            self.metagame_window = MetagameAnalysisFrame(self)
-            self.metagame_window.Bind(
-                wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, "metagame_window")
-            )
-            self.metagame_window.Show()
-        except Exception as exc:
-            logger.error(f"Failed to open metagame analysis: {exc}")
-            wx.MessageBox(
-                f"Unable to open metagame analysis:\n{exc}",
-                "Metagame Analysis",
-                wx.OK | wx.ICON_ERROR,
-            )
+        self._open_child_window("metagame_window", MetagameAnalysisFrame, "Metagame Analysis")
 
     def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
         setattr(self, attr, None)
