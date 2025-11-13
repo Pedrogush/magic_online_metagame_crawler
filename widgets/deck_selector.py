@@ -277,6 +277,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
         self.image_service = get_image_service()
+        self.card_data_dialogs_disabled = False
 
         self.settings = self._load_window_settings()
         self.current_format = self.settings.get("format", "Modern")
@@ -1537,11 +1538,12 @@ class MTGDeckSelectionFrame(wx.Frame):
         if not card_manager:
             if not self.card_repo.is_card_data_loading():
                 self.ensure_card_data_loaded()
-            wx.MessageBox(
-                "Card database is still loading. Please try again in a moment.",
-                "Card Search",
-                wx.OK | wx.ICON_INFORMATION,
-            )
+            if not self.card_data_dialogs_disabled:
+                wx.MessageBox(
+                    "Card database is still loading. Please try again in a moment.",
+                    "Card Search",
+                    wx.OK | wx.ICON_INFORMATION,
+                )
             return
 
         # Get filters from the panel
