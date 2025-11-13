@@ -8,6 +8,10 @@ set -e
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
+# Determine current branch for metadata
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
+CURRENT_BRANCH="${CURRENT_BRANCH:-unknown}"
+
 # Generate or retrieve session hash
 SESSION_FILE="${HOME}/.claude_session_id"
 if [ ! -f "$SESSION_FILE" ]; then
@@ -43,7 +47,7 @@ usage() {
 
 get_issue_comments() {
     local issue=$1
-    gh issue view "$issue" --json comments --jq '.comments[].body' 2>&1 | grep -v "deprecated" || echo ""
+    gh issue view "$issue" --json comments --jq '.comments[].body' 2>/dev/null || echo ""
 }
 
 is_issue_claimed() {
@@ -68,7 +72,7 @@ claim_issue() {
     local issue=$1
 
     # Check if issue exists
-    if ! gh issue view "$issue" --json number 2>&1 | grep -q -v "deprecated"; then
+    if ! gh issue view "$issue" &>/dev/null; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
@@ -91,6 +95,8 @@ claim_issue() {
 
         gh issue comment "$issue" --body "🔧 CLAIMED by AI Session
 
+Branch: ${CURRENT_BRANCH}
+
 Session: ${SESSION_HASH}
 User: ${user}@${hostname}
 Started: ${timestamp}
@@ -109,7 +115,7 @@ release_issue() {
     local issue=$1
 
     # Check if issue exists
-    if ! gh issue view "$issue" --json number 2>&1 | grep -q -v "deprecated"; then
+    if ! gh issue view "$issue" &>/dev/null; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
@@ -132,6 +138,8 @@ release_issue() {
 
     gh issue comment "$issue" --body "✅ RELEASED by AI Session
 
+Branch: ${CURRENT_BRANCH}
+
 Session: ${SESSION_HASH}
 Completed: ${timestamp}
 
@@ -143,7 +151,7 @@ Issue is now available for other sessions to work on."
 check_issue() {
     local issue=$1
 
-    if ! gh issue view "$issue" --json number 2>&1 | grep -q -v "deprecated"; then
+    if ! gh issue view "$issue" &>/dev/null; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
@@ -230,6 +238,7 @@ show_session() {
     echo "User: $(whoami)"
     echo "Hostname: $(hostname)"
     echo "Session File: ${SESSION_FILE}"
+    echo "Branch: ${CURRENT_BRANCH}"
 }
 
 # Main command processing

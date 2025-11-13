@@ -36,7 +36,7 @@ class DeckService:
 
     # ============= Deck Parsing and Analysis =============
 
-    def deck_to_dictionary(self, deck_text: str) -> dict[str, int]:
+    def deck_to_dictionary(self, deck_text: str) -> dict[str, float]:
         """
         Convert deck text to a dictionary representation.
 
@@ -44,7 +44,7 @@ class DeckService:
             deck_text: Deck list as text (format: "quantity card_name")
 
         Returns:
-            Dictionary mapping card names to quantities
+            Dictionary mapping card names to quantities (floats to preserve averages)
             Sideboard cards are prefixed with "Sideboard "
         """
         deck_lines = deck_text.split("\n")
@@ -75,7 +75,7 @@ class DeckService:
                     continue
 
                 # Handle fractional amounts from averages
-                card_amount = int(float(parts[0]))
+                card_amount = float(parts[0])
                 card_name = parts[1].strip()
 
                 # Add to appropriate section
@@ -84,7 +84,7 @@ class DeckService:
                 else:
                     key = card_name
 
-                deck_dict[key] = deck_dict.get(key, 0) + card_amount
+                deck_dict[key] = deck_dict.get(key, 0.0) + card_amount
 
             except (ValueError, IndexError):
                 # Skip invalid lines
