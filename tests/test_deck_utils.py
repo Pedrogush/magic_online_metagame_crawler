@@ -53,13 +53,13 @@ def test_analyze_deck_detects_land_keywords():
 4 Misty Rainforest
 2 Flooded Strand
 1 Scalding Tarn
-
 2 Path to Exile
 """
     summary = analyze_deck(deck_with_various_lands)
-    # All non-basic lands should be detected by "land" keyword in their names
-    # or by basic land type names (this deck has none matching the basic keywords)
-    # This test verifies the fix handles multiple copies correctly
+    # Lands with "land" in their name should be counted
+    # (Misty Rainforest, Flooded Strand, Scalding Tarn all contain "land")
+    # 4 + 2 + 1 = 7 lands
+    assert summary["estimated_lands"] == 7
     assert summary["mainboard_count"] == 15
     assert summary["unique_mainboard"] == 7
 
