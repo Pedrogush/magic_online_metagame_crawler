@@ -15,7 +15,7 @@ def test_deck_selector_loads_archetypes_and_mainboard_stats(
         assert frame.research_panel.archetype_list.GetCount() == 2
 
         frame.research_panel.archetype_list.SetSelection(0)
-        frame.on_archetype_selected(None)
+        frame.on_archetype_selected()
         pump_ui_events(wx.GetApp(), iterations=8)
 
         assert frame.deck_list.GetCount() == 1
@@ -42,7 +42,7 @@ def test_builder_search_populates_results(
         frame._show_left_panel("builder", force=True)
         name_ctrl = frame.builder_panel.inputs["name"]
         name_ctrl.ChangeValue("Mountain")
-        frame.on_builder_search(None)
+        frame._on_builder_search()
         pump_ui_events(wx.GetApp(), iterations=4)
 
         assert frame.builder_panel.results_ctrl.GetItemCount() >= 1
