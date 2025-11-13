@@ -50,7 +50,7 @@ from widgets.panels.deck_builder_panel import DeckBuilderPanel
 from widgets.panels.deck_notes_panel import DeckNotesPanel
 from widgets.panels.deck_research_panel import DeckResearchPanel
 from widgets.panels.deck_stats_panel import DeckStatsPanel
-from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
+from widgets.panels.sideboard_guide_panel import SideboardGuideHandlers, SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
 
 LEGACY_CONFIG_FILE = Path("config.json")
@@ -151,7 +151,7 @@ class _Worker:
             wx.CallAfter(self.on_success, result)
 
 
-class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
+class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, wx.Frame):
     """wxPython-based metagame research + deck builder UI."""
 
     def __init__(self, parent: wx.Window | None = None):
@@ -180,6 +180,8 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
         self.deck_notes_store = self._load_store(NOTES_STORE)
         self.outboard_store = self._load_store(OUTBOARD_STORE)
         self.guide_store = self._load_store(GUIDE_STORE)
+        self.outboard_store_path = OUTBOARD_STORE
+        self.guide_store_path = GUIDE_STORE
 
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
@@ -944,54 +946,6 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
         self.deck_notes_store[key] = notes
         self._save_store(NOTES_STORE, self.deck_notes_store)
         self._set_status("Deck notes saved.")
-
-    # ------------------------------------------------------------------ Outboard + guide persistence -----------------------------------------
-    def _persist_outboard_for_current(self) -> None:
-        key = self._current_deck_key()
-        self.outboard_store[key] = self.zone_cards.get("out", [])
-        self._save_store(OUTBOARD_STORE, self.outboard_store)
-
-    def _load_outboard_for_current(self) -> list[dict[str, Any]]:
-        key = self._current_deck_key()
-        data = self.outboard_store.get(key, [])
-        cleaned: list[dict[str, Any]] = []
-        for entry in data:
-            name = entry.get("name")
-            qty_raw = entry.get("qty", 0)
-            # Preserve float quantities from average decks
-            try:
-                qty_float = float(qty_raw)
-                qty = int(qty_float) if qty_float.is_integer() else qty_float
-            except (TypeError, ValueError):
-                qty = 0
-            if name and qty > 0:
-                cleaned.append({"name": name, "qty": qty})
-        return cleaned
-
-    def _load_guide_for_current(self) -> None:
-        """Load sideboard guide for the current deck into the guide panel."""
-        key = self._current_deck_key()
-        payload = self.guide_store.get(key) or {}
-        self.sideboard_guide_entries = payload.get("entries", [])
-        self.sideboard_exclusions = payload.get("exclusions", [])
-        self.sideboard_guide_panel.set_entries(
-            self.sideboard_guide_entries, self.sideboard_exclusions
-        )
-
-    def _persist_guide_for_current(self) -> None:
-        """Save sideboard guide from the guide panel."""
-        key = self._current_deck_key()
-        self.guide_store[key] = {
-            "entries": self.sideboard_guide_entries,
-            "exclusions": self.sideboard_exclusions,
-        }
-        self._save_store(GUIDE_STORE, self.guide_store)
-
-    def _refresh_guide_view(self) -> None:
-        """Refresh the guide panel display."""
-        self.sideboard_guide_panel.set_entries(
-            self.sideboard_guide_entries, self.sideboard_exclusions
-        )
 
     # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
     def _load_store(self, path: Path) -> dict[str, Any]:
