@@ -68,7 +68,7 @@ claim_issue() {
     local issue=$1
 
     # Check if issue exists
-    if ! gh issue view "$issue" --json number &>/dev/null; then
+    if ! gh issue view "$issue" --json number 2>&1 | grep -q -v "deprecated"; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
@@ -109,7 +109,7 @@ release_issue() {
     local issue=$1
 
     # Check if issue exists
-    if ! gh issue view "$issue" &>/dev/null; then
+    if ! gh issue view "$issue" --json number 2>&1 | grep -q -v "deprecated"; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
@@ -143,7 +143,7 @@ Issue is now available for other sessions to work on."
 check_issue() {
     local issue=$1
 
-    if ! gh issue view "$issue" &>/dev/null; then
+    if ! gh issue view "$issue" --json number 2>&1 | grep -q -v "deprecated"; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
