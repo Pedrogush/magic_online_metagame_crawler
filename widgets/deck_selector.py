@@ -31,7 +31,6 @@ from utils.paths import (
 )
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_constants import (
-    DARK_ALT,
     DARK_BG,
     DARK_PANEL,
     LIGHT_TEXT,
@@ -1041,9 +1040,7 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
 
         def worker(rows: list[dict[str, Any]]):
             def update_progress(index: int, total: int) -> None:
-                wx.CallAfter(
-                    progress_dialog.Update, index, f"Processed {index}/{total} decks…"
-                )
+                wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{total} decks…")
 
             buffer: dict[str, float] = {}
             for index, deck in enumerate(rows, start=1):
