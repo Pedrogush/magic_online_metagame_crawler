@@ -10,9 +10,10 @@ This module contains all the business logic for managing card collections:
 
 import json
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -74,14 +75,18 @@ class CollectionService:
 
             self._collection_path = filepath
             self._collection_loaded = True
-            logger.info(f"Loaded collection from {filepath} with {len(self._collection)} unique cards")
+            logger.info(
+                f"Loaded collection from {filepath} with {len(self._collection)} unique cards"
+            )
             return True
 
         except Exception as exc:
             logger.error(f"Failed to load collection: {exc}")
             return False
 
-    def find_latest_cached_file(self, directory: Path, pattern: str = "collection_full_trade_*.json") -> Path | None:
+    def find_latest_cached_file(
+        self, directory: Path, pattern: str = "collection_full_trade_*.json"
+    ) -> Path | None:
         """
         Find the most recent cached collection file.
 
@@ -95,7 +100,9 @@ class CollectionService:
         files = sorted(directory.glob(pattern))
         return files[-1] if files else None
 
-    def load_from_cached_file(self, directory: Path, pattern: str = "collection_full_trade_*.json") -> tuple[bool, dict[str, Any]]:
+    def load_from_cached_file(
+        self, directory: Path, pattern: str = "collection_full_trade_*.json"
+    ) -> tuple[bool, dict[str, Any]]:
         """
         Load collection from the most recent cached file.
 
@@ -128,7 +135,9 @@ class CollectionService:
             file_age_seconds = datetime.now().timestamp() - latest.stat().st_mtime
             age_hours = int(file_age_seconds / 3600)
 
-            logger.info(f"Loaded collection from cache: {len(mapping)} unique cards from {latest.name}")
+            logger.info(
+                f"Loaded collection from cache: {len(mapping)} unique cards from {latest.name}"
+            )
 
             return True, {
                 "filepath": latest,
@@ -141,7 +150,9 @@ class CollectionService:
             self.clear_inventory()
             return False, {"filepath": latest, "error": str(exc)}
 
-    def load_from_card_list(self, cards: list[dict[str, Any]], filepath: Path | None = None) -> tuple[bool, dict[str, Any]]:
+    def load_from_card_list(
+        self, cards: list[dict[str, Any]], filepath: Path | None = None
+    ) -> tuple[bool, dict[str, Any]]:
         """
         Load collection from a list of card dictionaries.
 
@@ -174,7 +185,12 @@ class CollectionService:
             logger.error(f"Failed to load collection from card list: {exc}")
             return False, {"error": str(exc)}
 
-    def export_to_file(self, cards: list[dict[str, Any]], directory: Path, filename_prefix: str = "collection_full_trade") -> tuple[bool, Path | None]:
+    def export_to_file(
+        self,
+        cards: list[dict[str, Any]],
+        directory: Path,
+        filename_prefix: str = "collection_full_trade",
+    ) -> tuple[bool, Path | None]:
         """
         Export collection cards to a JSON file.
 
@@ -418,9 +434,7 @@ class CollectionService:
                 missing_cards.append((card_name, 0, needed))
 
         total_unique = len(card_requirements)
-        ownership_percentage = (
-            (fully_owned / total_unique * 100) if total_unique > 0 else 0.0
-        )
+        ownership_percentage = (fully_owned / total_unique * 100) if total_unique > 0 else 0.0
 
         return {
             "total_unique": total_unique,

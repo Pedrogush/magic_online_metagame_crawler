@@ -4,8 +4,7 @@ This module provides fixtures that are available to all tests in the project.
 """
 
 import pytest
-
-from tests.test_helpers import reset_all_globals
+from test_helpers import reset_all_globals
 
 
 @pytest.fixture(autouse=True)

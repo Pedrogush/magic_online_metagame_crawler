@@ -1,8 +1,10 @@
-import wx
 import re
-from loguru import logger
 from pathlib import Path
-from utils.constants import MANA_RENDER_LOG, SUBDUED_TEXT, DARK_ALT
+
+import wx
+from loguru import logger
+
+from utils.constants import DARK_ALT, MANA_RENDER_LOG, SUBDUED_TEXT
 
 
 def _log_mana_event(*parts: str) -> None:  # pragma: no cover - debug helper
@@ -360,7 +362,7 @@ class ManaIconFactory:
         for base, rgb in self.FALLBACK_COLORS.items():
             colors.setdefault(base, rgb)
         return glyphs, colors
-    
+
 
 def normalize_mana_query(raw: str) -> str:
     text = (raw or "").strip()
@@ -388,7 +390,7 @@ def normalize_mana_query(raw: str) -> str:
         if ch == "{":
             end = upper_text.find("}", i + 1)
             if end != -1:
-                tokens.append(upper_text[i + 1: end])
+                tokens.append(upper_text[i + 1 : end])
                 i = end + 1
                 continue
             i += 1

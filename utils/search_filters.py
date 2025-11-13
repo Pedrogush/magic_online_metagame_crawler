@@ -1,5 +1,6 @@
 from collections import Counter
 from typing import Any
+
 from utils.mana_icon_factory import tokenize_mana_symbols
 
 

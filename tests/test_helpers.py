@@ -4,6 +4,15 @@ This module provides utilities for resetting global service and repository
 instances to ensure test isolation and prevent state leakage between tests.
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to sys.path to enable imports from repositories and services
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+# ruff: noqa: E402
 from repositories.card_repository import reset_card_repository
 from repositories.deck_repository import reset_deck_repository
 from repositories.metagame_repository import reset_metagame_repository
