@@ -11,7 +11,9 @@ HOST_IP="192.168.x.x"  # or use hostname like "host.docker.internal"
 # For pytest in PATH: "pytest"
 PYTEST_PATH="pytest"
 
-# Project path on Windows host
+# Project path on Windows host (used as the base directory for temp clones)
+# The script will create "<parent>/.codex_pytest_runs" next to this path and
+# clone into a disposable sub-directory each run.
 # For WSL2: "/mnt/c/Users/YourUser/Projects/MyProject"
 # For Windows: "C:/Users/YourUser/Projects/MyProject"
 PROJECT_PATH="/path/to/your/project"
