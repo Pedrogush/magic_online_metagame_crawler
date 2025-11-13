@@ -534,6 +534,8 @@ class MTGDeckSelectionFrame(wx.Frame):
             deck_service=self.deck_service,
         )
         self.deck_tabs.AddPage(self.deck_stats_panel, "Stats")
+        # Maintain compatibility with callers/tests that accessed the old label directly.
+        self.stats_summary = self.deck_stats_panel.summary_label
 
         self.sideboard_guide_panel = SideboardGuidePanel(
             self.deck_tabs,

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from utils.paths import CURR_DECK_FILE
+from utils import paths
 
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
 LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
@@ -185,15 +185,16 @@ def render_average_deck(buffer: dict[str, float], decks_added: int) -> str:
 
 
 def read_curr_deck_file() -> str:
-    candidates = [CURR_DECK_FILE, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
+    curr_deck_file = paths.CURR_DECK_FILE
+    candidates = [curr_deck_file, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
     for candidate in candidates:
         if candidate.exists():
             with candidate.open("r", encoding="utf-8") as fh:
                 contents = fh.read()
-            if candidate != CURR_DECK_FILE:
+            if candidate != curr_deck_file:
                 try:
-                    CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
-                    with CURR_DECK_FILE.open("w", encoding="utf-8") as target:
+                    curr_deck_file.parent.mkdir(parents=True, exist_ok=True)
+                    with curr_deck_file.open("w", encoding="utf-8") as target:
                         target.write(contents)
                     try:
                         candidate.unlink()
@@ -216,7 +217,7 @@ def add_dicts(dict1, dict2):
 
 
 if __name__ == "__main__":
-    with CURR_DECK_FILE.open("r", encoding="utf-8") as f:
+    with paths.CURR_DECK_FILE.open("r", encoding="utf-8") as f:
         deck = f.read()
 
     print(deck_to_dictionary(deck))
