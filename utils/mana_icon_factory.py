@@ -4,7 +4,8 @@ from pathlib import Path
 import wx
 from loguru import logger
 
-from utils.constants import DARK_ALT, MANA_RENDER_LOG, SUBDUED_TEXT
+from utils.paths_constants import MANA_RENDER_LOG
+from utils.ui_constants import DARK_ALT, SUBDUED_TEXT
 
 
 def _log_mana_event(*parts: str) -> None:  # pragma: no cover - debug helper

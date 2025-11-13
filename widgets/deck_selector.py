@@ -17,20 +17,12 @@ from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
 from utils.card_data import CardDataManager
-from utils.constants import (
-    DARK_ALT,
-    DARK_BG,
-    DARK_PANEL,
-    FULL_MANA_SYMBOLS,
-    LIGHT_TEXT,
-    SUBDUED_TEXT,
-    ZONE_TITLES,
-)
 from utils.deck import (
     read_curr_deck_file,
     sanitize_filename,
     sanitize_zone_cards,
 )
+from utils.game_constants import FORMAT_OPTIONS, FULL_MANA_SYMBOLS
 from utils.mana_icon_factory import ManaIconFactory, type_global_mana_symbol
 from utils.paths import (
     CACHE_DIR,
@@ -39,6 +31,14 @@ from utils.paths import (
     DECKS_DIR,
 )
 from utils.stylize import stylize_listbox, stylize_textctrl
+from utils.ui_constants import (
+    DARK_ALT,
+    DARK_BG,
+    DARK_PANEL,
+    LIGHT_TEXT,
+    SUBDUED_TEXT,
+    ZONE_TITLES,
+)
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.mana_button import create_mana_button, get_mana_font
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
@@ -53,18 +53,6 @@ from widgets.panels.deck_research_panel import DeckResearchPanel
 from widgets.panels.deck_stats_panel import DeckStatsPanel
 from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
-
-FORMAT_OPTIONS = [
-    "Modern",
-    "Standard",
-    "Pioneer",
-    "Legacy",
-    "Vintage",
-    "Pauper",
-    "Commander",
-    "Brawl",
-    "Historic",
-]
 
 LEGACY_CONFIG_FILE = Path("config.json")
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"

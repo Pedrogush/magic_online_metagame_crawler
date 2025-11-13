@@ -3,7 +3,7 @@ from typing import Any
 
 import wx
 
-from utils.constants import DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
+from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import (
     stylize_button,
@@ -12,6 +12,7 @@ from utils.stylize import (
     stylize_listctrl,
     stylize_textctrl,
 )
+from utils.ui_constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
 
 
 class DeckBuilderPanel(wx.Panel):

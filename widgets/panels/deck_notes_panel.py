@@ -8,8 +8,8 @@ from collections.abc import Callable
 
 import wx
 
-from utils.constants import DARK_PANEL
 from utils.stylize import stylize_button, stylize_textctrl
+from utils.ui_constants import DARK_PANEL
 
 
 class DeckNotesPanel(wx.Panel):
