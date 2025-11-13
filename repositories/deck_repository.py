@@ -16,6 +16,7 @@ from typing import Any
 import pymongo
 from loguru import logger
 
+from utils.deck import sanitize_filename
 from utils.paths import (
     CACHE_DIR,
     CURR_DECK_FILE,
@@ -282,8 +283,8 @@ class DeckRepository:
 
         directory.mkdir(parents=True, exist_ok=True)
 
-        # Sanitize filename
-        safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in deck_name)
+        # Sanitize filename with fallback for empty/whitespace names
+        safe_name = sanitize_filename(deck_name, fallback="saved_deck")
         file_path = directory / f"{safe_name}.txt"
 
         # Handle duplicate names
