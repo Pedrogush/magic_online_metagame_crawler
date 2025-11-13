@@ -20,7 +20,10 @@ def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
         Sanitized filename safe for filesystem use
     """
     safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in filename).strip()
-    return safe_name if safe_name else fallback
+    # If the result is empty or only underscores, use fallback
+    if not safe_name or safe_name.replace("_", "").strip() == "":
+        return fallback
+    return safe_name
 
 
 def sanitize_zone_cards(entries: list) -> list[dict[str, int | str]]:
