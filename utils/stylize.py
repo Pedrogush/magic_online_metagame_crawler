@@ -1,6 +1,13 @@
 import wx
 
-from utils.constants import DARK_ACCENT, DARK_ALT, DARK_BG, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
+from utils.ui_constants import (
+    DARK_ACCENT,
+    DARK_ALT,
+    DARK_BG,
+    DARK_PANEL,
+    LIGHT_TEXT,
+    SUBDUED_TEXT,
+)
 
 
 def stylize_label(label: wx.StaticText, subtle: bool = False) -> None:

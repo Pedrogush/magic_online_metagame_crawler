@@ -445,6 +445,28 @@ class DeckRepository:
         self._deck_buffer = {}
         self._decks_added = 0
 
+    def build_daily_average_deck(
+        self, decks: list[dict[str, Any]], download_func, read_func, add_to_buffer_func
+    ) -> dict[str, float]:
+        """
+        Build daily average deck by downloading and averaging multiple decks.
+
+        Args:
+            decks: List of deck metadata dictionaries with 'number' field
+            download_func: Function to download a deck (takes deck number)
+            read_func: Function to read downloaded deck content
+            add_to_buffer_func: Function to add deck to averaging buffer
+
+        Returns:
+            Buffer dictionary with averaged card counts
+        """
+        buffer: dict[str, float] = {}
+        for deck in decks:
+            download_func(deck["number"])
+            deck_content = read_func()
+            buffer = add_to_buffer_func(buffer, deck_content)
+        return buffer
+
     # ============= Private Helper Methods =============
 
     def _load_json_store(self, path: Path) -> dict[str, Any]:

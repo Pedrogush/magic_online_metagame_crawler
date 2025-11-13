@@ -3,8 +3,8 @@ from typing import Any
 
 import wx
 
-from utils.constants import DARK_ACCENT, DARK_ALT, LIGHT_TEXT
 from utils.mana_icon_factory import ManaIconFactory
+from utils.ui_constants import DARK_ACCENT, DARK_ALT, LIGHT_TEXT
 
 
 class CardBoxPanel(wx.Panel):
@@ -37,24 +37,33 @@ class CardBoxPanel(wx.Panel):
 
         base_font = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
 
+        # Quantity label
         self.qty_label = wx.StaticText(self, label=str(card["qty"]))
         self.qty_label.SetForegroundColour(LIGHT_TEXT)
         self.qty_label.SetFont(base_font)
         row.Add(self.qty_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
 
+        # Get metadata
         meta = get_metadata(card["name"]) or {}
         mana_cost = meta.get("mana_cost", "")
 
-        _, owned_colour = owned_status(card["name"], card["qty"])
+        # Owned status - convert fractional qty to int for collection check
+        qty_value = card["qty"]
+        qty_for_check = int(qty_value) if isinstance(qty_value, float) else qty_value
+        _, owned_colour = owned_status(card["name"], qty_for_check)
+
+        # Name label
         self.name_label = wx.StaticText(self, label=card["name"], style=wx.ST_NO_AUTORESIZE)
         self.name_label.SetForegroundColour(owned_colour)
         self.name_label.SetFont(base_font)
         self.name_label.Wrap(110)
         row.Add(self.name_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
+        # Mana cost icons
         mana_panel = icon_factory.render(self, mana_cost)
         row.Add(mana_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
 
+        # Button panel
         self.button_panel = wx.Panel(self)
         self.button_panel.SetBackgroundColour(DARK_ALT)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -71,9 +80,10 @@ class CardBoxPanel(wx.Panel):
         row.Add(self.button_panel, 0, wx.ALIGN_CENTER_VERTICAL)
         self.button_panel.Hide()
 
+        # Bind click events to all widgets so clicks anywhere on the card work
         self._bind_click_targets([self, self.qty_label, self.name_label, mana_panel])
 
-    def update_quantity(self, qty: int, owned_text: str, owned_colour: wx.Colour) -> None:
+    def update_quantity(self, qty: int | float, owned_text: str, owned_colour: wx.Colour) -> None:
         self.qty_label.SetLabel(str(qty))
         self.name_label.SetForegroundColour(owned_colour)
         self.Layout()
