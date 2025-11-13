@@ -5,13 +5,18 @@ Allows users to create, edit, and manage sideboard guides for different matchups
 including cards to side in/out and matchup notes.
 """
 
-from collections.abc import Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import wx
 import wx.dataview as dv
 
 from utils.stylize import stylize_button
 from utils.ui_constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
+
+if TYPE_CHECKING:
+    from widgets.deck_selector import MTGDeckSelectionFrame
 
 
 class SideboardGuidePanel(wx.Panel):
@@ -20,28 +25,19 @@ class SideboardGuidePanel(wx.Panel):
     def __init__(
         self,
         parent: wx.Window,
-        on_add_callback: Callable[[], None] | None = None,
-        on_edit_callback: Callable[[], None] | None = None,
-        on_remove_callback: Callable[[], None] | None = None,
-        on_exclusions_callback: Callable[[], None] | None = None,
+        deck_selector_frame: MTGDeckSelectionFrame,
     ):
         """
         Initialize the sideboard guide panel.
 
         Args:
             parent: Parent window
-            on_add_callback: Callback when Add Entry button clicked
-            on_edit_callback: Callback when Edit Entry button clicked
-            on_remove_callback: Callback when Remove Entry button clicked
-            on_exclusions_callback: Callback when Exclude Archetypes button clicked
+            deck_selector_frame: Reference to the main deck selector frame
         """
         super().__init__(parent)
         self.SetBackgroundColour(DARK_PANEL)
 
-        self.on_add = on_add_callback
-        self.on_edit = on_edit_callback
-        self.on_remove = on_remove_callback
-        self.on_exclusions = on_exclusions_callback
+        self.deck_selector_frame = deck_selector_frame
 
         self.entries: list[dict[str, str]] = []
         self.exclusions: list[str] = []
@@ -164,20 +160,16 @@ class SideboardGuidePanel(wx.Panel):
 
     def _on_add_clicked(self, _event: wx.Event) -> None:
         """Handle Add Entry button click."""
-        if self.on_add:
-            self.on_add()
+        self.deck_selector_frame._on_add_guide_entry()
 
     def _on_edit_clicked(self, _event: wx.Event) -> None:
         """Handle Edit Entry button click."""
-        if self.on_edit:
-            self.on_edit()
+        self.deck_selector_frame._on_edit_guide_entry()
 
     def _on_remove_clicked(self, _event: wx.Event) -> None:
         """Handle Remove Entry button click."""
-        if self.on_remove:
-            self.on_remove()
+        self.deck_selector_frame._on_remove_guide_entry()
 
     def _on_exclusions_clicked(self, _event: wx.Event) -> None:
         """Handle Exclude Archetypes button click."""
-        if self.on_exclusions:
-            self.on_exclusions()
+        self.deck_selector_frame._on_edit_exclusions()
