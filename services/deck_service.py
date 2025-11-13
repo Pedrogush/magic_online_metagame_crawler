@@ -135,7 +135,10 @@ class DeckService:
                 if len(parts) < 2:
                     continue
 
-                count = int(float(parts[0]))
+                # Preserve float quantities from average decks
+                count_float = float(parts[0])
+                # Convert to int only if it's a whole number
+                count = int(count_float) if count_float.is_integer() else count_float
                 card_name = parts[1].strip()
 
                 if is_sideboard:
