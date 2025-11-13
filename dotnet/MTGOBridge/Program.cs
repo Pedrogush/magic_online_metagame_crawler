@@ -18,6 +18,8 @@ using MTGOSDK.API.Play.Tournaments;
 using MTGOSDK.API.Play.History;
 using MTGOSDK.API.Play.Leagues;
 using MTGOSDK.API.Users;
+using MTGOSDK.API.Trade;
+using MTGOSDK.API.Trade.Enums;
 // dotnet publish dotnet/MTGOBridge/MTGOBridge.csproj -c Release -r win-x64 --self-contained false
 var mode = ParseMode(args);
 if (mode == ExecutionMode.None)
@@ -51,6 +53,23 @@ if (mode == ExecutionMode.Username)
     var usernamePayload = GetUsernameSnapshot();
     var usernameSerialized = JsonSerializer.Serialize(usernamePayload, jsonOptions);
     Console.WriteLine(usernameSerialized);
+    return;
+}
+
+if (mode == ExecutionMode.Trade)
+{
+    var tradeCommand = ParseTradeCommand(args);
+    if (tradeCommand == TradeCommand.Accept)
+    {
+        var acceptPayload = AcceptTradeSnapshot();
+        var acceptSerialized = JsonSerializer.Serialize(acceptPayload, jsonOptions);
+        Console.WriteLine(acceptSerialized);
+        return;
+    }
+
+    var tradePayload = GetTradeStatusSnapshot();
+    var tradeSerialized = JsonSerializer.Serialize(tradePayload, jsonOptions);
+    Console.WriteLine(tradeSerialized);
     return;
 }
 
@@ -879,8 +898,207 @@ static ExecutionMode ParseMode(string[] args)
         "watch" or "monitor" => ExecutionMode.Watch,
         "logfiles" or "logs" => ExecutionMode.LogFiles,
         "username" or "user" or "name" => ExecutionMode.Username,
+        "trade" or "trades" => ExecutionMode.Trade,
         _ => ExecutionMode.None,
     };
+}
+
+static TradeCommand ParseTradeCommand(string[] args)
+{
+    if (args.Length <= 1)
+    {
+        return TradeCommand.Status;
+    }
+
+    var token = args[1]?.Trim() ?? string.Empty;
+    token = token.TrimStart('-', '/').ToLowerInvariant();
+    return token switch
+    {
+        "accept" or "approve" => TradeCommand.Accept,
+        _ => TradeCommand.Status,
+    };
+}
+
+static TradeStatusPayload GetTradeStatusSnapshot()
+{
+    try
+    {
+        var trade = TradeManager.CurrentTrade;
+        if (trade is null)
+        {
+            return new TradeStatusPayload(
+                DateTimeOffset.UtcNow,
+                new TradeSnapshot(
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Array.Empty<TradeItemSnapshot>(),
+                    Array.Empty<TradeItemSnapshot>(),
+                    Array.Empty<TradeItemSnapshot>(),
+                    "No active trade session"
+                )
+            );
+        }
+
+        var partner = trade.TradePartner;
+        var partnerSnapshot = partner is null
+            ? null
+            : new TradeParticipantSnapshot(
+                SafeGet<int?>(partner, "Id"),
+                SafeGet(partner, "Name", null as string),
+                SafeGet<bool?>(partner, "IsBuddy"),
+                SafeGet<bool?>(partner, "IsBlocked"),
+                SafeGet<bool?>(partner, "IsGuest"),
+                SafeGet<bool?>(partner, "IsLoggedIn")
+            );
+
+        TradeBinderSnapshot? binderSnapshot = null;
+        try
+        {
+            var binder = trade.ActiveBinder;
+            binderSnapshot = binder is null
+                ? null
+                : new TradeBinderSnapshot(
+                    SafeGet(binder, "Id", 0),
+                    SafeGet(binder, "Name", null as string),
+                    SafeGet(binder, "ItemCount", 0),
+                    SafeGet(binder, "MaxItems", 0),
+                    SafeGet(binder, "Hash", null as string)
+                );
+        }
+        catch
+        {
+            binderSnapshot = null;
+        }
+
+        return new TradeStatusPayload(
+            DateTimeOffset.UtcNow,
+            new TradeSnapshot(
+                true,
+                trade.State.ToString(),
+                trade.FinalState.ToString(),
+                trade.IsAccepted,
+                partnerSnapshot,
+                binderSnapshot,
+                SnapshotTradeItems(trade.TradedItems),
+                SnapshotTradeItems(trade.PartnerTradedItems),
+                SnapshotTradeItems(trade.TradeableItems),
+                null
+            )
+        );
+    }
+    catch (Exception ex)
+    {
+        return new TradeStatusPayload(
+            DateTimeOffset.UtcNow,
+            new TradeSnapshot(
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Array.Empty<TradeItemSnapshot>(),
+                Array.Empty<TradeItemSnapshot>(),
+                Array.Empty<TradeItemSnapshot>(),
+                ex.Message
+            )
+        );
+    }
+}
+
+static TradeAcceptSnapshot AcceptTradeSnapshot()
+{
+    try
+    {
+        var trade = TradeManager.CurrentTrade;
+        if (trade is null)
+        {
+            return new TradeAcceptSnapshot(
+                DateTimeOffset.UtcNow,
+                false,
+                false,
+                "No active trade session"
+            );
+        }
+
+        // MTGOSDK currently documents read-only trade access, so we cannot
+        // trigger acceptance without additional client binding hooks.
+        return new TradeAcceptSnapshot(
+            DateTimeOffset.UtcNow,
+            true,
+            trade.IsAccepted,
+            "Trade acceptance is not supported by MTGOSDK (see docs/api-reference.md#trade)"
+        );
+    }
+    catch (Exception ex)
+    {
+        return new TradeAcceptSnapshot(
+            DateTimeOffset.UtcNow,
+            false,
+            false,
+            ex.Message
+        );
+    }
+}
+
+static IReadOnlyList<TradeItemSnapshot> SnapshotTradeItems(object? candidate)
+{
+    if (candidate is null)
+    {
+        return Array.Empty<TradeItemSnapshot>();
+    }
+
+    try
+    {
+        var entries = candidate switch
+        {
+            ItemCollection itemCollection => SnapshotEnumerable(itemCollection.CollectionItems),
+            IEnumerable enumerable => SnapshotEnumerable(enumerable),
+            _ => SnapshotEnumerable(candidate)
+        };
+
+        var list = new List<TradeItemSnapshot>();
+        foreach (var entry in entries)
+        {
+            if (entry is null)
+            {
+                continue;
+            }
+
+            var card = SafeGet<object?>(entry, "Card", SafeGet(entry, "CardDefinition", null as object));
+            var id = SafeGet(entry, "Id", SafeGet(card, "Id", SafeGet(entry, "CatalogId", 0)));
+            var name = SafeGet(entry, "Name", SafeGet(card, "Name", null as string));
+            var quantity = SafeGet(entry, "Quantity", SafeGet(entry, "Count", SafeGet(entry, "Amount", 0)));
+            if (quantity <= 0)
+            {
+                quantity = 1;
+            }
+            var lockedQuantity = SafeGet(entry, "LockedQuantity", SafeGet(entry, "ReservedQuantity", (int?)null));
+            var isTicket = SafeGet<bool?>(entry, "IsTicket", SafeGet(card, "IsTicket", null as bool?));
+            var isFoil = SafeGet<bool?>(entry, "IsFoil", SafeGet(card, "IsPremium", null as bool?));
+            var isTradable = SafeGet<bool?>(entry, "IsTradable", SafeGet(card, "IsTradable", null as bool?));
+
+            list.Add(new TradeItemSnapshot(
+                id,
+                name,
+                quantity,
+                lockedQuantity,
+                isTicket,
+                isFoil,
+                isTradable
+            ));
+        }
+
+        return list;
+    }
+    catch
+    {
+        return Array.Empty<TradeItemSnapshot>();
+    }
 }
 
 enum ExecutionMode
@@ -893,6 +1111,13 @@ enum ExecutionMode
     Watch,
     LogFiles,
     Username,
+    Trade,
+}
+
+enum TradeCommand
+{
+    Status = 0,
+    Accept,
 }
 
 public sealed record ChallengeTimerSnapshot(
@@ -975,4 +1200,56 @@ public sealed record BridgePayload(
     HistorySnapshot? History,
     CurrencySnapshot? Currency,
     IReadOnlyDictionary<string, long> Timings
+);
+
+public sealed record TradeStatusPayload(
+    DateTimeOffset Timestamp,
+    TradeSnapshot Trade
+);
+
+public sealed record TradeSnapshot(
+    bool HasActiveTrade,
+    string? State,
+    string? FinalState,
+    bool? IsAccepted,
+    TradeParticipantSnapshot? Partner,
+    TradeBinderSnapshot? Binder,
+    IReadOnlyList<TradeItemSnapshot> LocalItems,
+    IReadOnlyList<TradeItemSnapshot> PartnerItems,
+    IReadOnlyList<TradeItemSnapshot> TradeableItems,
+    string? Error
+);
+
+public sealed record TradeParticipantSnapshot(
+    int? Id,
+    string? Name,
+    bool? IsBuddy,
+    bool? IsBlocked,
+    bool? IsGuest,
+    bool? IsLoggedIn
+);
+
+public sealed record TradeBinderSnapshot(
+    int Id,
+    string? Name,
+    int ItemCount,
+    int MaxItems,
+    string? Hash
+);
+
+public sealed record TradeItemSnapshot(
+    int Id,
+    string? Name,
+    int Quantity,
+    int? LockedQuantity,
+    bool? IsTicket,
+    bool? IsFoil,
+    bool? IsTradable
+);
+
+public sealed record TradeAcceptSnapshot(
+    DateTimeOffset Timestamp,
+    bool RequestedAcceptance,
+    bool Accepted,
+    string? Error
 );
