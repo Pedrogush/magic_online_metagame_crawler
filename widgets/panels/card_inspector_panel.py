@@ -201,7 +201,7 @@ class CardInspectorPanel(wx.Panel):
         self.stats_label.SetLabel("  |  ".join(stats_bits))
 
         # Oracle text
-        oracle_text = meta.get("oracle_text") or "No rules text available."
+        oracle_text = meta.get("oracle_text") or ""
         self.text_ctrl.ChangeValue(oracle_text)
 
         # Load image and printings
