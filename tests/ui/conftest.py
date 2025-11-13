@@ -348,5 +348,8 @@ def prepare_card_manager(frame: MTGDeckSelectionFrame) -> None:
     manager = CardDataManager()
     manager._cards = SAMPLE_CARDS
     manager._cards_by_name = {card["name_lower"]: card for card in SAMPLE_CARDS}
+    frame.card_repo.set_card_manager(manager)
+    frame.card_repo.set_card_data_loading(False)
+    frame.card_repo.set_card_data_ready(True)
     frame.card_manager = manager
     frame.card_data_ready = True
