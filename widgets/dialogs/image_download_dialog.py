@@ -8,7 +8,7 @@ import wx
 from loguru import logger
 
 from utils.card_images import BULK_DATA_CACHE, BulkImageDownloader
-from utils.constants import DARK_BG, LIGHT_TEXT, SUBDUED_TEXT
+from utils.ui_constants import DARK_BG, LIGHT_TEXT, SUBDUED_TEXT
 
 
 class ImageDownloadDialog(wx.Dialog):

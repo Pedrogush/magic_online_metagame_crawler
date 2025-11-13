@@ -1,20 +1,4 @@
-from pathlib import Path
-
-import wx
-
-MANA_RENDER_LOG = Path("cache") / "mana_render.log"
-SUBDUED_TEXT = wx.Colour(185, 191, 202)
-DARK_BG = wx.Colour(20, 22, 27)
-DARK_PANEL = wx.Colour(34, 39, 46)
-DARK_ALT = wx.Colour(40, 46, 54)
-DARK_ACCENT = wx.Colour(59, 130, 246)
-LIGHT_TEXT = wx.Colour(236, 236, 236)
-
-ZONE_TITLES = {
-    "main": "Mainboard",
-    "side": "Sideboard",
-    "out": "Outboard",
-}
+"""Gameplay-related constants shared across services."""
 
 FULL_MANA_SYMBOLS: list[str] = (
     ["W", "U", "B", "R", "G", "C", "S", "X", "Y", "Z", "∞", "½"]
@@ -59,3 +43,5 @@ FORMAT_OPTIONS = [
     "Brawl",
     "Historic",
 ]
+
+__all__ = ["FULL_MANA_SYMBOLS", "FORMAT_OPTIONS"]

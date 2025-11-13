@@ -11,9 +11,9 @@ from loguru import logger
 
 from utils.card_data import CardDataManager
 from utils.card_images import BULK_DATA_CACHE, get_cache, get_card_image
-from utils.constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT, ZONE_TITLES
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import stylize_button, stylize_textctrl
+from utils.ui_constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT, ZONE_TITLES
 from widgets.card_image_display import CardImageDisplay
 
 
