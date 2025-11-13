@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import io
 import json
@@ -18,6 +20,28 @@ else:
 
 ATOMIC_META_URL = "https://mtgjson.com/api/v5/AtomicCards.meta.json"
 ATOMIC_DATA_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"
+
+
+def load_card_manager(data_dir: Path | str = Path("data"), force: bool = False) -> CardDataManager:
+    """
+    Load and return a CardDataManager with the latest card data.
+
+    This is a synchronous function intended to be called from a background thread.
+    It will download/update card data if needed and return a ready-to-use manager.
+
+    Args:
+        data_dir: Directory to store card data (default: "data")
+        force: Force refresh even if data is up-to-date
+
+    Returns:
+        CardDataManager instance with loaded card data
+
+    Raises:
+        RuntimeError: If card data cannot be loaded and no cache exists
+    """
+    manager = CardDataManager(data_dir)
+    manager.ensure_latest(force=force)
+    return manager
 
 
 class CardDataManager:
@@ -256,4 +280,4 @@ class CardDataManager:
         return merged
 
 
-__all__ = ["CardDataManager"]
+__all__ = ["CardDataManager", "load_card_manager"]

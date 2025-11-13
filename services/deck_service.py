@@ -1,0 +1,406 @@
+"""
+Deck Service - Business logic for deck operations.
+
+This module contains all the business logic for working with decks including:
+- Deck parsing and analysis
+- Deck averaging and aggregation
+- Deck validation
+- Format compliance checking
+"""
+
+from typing import Any
+
+from loguru import logger
+
+from repositories.deck_repository import DeckRepository, get_deck_repository
+from repositories.metagame_repository import MetagameRepository, get_metagame_repository
+
+
+class DeckService:
+    """Service for deck-related business logic."""
+
+    def __init__(
+        self,
+        deck_repository: DeckRepository | None = None,
+        metagame_repository: MetagameRepository | None = None,
+    ):
+        """
+        Initialize the deck service.
+
+        Args:
+            deck_repository: DeckRepository instance
+            metagame_repository: MetagameRepository instance
+        """
+        self.deck_repo = deck_repository or get_deck_repository()
+        self.metagame_repo = metagame_repository or get_metagame_repository()
+
+    # ============= Deck Parsing and Analysis =============
+
+    def deck_to_dictionary(self, deck_text: str) -> dict[str, float]:
+        """
+        Convert deck text to a dictionary representation.
+
+        Args:
+            deck_text: Deck list as text (format: "quantity card_name")
+
+        Returns:
+            Dictionary mapping card names to quantities (floats to preserve averages)
+            Sideboard cards are prefixed with "Sideboard "
+        """
+        deck_lines = deck_text.split("\n")
+        deck_dict = {}
+        is_sideboard = False
+
+        for index, line in enumerate(deck_lines):
+            line = line.strip()
+
+            # Skip empty last line
+            if not line and index == len(deck_lines) - 1:
+                continue
+
+            # Empty line marks sideboard section
+            if not line:
+                is_sideboard = True
+                continue
+
+            # Skip "Sideboard" header
+            if line.lower() == "sideboard":
+                is_sideboard = True
+                continue
+
+            # Parse card line
+            try:
+                parts = line.split(" ", 1)
+                if len(parts) < 2:
+                    continue
+
+                # Handle fractional amounts from averages
+                card_amount = float(parts[0])
+                card_name = parts[1].strip()
+
+                # Add to appropriate section
+                if is_sideboard:
+                    key = f"Sideboard {card_name}"
+                else:
+                    key = card_name
+
+                deck_dict[key] = deck_dict.get(key, 0.0) + card_amount
+
+            except (ValueError, IndexError):
+                # Skip invalid lines
+                continue
+
+        return deck_dict
+
+    def analyze_deck(self, deck_content: str) -> dict[str, Any]:
+        """
+        Analyze a deck and return statistics.
+
+        Args:
+            deck_content: Deck list as text
+
+        Returns:
+            Dictionary with keys:
+                - mainboard_count: int
+                - sideboard_count: int
+                - total_cards: int
+                - unique_mainboard: int
+                - unique_sideboard: int
+                - mainboard_cards: list of (card_name, count) tuples
+                - sideboard_cards: list of (card_name, count) tuples
+                - estimated_lands: int
+        """
+        lines = deck_content.strip().split("\n")
+
+        mainboard = []
+        sideboard = []
+        is_sideboard = False
+
+        for line in lines:
+            line = line.strip()
+
+            # Empty line marks sideboard
+            if not line:
+                is_sideboard = True
+                continue
+
+            # Skip "Sideboard" header
+            if line.lower() == "sideboard":
+                is_sideboard = True
+                continue
+
+            # Parse card line
+            try:
+                parts = line.split(" ", 1)
+                if len(parts) < 2:
+                    continue
+
+                count = int(float(parts[0]))
+                card_name = parts[1].strip()
+
+                if is_sideboard:
+                    sideboard.append((card_name, count))
+                else:
+                    mainboard.append((card_name, count))
+
+            except (ValueError, IndexError):
+                continue
+
+        # Calculate statistics
+        mainboard_count = sum(count for _, count in mainboard)
+        sideboard_count = sum(count for _, count in sideboard)
+
+        # Estimate land count by name matching
+        land_keywords = ["mountain", "island", "swamp", "forest", "plains", "land", "wastes"]
+        estimated_lands = len(
+            [
+                card
+                for card, _ in mainboard
+                if any(keyword in card.lower() for keyword in land_keywords)
+            ]
+        )
+
+        return {
+            "mainboard_count": mainboard_count,
+            "sideboard_count": sideboard_count,
+            "total_cards": mainboard_count + sideboard_count,
+            "unique_mainboard": len(mainboard),
+            "unique_sideboard": len(sideboard),
+            "mainboard_cards": mainboard,
+            "sideboard_cards": sideboard,
+            "estimated_lands": estimated_lands,
+        }
+
+    # ============= Deck Averaging and Aggregation =============
+
+    def add_deck_to_buffer(self, buffer: dict[str, float], deck_text: str) -> dict[str, float]:
+        """
+        Add a deck to an averaging buffer.
+
+        Args:
+            buffer: Existing buffer of card totals
+            deck_text: Deck list to add
+
+        Returns:
+            Updated buffer
+        """
+        deck_dict = self.deck_to_dictionary(deck_text)
+
+        for card_name, count in deck_dict.items():
+            buffer[card_name] = buffer.get(card_name, 0.0) + float(count)
+
+        return buffer
+
+    def render_average_deck(self, buffer: dict[str, float], deck_count: int) -> str:
+        """
+        Render an average deck from a buffer.
+
+        Args:
+            buffer: Dictionary of card names to total counts
+            deck_count: Number of decks averaged
+
+        Returns:
+            Deck list as text with average card counts
+        """
+        if not buffer or deck_count <= 0:
+            return ""
+
+        mainboard_lines = []
+        sideboard_lines = []
+
+        # Sort cards: mainboard first, then sideboard, alphabetically within each
+        sorted_cards = sorted(buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0]))
+
+        for card, total in sorted_cards:
+            # Calculate average
+            average = float(total) / deck_count
+
+            # Format: show decimals if needed, otherwise integer
+            if average.is_integer():
+                value = str(int(average))
+            else:
+                value = f"{average:.2f}"
+
+            # Remove "Sideboard " prefix for display
+            display_name = card.replace("Sideboard ", "")
+            output = f"{value} {display_name}"
+
+            if card.startswith("Sideboard"):
+                sideboard_lines.append(output)
+            else:
+                mainboard_lines.append(output)
+
+        # Combine with blank line separator
+        lines = mainboard_lines
+        if sideboard_lines:
+            lines.append("")
+            lines.extend(sideboard_lines)
+
+        return "\n".join(lines)
+
+    def build_daily_average(
+        self, archetype: dict[str, Any], max_decks: int = 10
+    ) -> tuple[str, int]:
+        """
+        Build an average deck from recent tournament results.
+
+        Args:
+            archetype: Archetype dictionary with 'url' key
+            max_decks: Maximum number of decks to average
+
+        Returns:
+            Tuple of (averaged_deck_text, decks_processed)
+        """
+        try:
+            # Fetch recent decks for archetype
+            decks = self.metagame_repo.get_decks_for_archetype(archetype, force_refresh=True)
+
+            if not decks:
+                logger.warning(f"No decks found for archetype: {archetype.get('name')}")
+                return "", 0
+
+            # Limit to max_decks
+            decks_to_process = decks[:max_decks]
+
+            # Build average
+            buffer: dict[str, float] = {}
+            processed = 0
+
+            for deck in decks_to_process:
+                try:
+                    deck_content = self.metagame_repo.download_deck_content(deck)
+                    buffer = self.add_deck_to_buffer(buffer, deck_content)
+                    processed += 1
+                except Exception as exc:
+                    logger.warning(f"Failed to download deck {deck.get('name')}: {exc}")
+                    continue
+
+            if processed == 0:
+                return "", 0
+
+            # Render the average
+            averaged_deck = self.render_average_deck(buffer, processed)
+            return averaged_deck, processed
+
+        except Exception as exc:
+            logger.error(f"Failed to build daily average: {exc}")
+            return "", 0
+
+    # ============= Deck Validation =============
+
+    def validate_deck_format(self, deck_content: str, format_name: str) -> dict[str, Any]:
+        """
+        Validate a deck against format rules.
+
+        Args:
+            deck_content: Deck list as text
+            format_name: Format to validate against (e.g., "Modern", "Standard")
+
+        Returns:
+            Dictionary with validation results:
+                - valid: bool
+                - errors: list of error messages
+                - warnings: list of warning messages
+        """
+        analysis = self.analyze_deck(deck_content)
+        errors = []
+        warnings = []
+
+        # Check mainboard size
+        mainboard_count = analysis["mainboard_count"]
+        if mainboard_count < 60:
+            errors.append(f"Mainboard has {mainboard_count} cards (minimum 60)")
+        elif mainboard_count > 60:
+            warnings.append(f"Mainboard has {mainboard_count} cards (more than minimum 60)")
+
+        # Check sideboard size
+        sideboard_count = analysis["sideboard_count"]
+        if sideboard_count > 15:
+            errors.append(f"Sideboard has {sideboard_count} cards (maximum 15)")
+
+        # Format-specific validations could be added here
+        # For example, checking banned cards, card limits, etc.
+
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "analysis": analysis,
+        }
+
+    def is_valid_deck_size(self, deck_content: str) -> bool:
+        """
+        Quick check if deck has valid size (60+ mainboard, 0-15 sideboard).
+
+        Args:
+            deck_content: Deck list as text
+
+        Returns:
+            True if valid size, False otherwise
+        """
+        analysis = self.analyze_deck(deck_content)
+        return analysis["mainboard_count"] >= 60 and analysis["sideboard_count"] <= 15
+
+    # ============= Deck Building Helpers =============
+
+    def build_deck_text(self, zones: dict[str, list[dict[str, Any]]]) -> str:
+        """
+        Build deck text from zone dictionaries.
+
+        Args:
+            zones: Dictionary mapping zone names to card lists
+                   Each card is a dict with 'name' and 'count' keys
+
+        Returns:
+            Formatted deck list text
+        """
+        lines = []
+
+        # Add mainboard cards
+        for zone in ["Maindeck", "Deck", "Main"]:
+            if zone in zones:
+                for card in zones[zone]:
+                    count = card.get("count", 1)
+                    name = card.get("name", "")
+                    if name:
+                        lines.append(f"{count} {name}")
+                break  # Only process first matching zone
+
+        # Add sideboard section
+        sideboard_found = False
+        for zone in ["Sideboard", "Side"]:
+            if zone in zones and zones[zone]:
+                if not sideboard_found:
+                    lines.append("")  # Blank line before sideboard
+                    sideboard_found = True
+                for card in zones[zone]:
+                    count = card.get("count", 1)
+                    name = card.get("name", "")
+                    if name:
+                        lines.append(f"{count} {name}")
+                break  # Only process first matching zone
+
+        return "\n".join(lines)
+
+
+# Global instance for backward compatibility
+_default_service = None
+
+
+def get_deck_service() -> DeckService:
+    """Get the default deck service instance."""
+    global _default_service
+    if _default_service is None:
+        _default_service = DeckService()
+    return _default_service
+
+
+def reset_deck_service() -> None:
+    """
+    Reset the global deck service instance.
+
+    This is primarily useful for testing to ensure test isolation
+    and prevent state leakage between tests.
+    """
+    global _default_service
+    _default_service = None

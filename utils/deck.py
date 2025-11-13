@@ -1,4 +1,67 @@
-from utils.paths import CURR_DECK_FILE
+from pathlib import Path
+
+from loguru import logger
+
+from utils import paths
+
+LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
+LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
+
+
+def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
+    """
+    Sanitize a filename by removing invalid characters.
+
+    Args:
+        filename: Original filename
+        fallback: Default filename if result is empty
+
+    Returns:
+        Sanitized filename safe for filesystem use
+    """
+    safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in filename).strip()
+    return safe_name if safe_name else fallback
+
+
+def sanitize_zone_cards(entries: list) -> list[dict[str, int | str]]:
+    """
+    Validate and sanitize zone card entries.
+
+    Filters out invalid entries and ensures all cards have valid names and quantities.
+
+    Args:
+        entries: List of card entries (each should be a dict with 'name' and 'qty')
+
+    Returns:
+        List of validated card dictionaries with 'name' (str) and 'qty' (int) keys
+    """
+    sanitized: list[dict[str, int | str]] = []
+
+    for entry in entries:
+        # Skip non-dict entries
+        if not isinstance(entry, dict):
+            continue
+
+        name = entry.get("name")
+        qty = entry.get("qty", 0)
+
+        # Skip entries without a name
+        if not name:
+            continue
+
+        # Parse quantity as integer
+        try:
+            qty_int = max(0, int(qty))
+        except (TypeError, ValueError):
+            continue
+
+        # Skip zero-quantity entries
+        if qty_int <= 0:
+            continue
+
+        sanitized.append({"name": name, "qty": qty_int})
+
+    return sanitized
 
 
 def deck_to_dictionary(deck: str):
@@ -99,6 +162,50 @@ def analyze_deck(deck_content: str):
     }
 
 
+def render_average_deck(buffer: dict[str, float], decks_added: int) -> str:
+    if not buffer or decks_added <= 0:
+        return ""
+    lines: list[str] = []
+    sideboard_lines: list[str] = []
+    for card, total in sorted(
+        buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0])
+    ):
+        display_name = card.replace("Sideboard ", "")
+        average = float(total) / decks_added
+        value = f"{average:.2f}" if not average.is_integer() else str(int(average))
+        output = f"{value} {display_name}"
+        if card.lower().startswith("sideboard"):
+            sideboard_lines.append(output)
+        else:
+            lines.append(output)
+    if sideboard_lines:
+        lines.append("")
+        lines.extend(sideboard_lines)
+    return "\n".join(lines)
+
+
+def read_curr_deck_file() -> str:
+    curr_deck_file = paths.CURR_DECK_FILE
+    candidates = [curr_deck_file, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
+    for candidate in candidates:
+        if candidate.exists():
+            with candidate.open("r", encoding="utf-8") as fh:
+                contents = fh.read()
+            if candidate != curr_deck_file:
+                try:
+                    curr_deck_file.parent.mkdir(parents=True, exist_ok=True)
+                    with curr_deck_file.open("w", encoding="utf-8") as target:
+                        target.write(contents)
+                    try:
+                        candidate.unlink()
+                    except OSError:
+                        logger.debug(f"Unable to remove legacy deck file {candidate}")
+                except OSError as exc:  # pragma: no cover
+                    logger.debug(f"Failed to migrate curr_deck.txt from {candidate}: {exc}")
+            return contents
+    raise FileNotFoundError("Current deck file not found")
+
+
 def add_dicts(dict1, dict2):
     """Adds two dictionaries with integer values"""
     for key, value in dict2.items():
@@ -110,7 +217,7 @@ def add_dicts(dict1, dict2):
 
 
 if __name__ == "__main__":
-    with CURR_DECK_FILE.open("r", encoding="utf-8") as f:
+    with paths.CURR_DECK_FILE.open("r", encoding="utf-8") as f:
         deck = f.read()
 
     print(deck_to_dictionary(deck))
