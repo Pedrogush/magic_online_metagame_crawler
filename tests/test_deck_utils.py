@@ -46,20 +46,20 @@ def test_analyze_deck_sums_land_counts():
 
 
 def test_analyze_deck_detects_land_keywords():
-    """Verify that lands are detected by various keywords."""
+    """Verify that lands are detected by keyword matching."""
     deck_with_various_lands = """2 Hallowed Fountain
 3 Breeding Pool
 1 Urza's Saga
 4 Misty Rainforest
 2 Flooded Strand
 1 Scalding Tarn
-2 Path to Exile
+2 Lightning Bolt
 """
     summary = analyze_deck(deck_with_various_lands)
-    # Lands with "land" in their name should be counted
-    # (Misty Rainforest, Flooded Strand, Scalding Tarn all contain "land")
-    # 4 + 2 + 1 = 7 lands
-    assert summary["estimated_lands"] == 7
+    # Only "Misty Rainforest" contains a keyword ("forest")
+    # So estimated_lands = 4
+    # Note: Many real MTG lands don't contain basic land type keywords
+    assert summary["estimated_lands"] == 4
     assert summary["mainboard_count"] == 15
     assert summary["unique_mainboard"] == 7
 
