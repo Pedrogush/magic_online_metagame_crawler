@@ -1,9 +1,18 @@
 """Panel for browsing MTG deck archetypes and filtering by format."""
 
-import wx
 from collections.abc import Callable
+
+import wx
+
 from utils.constants import DARK_PANEL
-from utils.stylize import stylize_button, stylize_choice, stylize_label, stylize_listbox, stylize_textctrl
+from utils.stylize import (
+    stylize_button,
+    stylize_choice,
+    stylize_label,
+    stylize_listbox,
+    stylize_textctrl,
+)
+
 
 class DeckResearchPanel(wx.Panel):
     """Panel for selecting format, searching archetypes, and browsing tournament data."""

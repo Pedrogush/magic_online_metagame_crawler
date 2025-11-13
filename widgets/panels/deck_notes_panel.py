@@ -4,7 +4,7 @@ Deck Notes Panel - Simple text editor for deck notes.
 Allows users to write and save notes about their decks.
 """
 
-from typing import Callable
+from collections.abc import Callable
 
 import wx
 
@@ -15,9 +15,7 @@ from utils.stylize import stylize_button, stylize_textctrl
 class DeckNotesPanel(wx.Panel):
     """Panel for editing and saving deck notes."""
 
-    def __init__(
-        self, parent: wx.Window, on_save_callback: Callable[[str], None] | None = None
-    ):
+    def __init__(self, parent: wx.Window, on_save_callback: Callable[[str], None] | None = None):
         """
         Initialize the deck notes panel.
 

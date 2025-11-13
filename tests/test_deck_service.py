@@ -12,13 +12,7 @@ def deck_service():
 
 
 def test_deck_to_dictionary_preserves_fractional_counts(deck_service):
-    deck_text = (
-        "2 Island\n"
-        "0.5 Consider\n"
-        "\n"
-        "Sideboard\n"
-        "1.25 Dismember\n"
-    )
+    deck_text = "2 Island\n" "0.5 Consider\n" "\n" "Sideboard\n" "1.25 Dismember\n"
 
     deck_dict = deck_service.deck_to_dictionary(deck_text)
 

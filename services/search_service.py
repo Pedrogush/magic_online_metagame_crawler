@@ -99,16 +99,12 @@ class SearchService:
         # Apply color filter
         if colors and color_mode != "Any":
             filtered = [
-                card
-                for card in filtered
-                if self._matches_color_filter(card, colors, color_mode)
+                card for card in filtered if self._matches_color_filter(card, colors, color_mode)
             ]
 
         # Apply type filter
         if types:
-            filtered = [
-                card for card in filtered if self._matches_type_filter(card, types)
-            ]
+            filtered = [card for card in filtered if self._matches_type_filter(card, types)]
 
         # Apply mana cost filter
         if mana_cost_query:
@@ -128,11 +124,7 @@ class SearchService:
 
         # Apply text search filter
         if text_contains:
-            filtered = [
-                card
-                for card in filtered
-                if self._matches_text_filter(card, text_contains)
-            ]
+            filtered = [card for card in filtered if self._matches_text_filter(card, text_contains)]
 
         return filtered
 
@@ -251,9 +243,7 @@ class SearchService:
 
     # ============= Private Filter Methods =============
 
-    def _matches_color_filter(
-        self, card: dict[str, Any], colors: list[str], mode: str
-    ) -> bool:
+    def _matches_color_filter(self, card: dict[str, Any], colors: list[str], mode: str) -> bool:
         """Check if card matches color filter."""
         card_colors = card.get("colors", []) or card.get("color_identity", [])
         if isinstance(card_colors, str):
@@ -269,9 +259,7 @@ class SearchService:
         card_type_lower = card_type.lower()
         return any(type_keyword.lower() in card_type_lower for type_keyword in types)
 
-    def _matches_mana_cost_filter(
-        self, card: dict[str, Any], query: str, mode: str
-    ) -> bool:
+    def _matches_mana_cost_filter(self, card: dict[str, Any], query: str, mode: str) -> bool:
         """Check if card matches mana cost filter."""
         card_cost = card.get("mana_cost", "")
         if not card_cost:
@@ -296,9 +284,7 @@ class SearchService:
 
     # ============= Search Suggestions =============
 
-    def get_card_suggestions(
-        self, partial_name: str, limit: int = 10
-    ) -> list[str]:
+    def get_card_suggestions(self, partial_name: str, limit: int = 10) -> list[str]:
         """
         Get card name suggestions based on partial input.
 
@@ -321,9 +307,7 @@ class SearchService:
 
     # ============= Deck-Specific Search =============
 
-    def find_cards_in_deck(
-        self, deck_text: str, search_term: str
-    ) -> list[tuple[str, int]]:
+    def find_cards_in_deck(self, deck_text: str, search_term: str) -> list[tuple[str, int]]:
         """
         Find cards in a deck that match a search term.
 
@@ -359,9 +343,7 @@ class SearchService:
 
         return results
 
-    def group_cards_by_type(
-        self, cards: list[dict[str, Any]]
-    ) -> dict[str, list[dict[str, Any]]]:
+    def group_cards_by_type(self, cards: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         """
         Group cards by their primary type.
 

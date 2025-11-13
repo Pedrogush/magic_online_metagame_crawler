@@ -4,7 +4,6 @@ Card Inspector Panel - Displays detailed card information.
 Shows card image, metadata, oracle text, and allows navigation through different printings.
 """
 
-from pathlib import Path
 from typing import Any
 
 import wx

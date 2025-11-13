@@ -9,7 +9,6 @@ This module handles all metagame-related data fetching including:
 
 import json
 import time
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -20,7 +19,6 @@ from navigators.mtggoldfish import (
     get_archetypes,
 )
 from utils.paths import (
-    ARCHETYPE_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
     DECK_CACHE_FILE,
 )
@@ -128,7 +126,6 @@ class MetagameRepository:
         Raises:
             Exception: If download fails
         """
-        deck_url = deck.get("url", "")
         deck_name = deck.get("name", "Unknown")
 
         logger.info(f"Downloading deck: {deck_name}")
@@ -242,7 +239,7 @@ class MetagameRepository:
         if max_age is not None:
             timestamp = entry.get("timestamp", 0)
             if time.time() - timestamp > max_age:
-                logger.debug(f"Deck cache for archetype expired")
+                logger.debug("Deck cache for archetype expired")
                 return None
 
         return entry.get("items")

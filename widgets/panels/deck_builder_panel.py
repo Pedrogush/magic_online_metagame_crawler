@@ -1,8 +1,10 @@
-import wx
 from collections.abc import Callable
 from typing import Any
-from utils.constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT, FORMAT_OPTIONS
-from utils.mana_icon_factory import ManaIconFactory, normalize_mana_query
+
+import wx
+
+from utils.constants import DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
+from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import (
     stylize_button,
     stylize_choice,
@@ -10,6 +12,8 @@ from utils.stylize import (
     stylize_listctrl,
     stylize_textctrl,
 )
+
+
 class DeckBuilderPanel(wx.Panel):
     """Panel for searching and filtering MTG cards by various properties."""
 
@@ -227,21 +231,15 @@ class DeckBuilderPanel(wx.Panel):
     def get_filters(self) -> dict[str, Any]:
         """Get all current filter values."""
         filters = {key: ctrl.GetValue().strip() for key, ctrl in self.inputs.items()}
-        filters["mana_exact"] = (
-            self.mana_exact_cb.IsChecked() if self.mana_exact_cb else False
-        )
+        filters["mana_exact"] = self.mana_exact_cb.IsChecked() if self.mana_exact_cb else False
         filters["mv_comparator"] = (
             self.mv_comparator.GetStringSelection() if self.mv_comparator else "Any"
         )
         mv_value_text = self.mv_value.GetValue().strip() if self.mv_value else ""
         filters["mv_value"] = mv_value_text
-        filters["formats"] = [
-            cb.GetLabel().lower() for cb in self.format_checks if cb.IsChecked()
-        ]
+        filters["formats"] = [cb.GetLabel().lower() for cb in self.format_checks if cb.IsChecked()]
         filters["color_mode"] = (
-            self.color_mode_choice.GetStringSelection()
-            if self.color_mode_choice
-            else "Any"
+            self.color_mode_choice.GetStringSelection() if self.color_mode_choice else "Any"
         )
         filters["selected_colors"] = [
             code for code, cb in self.color_checks.items() if cb.IsChecked()

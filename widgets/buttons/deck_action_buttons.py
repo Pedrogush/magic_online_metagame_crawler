@@ -4,7 +4,7 @@ Deck Action Buttons - Group of buttons for deck operations.
 Provides Load, Copy, Save, and Today's Average buttons with callback support.
 """
 
-from typing import Callable
+from collections.abc import Callable
 
 import wx
 

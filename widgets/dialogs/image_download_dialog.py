@@ -1,7 +1,8 @@
 """Dialog for downloading card images from Scryfall with progress tracking."""
 
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import wx
 from loguru import logger
