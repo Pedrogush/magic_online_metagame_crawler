@@ -43,7 +43,7 @@ usage() {
 
 get_issue_comments() {
     local issue=$1
-    gh issue view "$issue" --json comments --jq '.comments[].body' 2>/dev/null || echo ""
+    gh issue view "$issue" --json comments --jq '.comments[].body' 2>&1 | grep -v "deprecated" || echo ""
 }
 
 is_issue_claimed() {
@@ -68,7 +68,7 @@ claim_issue() {
     local issue=$1
 
     # Check if issue exists
-    if ! gh issue view "$issue" &>/dev/null; then
+    if ! gh issue view "$issue" --json number &>/dev/null; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
