@@ -1,4 +1,5 @@
-from utils.deck import analyze_deck, deck_to_dictionary
+from services.deck_service import DeckService
+from utils.deck import analyze_deck
 
 SAMPLE_DECK = """4 Ragavan, Nimble Pilferer
 2 Blood Moon
@@ -10,12 +11,13 @@ SAMPLE_DECK = """4 Ragavan, Nimble Pilferer
 
 
 def test_deck_to_dictionary_parses_main_and_side():
-    parsed = deck_to_dictionary(SAMPLE_DECK)
-    assert parsed["Ragavan, Nimble Pilferer"] == 4
-    assert parsed["Blood Moon"] == 2
-    assert parsed["Otawara, Soaring City"] == 1
-    assert parsed["Sideboard Sideboard Card"] == 2
-    assert parsed["Sideboard Force of Vigor"] == 3
+    deck_service = DeckService()
+    parsed = deck_service.deck_to_dictionary(SAMPLE_DECK)
+    assert parsed["Ragavan, Nimble Pilferer"] == 4.0
+    assert parsed["Blood Moon"] == 2.0
+    assert parsed["Otawara, Soaring City"] == 1.0
+    assert parsed["Sideboard Sideboard Card"] == 2.0
+    assert parsed["Sideboard Force of Vigor"] == 3.0
 
 
 def test_analyze_deck_counts_cards_correctly():
