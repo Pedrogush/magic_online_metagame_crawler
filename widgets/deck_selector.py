@@ -19,7 +19,6 @@ from services.search_service import get_search_service
 from utils.card_data import CardDataManager
 from utils.deck import (
     read_curr_deck_file,
-    sanitize_filename,
     sanitize_zone_cards,
 )
 from utils.game_constants import FORMAT_OPTIONS, FULL_MANA_SYMBOLS
@@ -41,6 +40,7 @@ from utils.ui_constants import (
 )
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.mana_button import create_mana_button, get_mana_font
+from widgets.deck_selector_event_handlers import DeckSelectorEventHandlers
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.match_history import MatchHistoryFrame
@@ -251,7 +251,7 @@ class ManaKeyboardFrame(wx.Frame):
         self.CentreOnParent()
 
 
-class MTGDeckSelectionFrame(wx.Frame):
+class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
     """wxPython-based metagame research + deck builder UI."""
 
     def __init__(self, parent: wx.Window | None = None):
@@ -616,10 +616,6 @@ class MTGDeckSelectionFrame(wx.Frame):
         frame.Show()
         self.mana_keyboard_window = frame
 
-    def _on_mana_keyboard_closed(self, event: wx.CloseEvent) -> None:
-        self.mana_keyboard_window = None
-        event.Skip()
-
     def _restore_session_state(self) -> None:
         saved_mode = self.settings.get("left_mode")
         if saved_mode in {"research", "builder"}:
@@ -722,133 +718,11 @@ class MTGDeckSelectionFrame(wx.Frame):
             self._save_timer.Stop()
         self._save_timer.StartOnce(600)
 
-    def on_window_change(self, event: wx.Event) -> None:
-        self._schedule_settings_save()
-        event.Skip()
-
     def _flush_pending_settings(self, _event: wx.TimerEvent) -> None:
         self._save_window_settings()
 
     # ------------------------------------------------------------------ Event handlers -------------------------------------------------------
-    def on_format_changed(self) -> None:
-        """Handle format selection change."""
-        self.current_format = self.research_panel.get_selected_format()
-        self.fetch_archetypes(force=True)
-
-    def on_archetype_filter(self) -> None:
-        """Handle archetype search filter changes."""
-        query = self.research_panel.get_search_query()
-        if not query:
-            self.filtered_archetypes = list(self.archetypes)
-        else:
-            self.filtered_archetypes = [
-                entry for entry in self.archetypes if query in entry.get("name", "").lower()
-            ]
-        self._populate_archetype_list()
-
-    def on_archetype_selected(self) -> None:
-        """Handle archetype selection from the list."""
-        with self._loading_lock:
-            if self.loading_archetypes or self.loading_decks:
-                return
-        idx = self.research_panel.get_selected_archetype_index()
-        if idx < 0:
-            return
-        archetype = self.filtered_archetypes[idx]
-        self._load_decks_for_archetype(archetype)
-
-    def on_deck_selected(self, _event: wx.CommandEvent) -> None:
-        with self._loading_lock:
-            if self.loading_decks:
-                return
-        idx = self.deck_list.GetSelection()
-        if idx == wx.NOT_FOUND:
-            return
-        deck = self.deck_repo.get_decks_list()[idx]
-        self.deck_repo.set_current_deck(deck)
-        self.load_button.Enable()
-        self.copy_button.Enable(self._has_deck_loaded())
-        self.save_button.Enable(self._has_deck_loaded())
-        self._set_status(f"Selected deck {format_deck_name(deck)}")
-        self._show_left_panel("builder")
-        self._schedule_settings_save()
-
-    def on_load_deck_clicked(self, _event: wx.CommandEvent) -> None:
-        current_deck = self.deck_repo.get_current_deck()
-        with self._loading_lock:
-            if self.loading_decks:
-                return
-        if not current_deck:
-            return
-        self._download_and_display_deck(current_deck)
-
-    def on_daily_average_clicked(self, _event: wx.CommandEvent) -> None:
-        with self._loading_lock:
-            if self.loading_daily_average:
-                return
-        if not self.deck_repo.get_decks_list():
-            return
-        self._build_daily_average_deck()
-
-    def on_copy_clicked(self, _event: wx.CommandEvent) -> None:
-        deck_content = self._build_deck_text().strip()
-        if not deck_content:
-            wx.MessageBox("No deck to copy.", "Copy Deck", wx.OK | wx.ICON_INFORMATION)
-            return
-        if wx.TheClipboard.Open():
-            try:
-                wx.TheClipboard.SetData(wx.TextDataObject(deck_content))
-            finally:
-                wx.TheClipboard.Close()
-            self._set_status("Deck copied to clipboard.")
-        else:  # pragma: no cover
-            wx.MessageBox("Could not access clipboard.", "Copy Deck", wx.OK | wx.ICON_WARNING)
-
-    def on_save_clicked(self, _event: wx.CommandEvent) -> None:
-        deck_content = self._build_deck_text().strip()
-        if not deck_content:
-            wx.MessageBox("Load a deck first.", "Save Deck", wx.OK | wx.ICON_INFORMATION)
-            return
-        default_name = "saved_deck"
-        current_deck = self.deck_repo.get_current_deck()
-        if current_deck:
-            default_name = format_deck_name(current_deck).replace(" | ", "_")
-        dlg = wx.TextEntryDialog(self, "Deck name:", "Save Deck", default_name=default_name)
-        if dlg.ShowModal() != wx.ID_OK:
-            dlg.Destroy()
-            return
-        deck_name = dlg.GetValue().strip() or default_name
-        dlg.Destroy()
-
-        safe_name = sanitize_filename(deck_name)
-        file_path = DECK_SAVE_DIR / f"{safe_name}.txt"
-        try:
-            with file_path.open("w", encoding="utf-8") as fh:
-                fh.write(deck_content)
-        except OSError as exc:  # pragma: no cover
-            wx.MessageBox(f"Failed to write deck file:\n{exc}", "Save Deck", wx.OK | wx.ICON_ERROR)
-            return
-
-        try:
-            deck_id = self.deck_repo.save_to_db(
-                deck_name=deck_name,
-                deck_content=deck_content,
-                format_type=self.current_format,
-                archetype=current_deck.get("name") if current_deck else None,
-                player=current_deck.get("player") if current_deck else None,
-                source="mtggoldfish" if current_deck else "manual",
-                metadata=(current_deck or {}),
-            )
-            logger.info(f"Deck saved to database: {deck_name} (ID: {deck_id})")
-        except Exception as exc:  # pragma: no cover
-            logger.warning(f"Deck saved to file but not database: {exc}")
-            deck_id = None
-
-        message = f"Deck saved to {file_path}"
-        if deck_id:
-            message += f"\nDatabase ID: {deck_id}"
-        wx.MessageBox(message, "Deck Saved", wx.OK | wx.ICON_INFORMATION)
-        self._set_status("Deck saved successfully.")
+    # Event handlers are now in DeckSelectorEventHandlers mixin
 
     # ------------------------------------------------------------------ Data loading ---------------------------------------------------------
     def fetch_archetypes(self, force: bool = False) -> None:
@@ -889,28 +763,6 @@ class MTGDeckSelectionFrame(wx.Frame):
         self.sideboard_guide_panel.clear()
         self.card_inspector_panel.reset()
 
-    def _on_archetypes_loaded(self, items: list[dict[str, Any]]) -> None:
-        with self._loading_lock:
-            self.loading_archetypes = False
-        self.archetypes = sorted(items, key=lambda entry: entry.get("name", "").lower())
-        self.filtered_archetypes = list(self.archetypes)
-        self._populate_archetype_list()
-        self.research_panel.enable_controls()
-        count = len(self.archetypes)
-        self._set_status(f"Loaded {count} archetypes for {self.current_format}.")
-        self.summary_text.ChangeValue(
-            f"Select an archetype to view decks.\nLoaded {count} archetypes."
-        )
-
-    def _on_archetypes_error(self, error: Exception) -> None:
-        with self._loading_lock:
-            self.loading_archetypes = False
-        self.research_panel.set_error_state()
-        self._set_status(f"Error: {error}")
-        wx.MessageBox(
-            f"Unable to load archetypes:\n{error}", "Archetype Error", wx.OK | wx.ICON_ERROR
-        )
-
     def _populate_archetype_list(self) -> None:
         archetype_names = [item.get("name", "Unknown") for item in self.filtered_archetypes]
         self.research_panel.populate_archetypes(archetype_names)
@@ -937,32 +789,6 @@ class MTGDeckSelectionFrame(wx.Frame):
             on_success=lambda decks: self._on_decks_loaded(name, decks),
             on_error=self._on_decks_error,
         ).start()
-
-    def _on_decks_loaded(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
-        with self._loading_lock:
-            self.loading_decks = False
-        self.deck_repo.set_decks_list(decks)
-        self.deck_list.Clear()
-        if not decks:
-            self.deck_list.Append("No decks found.")
-            self.deck_list.Disable()
-            self._set_status(f"No decks for {archetype_name}.")
-            self.summary_text.ChangeValue(f"{archetype_name}\n\nNo deck data available.")
-            return
-        for deck in decks:
-            self.deck_list.Append(format_deck_name(deck))
-        self.deck_list.Enable()
-        self.daily_average_button.Enable()
-        self._present_archetype_summary(archetype_name, decks)
-        self._set_status(f"Loaded {len(decks)} decks for {archetype_name}. Select one to inspect.")
-
-    def _on_decks_error(self, error: Exception) -> None:
-        with self._loading_lock:
-            self.loading_decks = False
-        self.deck_list.Clear()
-        self.deck_list.Append("Failed to load decks.")
-        self._set_status(f"Error loading decks: {error}")
-        wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
 
     def _present_archetype_summary(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
         by_date: dict[str, int] = {}
@@ -1000,33 +826,6 @@ class MTGDeckSelectionFrame(wx.Frame):
         _Worker(
             worker, deck_number, on_success=on_success, on_error=self._on_deck_download_error
         ).start()
-
-    def _on_deck_download_error(self, error: Exception) -> None:
-        self.load_button.Enable()
-        self._set_status(f"Deck download failed: {error}")
-        wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
-
-    def _on_deck_content_ready(self, deck_text: str, source: str = "manual") -> None:
-        self.deck_repo.set_current_deck_text(deck_text)
-        stats = self.deck_service.analyze_deck(deck_text)
-        self.zone_cards["main"] = [
-            {"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]
-        ]
-        self.zone_cards["side"] = [
-            {"name": name, "qty": qty} for name, qty in stats["sideboard_cards"]
-        ]
-        self.zone_cards["out"] = self._load_outboard_for_current()
-        self.main_table.set_cards(self.zone_cards["main"])
-        self.side_table.set_cards(self.zone_cards["side"])
-        self.out_table.set_cards(self.zone_cards["out"])
-        self._update_stats(deck_text)
-        self.copy_button.Enable(True)
-        self.save_button.Enable(True)
-        self._load_notes_for_current()
-        self._load_guide_for_current()
-        self._set_status(f"Deck ready ({source}).")
-        self._show_left_panel("builder")
-        self._schedule_settings_save()
 
     def _has_deck_loaded(self) -> bool:
         return bool(self.zone_cards["main"] or self.zone_cards["side"])
@@ -1072,30 +871,6 @@ class MTGDeckSelectionFrame(wx.Frame):
             cache_max_age_seconds=3600,  # 1 hour
         )
 
-    def _on_collection_fetched(self, filepath: Path, cards: list) -> None:
-        """Handle successful collection fetch."""
-        # If cards list is empty, this was a cache hit - collection is already loaded
-        if cards:
-            success, info = self.collection_service.load_from_card_list(cards, filepath)
-            if not success:
-                error = info.get("error", "Unknown error")
-                self.collection_status_label.SetLabel(f"Collection load failed: {error}")
-                return
-            card_count = info["card_count"]
-        else:
-            # Cache hit - get card count from already-loaded inventory
-            card_count = len(self.collection_service.get_inventory())
-
-        self.collection_status_label.SetLabel(f"Collection: {filepath.name} ({card_count} entries)")
-        self.main_table.set_cards(self.zone_cards["main"])
-        self.side_table.set_cards(self.zone_cards["side"])
-
-    def _on_collection_fetch_failed(self, error_msg: str) -> None:
-        """Handle collection fetch failure."""
-        self.collection_service.clear_inventory()
-        self.collection_status_label.SetLabel(f"Collection fetch failed: {error_msg}")
-        logger.warning(f"Collection fetch failed: {error_msg}")
-
     def _check_and_download_bulk_data(self) -> None:
         """Check if bulk data exists, and download/load in background if needed."""
         needs_download, reason = self.image_service.check_bulk_data_freshness()
@@ -1131,39 +906,6 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         if not started:
             self._set_status("Ready")  # Already loading or loaded
-
-    def _on_bulk_data_loaded(
-        self, by_name: dict[str, list[dict[str, Any]]], stats: dict[str, Any]
-    ) -> None:
-        """Handle successful printings index load."""
-        self.image_service.clear_printing_index_loading()
-        self.image_service.set_bulk_data(by_name)
-        # Update card inspector panel with bulk data
-        self.card_inspector_panel.set_bulk_data(by_name)
-        self._set_status("Ready")
-        logger.info(
-            "Printings index ready: {unique} names / {total} printings",
-            unique=stats.get("unique_names"),
-            total=stats.get("total_printings"),
-        )
-
-    def _on_bulk_data_load_failed(self, error_msg: str) -> None:
-        """Handle printings index loading failure."""
-        self.image_service.clear_printing_index_loading()
-        self._set_status("Ready")
-        logger.warning(f"Card printings index load failed: {error_msg}")
-
-    def _on_bulk_data_downloaded(self, msg: str) -> None:
-        """Handle successful bulk data download."""
-        self._set_status("Card image database downloaded, indexing printings…")
-        logger.info(f"Bulk data downloaded: {msg}")
-        # Now rebuild the printings index
-        self._load_bulk_data_into_memory(force=True)
-
-    def _on_bulk_data_failed(self, error_msg: str) -> None:
-        """Handle bulk data download failure."""
-        self._set_status("Ready")
-        logger.warning(f"Bulk data download failed: {error_msg}")
 
     def _owned_status(self, name: str, required: int) -> tuple[str, wx.Colour]:
         collection_inventory = self.collection_service.get_inventory()
@@ -1369,69 +1111,6 @@ class MTGDeckSelectionFrame(wx.Frame):
             self.sideboard_guide_entries, self.sideboard_exclusions
         )
 
-    def _on_add_guide_entry(self) -> None:
-        names = [item.get("name", "") for item in self.archetypes]
-        dlg = GuideEntryDialog(self, names)
-        if dlg.ShowModal() == wx.ID_OK:
-            data = dlg.get_data()
-            if data.get("archetype"):
-                self.sideboard_guide_entries.append(data)
-                self._persist_guide_for_current()
-                self._refresh_guide_view()
-        dlg.Destroy()
-
-    def _on_edit_guide_entry(self) -> None:
-        """Handle editing a sideboard guide entry."""
-        index = self.sideboard_guide_panel.get_selected_index()
-        if index is None:
-            wx.MessageBox(
-                "Select an entry to edit.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
-            )
-            return
-        data = self.sideboard_guide_entries[index]
-        names = [item.get("name", "") for item in self.archetypes]
-        dlg = GuideEntryDialog(self, names, data=data)
-        if dlg.ShowModal() == wx.ID_OK:
-            updated = dlg.get_data()
-            if updated.get("archetype"):
-                self.sideboard_guide_entries[index] = updated
-                self._persist_guide_for_current()
-                self._refresh_guide_view()
-        dlg.Destroy()
-
-    def _on_remove_guide_entry(self) -> None:
-        """Handle removing a sideboard guide entry."""
-        index = self.sideboard_guide_panel.get_selected_index()
-        if index is None:
-            wx.MessageBox(
-                "Select an entry to remove.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
-            )
-            return
-        del self.sideboard_guide_entries[index]
-        self._persist_guide_for_current()
-        self._refresh_guide_view()
-
-    def _on_edit_exclusions(self) -> None:
-        archetype_names = [item.get("name", "") for item in self.archetypes]
-        dlg = wx.MultiChoiceDialog(
-            self,
-            "Select archetypes to exclude from the printed guide.",
-            "Sideboard Guide",
-            archetype_names,
-        )
-        selected_indices = [
-            archetype_names.index(name)
-            for name in self.sideboard_exclusions
-            if name in archetype_names
-        ]
-        dlg.SetSelections(selected_indices)
-        if dlg.ShowModal() == wx.ID_OK:
-            selections = dlg.GetSelections()
-            self.sideboard_exclusions = [archetype_names[idx] for idx in selections]
-            self._persist_guide_for_current()
-            self._refresh_guide_view()
-        dlg.Destroy()
-
     # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
     def _load_store(self, path: Path) -> dict[str, Any]:
         if not path.exists():
@@ -1552,50 +1231,6 @@ class MTGDeckSelectionFrame(wx.Frame):
 
         _Worker(worker, on_success=on_success, on_error=on_error).start()
 
-    def _on_builder_search(self) -> None:
-        """Handle search button click from builder panel."""
-        card_manager = self.card_repo.get_card_manager()
-        if not card_manager:
-            if not self.card_repo.is_card_data_loading():
-                self.ensure_card_data_loaded()
-            if not self.card_data_dialogs_disabled:
-                wx.MessageBox(
-                    "Card database is still loading. Please try again in a moment.",
-                    "Card Search",
-                    wx.OK | wx.ICON_INFORMATION,
-                )
-            return
-
-        # Get filters from the panel
-        filters = self.builder_panel.get_filters()
-
-        # Validate mana value if provided
-        mv_value_text = filters.get("mv_value", "")
-        if mv_value_text:
-            try:
-                float(mv_value_text)
-            except ValueError:
-                wx.MessageBox("Mana value must be numeric.", "Card Search", wx.OK | wx.ICON_WARNING)
-                return
-
-        # Perform search using service
-        results = self.search_service.search_with_builder_filters(filters, card_manager)
-
-        # Update panel with results
-        self.builder_panel.update_results(results)
-
-    def _on_builder_clear(self) -> None:
-        """Handle clear button click from builder panel."""
-        self.builder_panel.clear_filters()
-
-    def _on_builder_result_selected(self, idx: int) -> None:
-        """Handle result selection from builder panel."""
-        meta = self.builder_panel.get_result_at_index(idx)
-        if not meta:
-            return
-        faux_card = {"name": meta.get("name", "Unknown"), "qty": 1}
-        self.card_inspector_panel.update_card(faux_card, zone=None, meta=meta)
-
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
     def _build_deck_text(self) -> str:
         if not self.zone_cards["main"] and not self.zone_cards["side"]:
@@ -1662,19 +1297,7 @@ class MTGDeckSelectionFrame(wx.Frame):
         event.Skip()
 
     # ------------------------------------------------------------------ Lifecycle ------------------------------------------------------------
-    def on_close(self, event: wx.CloseEvent) -> None:
-        if self._save_timer and self._save_timer.IsRunning():
-            self._save_timer.Stop()
-        self._save_window_settings()
-        for attr in ("tracker_window", "timer_window", "history_window"):
-            window = getattr(self, attr)
-            if self._widget_exists(window):
-                window.Destroy()
-                setattr(self, attr, None)
-        if self.mana_keyboard_window and self.mana_keyboard_window.IsShown():
-            self.mana_keyboard_window.Destroy()
-            self.mana_keyboard_window = None
-        event.Skip()
+    # Lifecycle handlers are now in DeckSelectorEventHandlers mixin
 
 
 def launch_app() -> None:
