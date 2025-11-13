@@ -4,29 +4,34 @@ Deck Notes Panel - Simple text editor for deck notes.
 Allows users to write and save notes about their decks.
 """
 
-from collections.abc import Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import wx
 
 from utils.stylize import stylize_button, stylize_textctrl
 from utils.ui_constants import DARK_PANEL
 
+if TYPE_CHECKING:
+    from widgets.deck_selector import MTGDeckSelectionFrame
+
 
 class DeckNotesPanel(wx.Panel):
     """Panel for editing and saving deck notes."""
 
-    def __init__(self, parent: wx.Window, on_save_callback: Callable[[str], None] | None = None):
+    def __init__(self, parent: wx.Window, deck_selector_frame: MTGDeckSelectionFrame):
         """
         Initialize the deck notes panel.
 
         Args:
             parent: Parent window
-            on_save_callback: Callback when Save Notes button clicked, receives notes text
+            deck_selector_frame: Reference to the main deck selector frame
         """
         super().__init__(parent)
         self.SetBackgroundColour(DARK_PANEL)
 
-        self.on_save = on_save_callback
+        self.deck_selector_frame = deck_selector_frame
 
         self._build_ui()
 
@@ -79,6 +84,4 @@ class DeckNotesPanel(wx.Panel):
 
     def _on_save_clicked(self, _event: wx.Event) -> None:
         """Handle Save Notes button click."""
-        if self.on_save:
-            notes = self.get_notes()
-            self.on_save(notes)
+        self.deck_selector_frame._save_current_notes()

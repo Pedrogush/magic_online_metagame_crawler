@@ -527,15 +527,13 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
 
         self.sideboard_guide_panel = SideboardGuidePanel(
             self.deck_tabs,
-            on_add_callback=lambda: self._on_add_guide_entry(),
-            on_edit_callback=lambda: self._on_edit_guide_entry(),
-            on_remove_callback=lambda: self._on_remove_guide_entry(),
-            on_exclusions_callback=lambda: self._on_edit_exclusions(),
+            deck_selector_frame=self,
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
         self.deck_notes_panel = DeckNotesPanel(
-            self.deck_tabs, on_save_callback=lambda notes: self._save_current_notes()
+            self.deck_tabs,
+            deck_selector_frame=self,
         )
         self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
 
