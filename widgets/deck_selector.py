@@ -1281,7 +1281,6 @@ class MTGDeckSelectionFrame(wx.Frame):
                 self.card_inspector_panel.reset()
             return
         self._collapse_other_zone_tables(zone)
-        # Load metadata if possible
         meta = self._get_card_metadata(card["name"])
         self.card_inspector_panel.update_card(card, zone=zone, meta=meta)
 
@@ -1488,15 +1487,28 @@ class MTGDeckSelectionFrame(wx.Frame):
             return buffer
 
         def on_success(buffer: dict[str, float]):
-            progress_dialog.Destroy()
+            # Process the deck data first
             with self._loading_lock:
                 self.loading_daily_average = False
             self.daily_average_button.Enable()
             deck_text = self.deck_service.render_average_deck(buffer, len(todays_decks))
             self._on_deck_content_ready(deck_text, source="average")
 
+            # Close progress dialog AFTER everything else is done
+            # Using Close() instead of Destroy() for safer modal dialog handling
+            try:
+                progress_dialog.Update(len(todays_decks))
+                progress_dialog.Close()
+            except Exception as dialog_exc:
+                logger.error(f"Error closing progress dialog: {dialog_exc}")
+
         def on_error(error: Exception):
-            progress_dialog.Destroy()
+            logger.error(f"Daily average error: {error}")
+            # Close progress dialog first
+            try:
+                progress_dialog.Close()
+            except Exception:
+                pass
             with self._loading_lock:
                 self.loading_daily_average = False
             self.daily_average_button.Enable()
