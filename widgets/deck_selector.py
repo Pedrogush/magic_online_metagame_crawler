@@ -431,38 +431,26 @@ class MTGDeckSelectionFrame(wx.Frame):
         """Build the toolbar with utility buttons."""
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
 
-        tracker_btn = wx.Button(parent, label="Opponent Tracker")
-        tracker_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_opponent_tracker())
-        toolbar.Add(tracker_btn, 0, wx.RIGHT, 6)
-
-        timer_btn = wx.Button(parent, label="Timer Alert")
-        timer_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_timer_alert())
-        toolbar.Add(timer_btn, 0, wx.RIGHT, 6)
-
-        history_btn = wx.Button(parent, label="Match History")
-        history_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_match_history())
-        toolbar.Add(history_btn, 0, wx.RIGHT, 6)
-
-        metagame_btn = wx.Button(parent, label="Metagame Analysis")
-        metagame_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.open_metagame_analysis())
-        toolbar.Add(metagame_btn, 0, wx.RIGHT, 6)
-
-        reload_collection_btn = wx.Button(parent, label="Load Collection")
-        reload_collection_btn.Bind(
-            wx.EVT_BUTTON, lambda _evt: self._refresh_collection_inventory(force=True)
-        )
-        toolbar.Add(reload_collection_btn, 0, wx.RIGHT, 6)
-
-        download_images_btn = wx.Button(parent, label="Download Card Images")
-        download_images_btn.Bind(
-            wx.EVT_BUTTON,
-            lambda _evt: show_image_download_dialog(
-                self, self.image_cache, self.image_downloader, self._set_status
+        buttons = [
+            ("Opponent Tracker", lambda: self.open_opponent_tracker()),
+            ("Timer Alert", lambda: self.open_timer_alert()),
+            ("Match History", lambda: self.open_match_history()),
+            ("Metagame Analysis", lambda: self.open_metagame_analysis()),
+            ("Load Collection", lambda: self._refresh_collection_inventory(force=True)),
+            (
+                "Download Card Images",
+                lambda: show_image_download_dialog(
+                    self, self.image_cache, self.image_downloader, self._set_status
+                ),
             ),
-        )
-        toolbar.Add(download_images_btn, 0)
-        toolbar.AddStretchSpacer(1)
+        ]
 
+        for label, handler in buttons:
+            btn = wx.Button(parent, label=label)
+            btn.Bind(wx.EVT_BUTTON, lambda evt, h=handler: h())
+            toolbar.Add(btn, 0, wx.RIGHT, 6)
+
+        toolbar.AddStretchSpacer(1)
         return toolbar
 
     def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
