@@ -11,19 +11,19 @@ def test_deck_selector_loads_archetypes_and_mainboard_stats(
     frame = deck_selector_factory()
     try:
         frame.fetch_archetypes()
-        pump_ui_events(wx.GetApp(), iterations=8)
+        pump_ui_events(wx.GetApp())
         assert frame.research_panel.archetype_list.GetCount() == 2
 
         frame.research_panel.archetype_list.SetSelection(0)
         frame.on_archetype_selected()
-        pump_ui_events(wx.GetApp(), iterations=8)
+        pump_ui_events(wx.GetApp())
 
         assert frame.deck_list.GetCount() == 1
         frame.deck_list.SetSelection(0)
         frame.on_deck_selected(None)
 
         frame.on_load_deck_clicked(None)
-        pump_ui_events(wx.GetApp(), iterations=12)
+        pump_ui_events(wx.GetApp())
 
         assert "8 card" in frame.main_table.count_label.GetLabel()
         assert "Mainboard: 8 cards" in frame.stats_summary.GetLabel()
@@ -43,7 +43,7 @@ def test_builder_search_populates_results(
         name_ctrl = frame.builder_panel.inputs["name"]
         name_ctrl.ChangeValue("Mountain")
         frame._on_builder_search()
-        pump_ui_events(wx.GetApp(), iterations=4)
+        pump_ui_events(wx.GetApp())
 
         assert frame.builder_panel.results_ctrl.GetItemCount() >= 1
         assert "Mountain" in frame.builder_panel.results_ctrl.GetItemText(0)
