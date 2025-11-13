@@ -181,3 +181,14 @@ def get_image_service() -> ImageService:
     if _default_service is None:
         _default_service = ImageService()
     return _default_service
+
+
+def reset_image_service() -> None:
+    """
+    Reset the global image service instance.
+
+    This is primarily useful for testing to ensure test isolation
+    and prevent state leakage between tests.
+    """
+    global _default_service
+    _default_service = None

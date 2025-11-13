@@ -596,3 +596,14 @@ def get_collection_service() -> CollectionService:
     if _default_service is None:
         _default_service = CollectionService()
     return _default_service
+
+
+def reset_collection_service() -> None:
+    """
+    Reset the global collection service instance.
+
+    This is primarily useful for testing to ensure test isolation
+    and prevent state leakage between tests.
+    """
+    global _default_service
+    _default_service = None
