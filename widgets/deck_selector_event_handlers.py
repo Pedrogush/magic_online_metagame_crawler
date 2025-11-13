@@ -301,7 +301,7 @@ class DeckSelectorEventHandlers:
 
     # Guide Panel Handlers
     def _on_add_guide_entry(self: MTGDeckSelectionFrame) -> None:
-        from widgets.deck_selector import GuideEntryDialog
+        from widgets.dialogs.guide_entry_dialog import GuideEntryDialog
 
         names = [item.get("name", "") for item in self.archetypes]
         dlg = GuideEntryDialog(self, names)
@@ -315,7 +315,7 @@ class DeckSelectorEventHandlers:
 
     def _on_edit_guide_entry(self: MTGDeckSelectionFrame) -> None:
         """Handle editing a sideboard guide entry."""
-        from widgets.deck_selector import GuideEntryDialog
+        from widgets.dialogs.guide_entry_dialog import GuideEntryDialog
 
         index = self.sideboard_guide_panel.get_selected_index()
         if index is None:

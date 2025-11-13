@@ -21,8 +21,8 @@ from utils.deck import (
     read_curr_deck_file,
     sanitize_zone_cards,
 )
-from utils.game_constants import FORMAT_OPTIONS, FULL_MANA_SYMBOLS
-from utils.mana_icon_factory import ManaIconFactory, type_global_mana_symbol
+from utils.game_constants import FORMAT_OPTIONS
+from utils.mana_icon_factory import ManaIconFactory
 from utils.paths import (
     CACHE_DIR,
     CONFIG_FILE,
@@ -31,7 +31,6 @@ from utils.paths import (
 )
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_constants import (
-    DARK_ALT,
     DARK_BG,
     DARK_PANEL,
     LIGHT_TEXT,
@@ -39,10 +38,10 @@ from utils.ui_constants import (
     ZONE_TITLES,
 )
 from widgets.buttons.deck_action_buttons import DeckActionButtons
-from widgets.buttons.mana_button import create_mana_button, get_mana_font
 from widgets.deck_selector_event_handlers import DeckSelectorEventHandlers
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.identify_opponent import MTGOpponentDeckSpy
+from widgets.mana_keyboard import ManaKeyboardFrame, open_mana_keyboard
 from widgets.match_history import MatchHistoryFrame
 from widgets.metagame_analysis import MetagameAnalysisFrame
 from widgets.panels.card_inspector_panel import CardInspectorPanel
@@ -150,105 +149,6 @@ class _Worker:
             return
         if self.on_success:
             wx.CallAfter(self.on_success, result)
-
-
-class GuideEntryDialog(wx.Dialog):
-    def __init__(
-        self, parent: wx.Window, archetype_names: list[str], data: dict[str, str] | None = None
-    ) -> None:
-        super().__init__(parent, title="Sideboard Guide Entry", size=(420, 360))
-
-        main_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.SetSizer(main_sizer)
-
-        panel = wx.Panel(self)
-        panel.SetBackgroundColour(DARK_BG)
-        panel_sizer = wx.BoxSizer(wx.VERTICAL)
-        panel.SetSizer(panel_sizer)
-        main_sizer.Add(panel, 1, wx.EXPAND | wx.ALL, 8)
-
-        archetype_label = wx.StaticText(panel, label="Archetype")
-        archetype_label.SetForegroundColour(LIGHT_TEXT)
-        panel_sizer.Add(archetype_label, 0, wx.TOP | wx.LEFT, 4)
-
-        initial_choices = sorted({name for name in archetype_names if name})
-        self.archetype_ctrl = wx.ComboBox(panel, choices=initial_choices, style=wx.CB_DROPDOWN)
-        self.archetype_ctrl.SetBackgroundColour(DARK_ALT)
-        self.archetype_ctrl.SetForegroundColour(LIGHT_TEXT)
-        if data and data.get("archetype"):
-            existing = {
-                self.archetype_ctrl.GetString(i) for i in range(self.archetype_ctrl.GetCount())
-            }
-            if data["archetype"] not in existing:
-                self.archetype_ctrl.Append(data["archetype"])
-            self.archetype_ctrl.SetValue(data["archetype"])
-        panel_sizer.Add(self.archetype_ctrl, 0, wx.EXPAND | wx.ALL, 4)
-
-        self.cards_in_ctrl = wx.TextCtrl(
-            panel, value=(data or {}).get("cards_in", ""), style=wx.TE_MULTILINE
-        )
-        self.cards_in_ctrl.SetBackgroundColour(DARK_ALT)
-        self.cards_in_ctrl.SetForegroundColour(LIGHT_TEXT)
-        self.cards_in_ctrl.SetHint("Cards to bring in")
-        panel_sizer.Add(self.cards_in_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
-
-        self.cards_out_ctrl = wx.TextCtrl(
-            panel, value=(data or {}).get("cards_out", ""), style=wx.TE_MULTILINE
-        )
-        self.cards_out_ctrl.SetBackgroundColour(DARK_ALT)
-        self.cards_out_ctrl.SetForegroundColour(LIGHT_TEXT)
-        self.cards_out_ctrl.SetHint("Cards to take out")
-        panel_sizer.Add(self.cards_out_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
-
-        self.notes_ctrl = wx.TextCtrl(
-            panel, value=(data or {}).get("notes", ""), style=wx.TE_MULTILINE
-        )
-        self.notes_ctrl.SetBackgroundColour(DARK_ALT)
-        self.notes_ctrl.SetForegroundColour(LIGHT_TEXT)
-        self.notes_ctrl.SetHint("Notes")
-        panel_sizer.Add(self.notes_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
-
-        button_sizer = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
-        if button_sizer:
-            main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
-
-    def get_data(self) -> dict[str, str]:
-        return {
-            "archetype": self.archetype_ctrl.GetValue().strip(),
-            "cards_in": self.cards_in_ctrl.GetValue().strip(),
-            "cards_out": self.cards_out_ctrl.GetValue().strip(),
-            "notes": self.notes_ctrl.GetValue().strip(),
-        }
-
-
-class ManaKeyboardFrame(wx.Frame):
-    def __init__(
-        self,
-        parent: wx.Window,
-        create_button: Callable[[wx.Window, str, Callable[[str], None]], wx.Button],
-        on_symbol: Callable[[str], None],
-    ) -> None:
-        super().__init__(
-            parent,
-            title="Mana Keyboard",
-            size=(620, 330),
-            style=wx.CAPTION | wx.CLOSE_BOX | wx.FRAME_TOOL_WINDOW | wx.STAY_ON_TOP,
-        )
-        panel = wx.Panel(self)
-        panel.SetBackgroundColour(DARK_BG)
-        root = wx.BoxSizer(wx.VERTICAL)
-        panel.SetSizer(root)
-
-        info = wx.StaticText(panel, label="Click a symbol to type it anywhere")
-        info.SetForegroundColour(LIGHT_TEXT)
-        root.Add(info, 0, wx.ALIGN_CENTER | wx.ALL, 8)
-
-        wrap = wx.WrapSizer(wx.HORIZONTAL)
-        for token in FULL_MANA_SYMBOLS:
-            btn = create_button(panel, token, on_symbol)
-            wrap.Add(btn, 0, wx.ALL, 4)
-        root.Add(wrap, 1, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 10)
-        self.CentreOnParent()
 
 
 class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
@@ -366,8 +266,6 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
             mana_icons=self.mana_icons,
             on_switch_to_research=lambda: self._show_left_panel("research"),
             on_ensure_card_data=self.ensure_card_data_loaded,
-            get_mana_font=self._get_mana_font,
-            create_mana_button=self._create_mana_button,
             open_mana_keyboard=self._open_full_mana_keyboard,
             on_search=self._on_builder_search,
             on_clear=self._on_builder_clear,
@@ -595,24 +493,10 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
             self.left_mode = target
             self._schedule_settings_save()
 
-    def _get_mana_font(self, size: int = 14) -> wx.Font:
-        """Wrapper for get_mana_font that provides parent font."""
-        return get_mana_font(size, self.GetFont())
-
-    def _create_mana_button(
-        self, parent: wx.Window, token: str, handler: Callable[[str], None]
-    ) -> wx.Button:
-        """Wrapper for create_mana_button that provides mana_icons."""
-        return create_mana_button(parent, token, handler, self.mana_icons)
-
     def _open_full_mana_keyboard(self) -> None:
-        if self.mana_keyboard_window and self.mana_keyboard_window.IsShown():
-            self.mana_keyboard_window.Raise()
-            return
-        frame = ManaKeyboardFrame(self, self._create_mana_button, type_global_mana_symbol)
-        frame.Bind(wx.EVT_CLOSE, self._on_mana_keyboard_closed)
-        frame.Show()
-        self.mana_keyboard_window = frame
+        self.mana_keyboard_window = open_mana_keyboard(
+            self, self.mana_icons, self.mana_keyboard_window, self._on_mana_keyboard_closed
+        )
 
     def _restore_session_state(self) -> None:
         saved_mode = self.settings.get("left_mode")
@@ -1007,7 +891,7 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
         else:
             self.out_table.set_cards(self.zone_cards["out"])
             self._persist_outboard_for_current()
-        deck_text = self._build_deck_text()
+        deck_text = self.deck_service.build_deck_text_from_zones(self.zone_cards)
         self.deck_repo.set_current_deck_text(deck_text)
         self._update_stats(deck_text)
         self.copy_button.Enable(self._has_deck_loaded())
@@ -1155,12 +1039,15 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
         )
 
         def worker(rows: list[dict[str, Any]]):
+            def update_progress(index: int, total: int) -> None:
+                wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{total} decks…")
+
             buffer: dict[str, float] = {}
             for index, deck in enumerate(rows, start=1):
                 download_deck(deck["number"])
                 deck_content = read_curr_deck_file()
                 buffer = self.deck_service.add_deck_to_buffer(buffer, deck_content)
-                wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{len(rows)} decks…")
+                update_progress(index, len(rows))
             return buffer
 
         def on_success(buffer: dict[str, float]):
@@ -1230,19 +1117,6 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, wx.Frame):
         _Worker(worker, on_success=on_success, on_error=on_error).start()
 
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
-    def _build_deck_text(self) -> str:
-        if not self.zone_cards["main"] and not self.zone_cards["side"]:
-            return ""
-        lines: list[str] = []
-        for entry in self.zone_cards["main"]:
-            lines.append(f"{entry['qty']} {entry['name']}")
-        if self.zone_cards["side"]:
-            lines.append("")
-            lines.append("Sideboard")
-            for entry in self.zone_cards["side"]:
-                lines.append(f"{entry['qty']} {entry['name']}")
-        return "\n".join(lines).strip()
-
     def _current_deck_key(self) -> str:
         current_deck = self.deck_repo.get_current_deck()
         if current_deck:

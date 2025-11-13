@@ -13,6 +13,7 @@ from utils.stylize import (
     stylize_textctrl,
 )
 from utils.ui_constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
+from widgets.buttons.mana_button import create_mana_button
 
 
 class DeckBuilderPanel(wx.Panel):
@@ -24,8 +25,6 @@ class DeckBuilderPanel(wx.Panel):
         mana_icons: ManaIconFactory,
         on_switch_to_research: Callable[[], None],
         on_ensure_card_data: Callable[[], None],
-        get_mana_font: Callable[[int], wx.Font],
-        create_mana_button: Callable[[wx.Window, str, Callable[[str], None]], wx.Button],
         open_mana_keyboard: Callable[[], None],
         on_search: Callable[[], None],
         on_clear: Callable[[], None],
@@ -37,8 +36,6 @@ class DeckBuilderPanel(wx.Panel):
         self.mana_icons = mana_icons
         self._on_switch_to_research = on_switch_to_research
         self._on_ensure_card_data = on_ensure_card_data
-        self._get_mana_font = get_mana_font
-        self._create_mana_button = create_mana_button
         self._open_mana_keyboard = open_mana_keyboard
         self._on_search_callback = on_search
         self._on_clear_callback = on_clear
@@ -112,7 +109,7 @@ class DeckBuilderPanel(wx.Panel):
                 keyboard_row = wx.BoxSizer(wx.HORIZONTAL)
                 keyboard_row.AddStretchSpacer(1)
                 for token in ["W", "U", "B", "R", "G", "C", "X"]:
-                    btn = self._create_mana_button(self, token, self._append_mana_symbol)
+                    btn = create_mana_button(self, token, self._append_mana_symbol, self.mana_icons)
                     keyboard_row.Add(btn, 0, wx.ALL, 2)
                 all_btn = wx.Button(self, label="All", size=(52, 28))
                 stylize_button(all_btn)
