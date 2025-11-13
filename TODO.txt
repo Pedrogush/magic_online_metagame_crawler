@@ -1,11 +1,25 @@
-SDK adjacent features to implement:
+Features to Implement:
 
-1. get statistics from match history: win rate total and win rate vs player_name
-2. auto take all cards and accept trade with manatraders bot
-3. wait for bot to take all cards and accept trade with manatraders bot
-4. test opponent id
-5. test challenge alarm 
+SDK-ADJACENT FEATURES (Require MTGO SDK Integration):
+1. Auto-accept trades with Manatraders bot (take all cards)
+2. Auto-accept trades with Manatraders bot (wait for bot to take all cards)
+3. Advanced match statistics: win rate vs specific player name (currently only shows overall win rate)
 
-Not SDK adjacent (can delegate to agent):
-1. add outboard section to deckbuilder, idea is to add a sideboard guide builder, where we can make a table that says what we take out and what we board in each matchup
-2. cross check deckbuilder with exported collection (can just make it check the latest json so it doesnt touch the export anymore)
+FUTURE ENHANCEMENTS:
+1. Add type hints to all functions (currently ~60% coverage)
+2. Extract MetagameService from metagame_analysis.py widget (see ARCHITECTURE.md)
+3. Extract MatchHistoryService from match_history.py widget (see ARCHITECTURE.md)
+4. Split deck_selector.py into focused controllers (see GitHub issues)
+5. Increase test coverage to 65-70% (currently ~12-15%)
+6. Configuration file support for MongoDB URI and other settings
+7. Unified CacheManager class to replace scattered caching logic
+
+COMPLETED FEATURES (No longer TODO):
+✓ Sideboard guide builder with matchup-specific boarding plans
+✓ Collection integration - cross-check decks with MTGO collection
+✓ Match history with win rate statistics (overall and filtered by date)
+✓ Opponent tracking and deck lookup
+✓ Challenge timer alerts
+
+See ARCHITECTURE.md for technical debt and refactoring priorities.
+See GitHub Issues for detailed tracking of development tasks.

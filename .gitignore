@@ -14,7 +14,10 @@ trade_request.png
 __pycache__/
 *.md
 !README.md
+!ARCHITECTURE.md
+!INSTALLATION.md
 !packaging/README.md
+!dotnet/MTGOBridge/README.md
 settings.local.json
 data/
 vendor/
