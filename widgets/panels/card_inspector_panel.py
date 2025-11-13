@@ -184,7 +184,7 @@ class CardInspectorPanel(wx.Panel):
         self._render_mana_cost(mana_cost)
 
         # Type line
-        type_line = meta.get("type_line", "Type data unavailable.")
+        type_line = meta.get("type_line") or "Type data unavailable."
         self.type_label.SetLabel(type_line)
 
         # Stats line
@@ -201,7 +201,7 @@ class CardInspectorPanel(wx.Panel):
         self.stats_label.SetLabel("  |  ".join(stats_bits))
 
         # Oracle text
-        oracle_text = meta.get("oracle_text", "No rules text available.")
+        oracle_text = meta.get("oracle_text") or ""
         self.text_ctrl.ChangeValue(oracle_text)
 
         # Load image and printings
