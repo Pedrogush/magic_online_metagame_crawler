@@ -188,6 +188,34 @@ def fetch_match_history(
     return run_bridge_command("history", bridge_path=bridge_path, timeout=timeout)
 
 
+def fetch_trade_snapshot(
+    *,
+    bridge_path: str | os.PathLike[str] | None = None,
+    timeout: float | None = None,
+) -> Mapping[str, Any]:
+    """Return the trade status payload emitted by the bridge."""
+    return run_bridge_command(
+        "trade",
+        bridge_path=bridge_path,
+        extra_args=("status",),
+        timeout=timeout,
+    )
+
+
+def accept_trade(
+    *,
+    bridge_path: str | os.PathLike[str] | None = None,
+    timeout: float | None = None,
+) -> Mapping[str, Any]:
+    """Request that the bridge accept the currently active trade."""
+    return run_bridge_command(
+        "trade",
+        bridge_path=bridge_path,
+        extra_args=("accept",),
+        timeout=timeout,
+    )
+
+
 def _watch_worker(
     bridge_path: str,
     output_queue: mp.Queue,

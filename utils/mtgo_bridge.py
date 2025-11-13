@@ -58,6 +58,22 @@ def get_match_history(
     return history
 
 
+def get_trade_snapshot(
+    bridge_path: str | None = None,
+    timeout: float | None = None,
+) -> Mapping[str, Any]:
+    """Return the active trade snapshot emitted by the bridge."""
+    payload = mtgo_bridge_client.fetch_trade_snapshot(
+        bridge_path=bridge_path,
+        timeout=timeout,
+    )
+    trade = payload.get("trade") if isinstance(payload, Mapping) else None
+    if not isinstance(trade, Mapping):
+        logger.debug("Trade payload missing or malformed; returning empty dict")
+        return {}
+    return trade
+
+
 def fetch_collection_async(
     *,
     bridge_path: str | None = None,
@@ -88,8 +104,37 @@ def start_watch(
 
 
 def accept_pending_trades(*_args, **_kwargs) -> dict[str, Any]:
-    """Legacy API placeholder—trade interactions are not supported via the CLI bridge."""
-    return {"accepted": False, "reason": "not_supported"}
+    """Attempt to accept the currently active trade via the CLI bridge."""
+    bridge_path = _kwargs.get("bridge_path")
+    timeout = _kwargs.get("timeout")
+    try:
+        payload = mtgo_bridge_client.accept_trade(
+            bridge_path=bridge_path,
+            timeout=timeout,
+        )
+    except mtgo_bridge_client.BridgeCommandError as exc:  # type: ignore[attr-defined]
+        return {
+            "accepted": False,
+            "requested": False,
+            "error": str(exc),
+        }
+
+    if not isinstance(payload, Mapping):
+        return {
+            "accepted": False,
+            "requested": False,
+            "error": "bridge_response_malformed",
+        }
+
+    requested = bool(payload.get("requestedAcceptance"))
+    accepted = bool(payload.get("accepted"))
+    error = payload.get("error")
+    return {
+        "accepted": accepted,
+        "requested": requested,
+        "error": error,
+        "timestamp": payload.get("timestamp"),
+    }
 
 
 def list_decks(*_args, **_kwargs) -> list[dict[str, Any]]:

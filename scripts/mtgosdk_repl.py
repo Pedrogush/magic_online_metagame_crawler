@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import time
 from pathlib import Path
 
 try:
@@ -183,6 +184,111 @@ def list_methods_by_type(include_inherited: bool = False) -> None:
     output_path = base_dir / "mtgosdk_methods.txt"
     output_path.write_text("\n".join(output_lines), encoding="utf-8")
     print(f"\nWrote {len(output_lines)} lines to {output_path}")
+
+
+def _current_trade():
+    """Return the active TradeEscrow instance (if any)."""
+    from MTGOSDK.API.Trade import TradeManager  # type: ignore
+
+    return TradeManager.CurrentTrade
+
+
+def _require_trade():
+    trade = _current_trade()
+    if trade is None:
+        raise RuntimeError("TradeManager.CurrentTrade returned null. Start a trade first.")
+    return trade
+
+
+def _sum_item_quantities(collection) -> int:
+    """Sum Quantity/Count attributes from a TradeEscrow collection."""
+    if collection is None:
+        return 0
+
+    try:
+        iterable = collection.CollectionItems
+    except AttributeError:
+        iterable = getattr(collection, "Items", None)
+
+    total = 0
+    if not iterable:
+        return total
+
+    for entry in iterable:
+        if entry is None:
+            continue
+        quantity = (
+            getattr(entry, "Quantity", None)
+            or getattr(entry, "Count", None)
+            or getattr(entry, "Amount", None)
+        )
+        try:
+            total += int(quantity or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def accept_trade() -> None:
+    """Documented placeholder for trade acceptance (see docs/api-reference.md#trade)."""
+    trade = _current_trade()
+    if trade is None:
+        print("No active trade; TradeManager.CurrentTrade is null.")
+        return
+
+    # The MTGOSDK trade section (docs/api-reference.md#trade) only exposes read-only escrow
+    # metadata, so there is no public API surface we can call to submit acceptance.
+    raise NotImplementedError(
+        "Trade acceptance is not exposed by MTGOSDK; monitor docs/api-reference.md#trade for updates."
+    )
+
+
+def wait_for_bot_to_take_cards(
+    *,
+    expected_partner_cards: int | None = None,
+    timeout: float = 180.0,
+    poll_interval: float = 1.5,
+) -> dict[str, float | int | str | None]:
+    """Poll TradeEscrow.TradedItems until the local stack is empty.
+
+    Args:
+        expected_partner_cards: Optional floor for partner-traded quantity before returning.
+        timeout: Maximum seconds to wait.
+        poll_interval: Seconds between TradeManager.CurrentTrade snapshots.
+    """
+
+    start = time.monotonic()
+    deadline = start + timeout
+
+    while True:
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                "Timed out waiting for the bot to remove cards from the trade window."
+            )
+
+        trade = _current_trade()
+        if trade is None:
+            raise RuntimeError("Trade closed while waiting for the bot to take cards.")
+
+        local_total = _sum_item_quantities(getattr(trade, "TradedItems", None))
+        partner_total = _sum_item_quantities(getattr(trade, "PartnerTradedItems", None))
+
+        if local_total == 0 and (
+            expected_partner_cards is None or partner_total >= expected_partner_cards
+        ):
+            elapsed = time.monotonic() - start
+            state = getattr(trade, "State", None)
+            print(
+                f"Bot removed all cards after {elapsed:.1f}s "
+                f"(state={state}, partner_cards={partner_total})."
+            )
+            return {
+                "elapsed_seconds": round(elapsed, 2),
+                "partner_cards": partner_total,
+                "state": str(state),
+            }
+
+        time.sleep(poll_interval)
 
 
 def generate_stubs(
