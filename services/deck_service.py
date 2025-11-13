@@ -346,6 +346,29 @@ class DeckService:
 
     # ============= Deck Building Helpers =============
 
+    def build_deck_text_from_zones(self, zone_cards: dict[str, list[dict[str, Any]]]) -> str:
+        """
+        Build deck text from zone_cards dictionary (used in deck selector UI).
+
+        Args:
+            zone_cards: Dictionary with 'main' and 'side' keys mapping to card lists
+                       Each card is a dict with 'name' and 'qty' keys
+
+        Returns:
+            Formatted deck list text
+        """
+        if not zone_cards.get("main") and not zone_cards.get("side"):
+            return ""
+        lines: list[str] = []
+        for entry in zone_cards.get("main", []):
+            lines.append(f"{entry['qty']} {entry['name']}")
+        if zone_cards.get("side"):
+            lines.append("")
+            lines.append("Sideboard")
+            for entry in zone_cards["side"]:
+                lines.append(f"{entry['qty']} {entry['name']}")
+        return "\n".join(lines).strip()
+
     def build_deck_text(self, zones: dict[str, list[dict[str, Any]]]) -> str:
         """
         Build deck text from zone dictionaries.
