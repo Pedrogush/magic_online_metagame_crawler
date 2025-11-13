@@ -19,6 +19,7 @@ exclude = [
     ".git",
     ".venv",
     "env",
+    "env314",
     "venv",
     "__pycache__",
     "build",
@@ -69,6 +70,7 @@ exclude = '''
     \.git
   | \.venv
   | env
+  | env314
   | venv
   | __pycache__
   | build

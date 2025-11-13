@@ -20,6 +20,13 @@ from widgets.deck_selector import MTGDeckSelectionFrame
 
 wx = pytest.importorskip("wx")
 
+if hasattr(wx, "App") and hasattr(wx.App, "IsDisplayAvailable"):
+    if not wx.App.IsDisplayAvailable():
+        pytest.skip(
+            "wxPython UI tests require an available display (headless session detected)",
+            allow_module_level=True,
+        )
+
 
 SAMPLE_CARDS = [
     {
@@ -55,7 +62,18 @@ def fixture_wx_app() -> wx.App:
     """Create a shared wx App for all UI tests."""
     if wx is None:
         pytest.skip("wxPython is required for UI tests", allow_module_level=True)
-    app = wx.App(False)
+    try:
+        app = wx.App(False)
+    except (SystemError, SystemExit, RuntimeError) as exc:  # wx raises SystemExit when headless
+        pytest.skip(
+            f"wxPython cannot initialize a GUI in this environment: {exc}",
+            allow_module_level=True,
+        )
+    except Exception as exc:  # pragma: no cover - fallback for other wx headless errors
+        pytest.skip(
+            f"wxPython cannot initialize a GUI in this environment: {exc}",
+            allow_module_level=True,
+        )
     yield app
     app.Destroy()
 
