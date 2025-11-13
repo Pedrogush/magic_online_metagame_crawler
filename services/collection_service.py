@@ -35,6 +35,15 @@ class CollectionService:
         self._collection_path: Path | None = None
         self._collection_loaded = False
 
+    # ============= Helpers =============
+
+    @staticmethod
+    def _normalize_card_name(card_name: str | None) -> str:
+        """Normalize card names for consistent lookups."""
+        if not card_name:
+            return ""
+        return str(card_name).strip().lower()
+
     # ============= Collection Loading =============
 
     def load_collection(self, filepath: Path | None = None, force: bool = False) -> bool:
@@ -68,10 +77,12 @@ class CollectionService:
             # Convert to dictionary for quick lookup
             self._collection = {}
             for card in cards:
-                name = card.get("name", "")
+                normalized_name = self._normalize_card_name(card.get("name", ""))
                 quantity = card.get("quantity", 0)
-                if name:
-                    self._collection[name] = self._collection.get(name, 0) + quantity
+                if normalized_name:
+                    self._collection[normalized_name] = (
+                        self._collection.get(normalized_name, 0) + quantity
+                    )
 
             self._collection_path = filepath
             self._collection_loaded = True
@@ -122,11 +133,18 @@ class CollectionService:
 
         try:
             data = json.loads(latest.read_text(encoding="utf-8"))
-            mapping = {
-                entry.get("name", "").lower(): int(entry.get("quantity", 0))
-                for entry in data
-                if isinstance(entry, dict)
-            }
+            mapping = {}
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                normalized_name = self._normalize_card_name(entry.get("name", ""))
+                if not normalized_name:
+                    continue
+                try:
+                    qty = int(entry.get("quantity", 0))
+                except (TypeError, ValueError):
+                    continue
+                mapping[normalized_name] = mapping.get(normalized_name, 0) + qty
 
             self.set_inventory(mapping)
             self.set_collection_path(latest)
@@ -165,11 +183,18 @@ class CollectionService:
             info_dict contains: mapping, card_count, error (if failed)
         """
         try:
-            mapping = {
-                entry.get("name", "").lower(): int(entry.get("quantity", 0))
-                for entry in cards
-                if isinstance(entry, dict)
-            }
+            mapping = {}
+            for entry in cards:
+                if not isinstance(entry, dict):
+                    continue
+                normalized_name = self._normalize_card_name(entry.get("name", ""))
+                if not normalized_name:
+                    continue
+                try:
+                    qty = int(entry.get("quantity", 0))
+                except (TypeError, ValueError):
+                    continue
+                mapping[normalized_name] = mapping.get(normalized_name, 0) + qty
 
             self.set_inventory(mapping)
             if filepath:
@@ -330,7 +355,8 @@ class CollectionService:
         Returns:
             True if owns enough copies, False otherwise
         """
-        owned = self._collection.get(card_name, 0)
+        normalized = self._normalize_card_name(card_name)
+        owned = self._collection.get(normalized, 0)
         return owned >= required_count
 
     def get_owned_count(self, card_name: str) -> int:
@@ -343,7 +369,8 @@ class CollectionService:
         Returns:
             Number of copies owned
         """
-        return self._collection.get(card_name, 0)
+        normalized = self._normalize_card_name(card_name)
+        return self._collection.get(normalized, 0)
 
     def get_ownership_status(
         self, card_name: str, required: int
@@ -514,8 +541,11 @@ class CollectionService:
         if count <= 0:
             return
 
-        current = self._collection.get(card_name, 0)
-        self._collection[card_name] = current + count
+        normalized = self._normalize_card_name(card_name)
+        if not normalized:
+            return
+        current = self._collection.get(normalized, 0)
+        self._collection[normalized] = current + count
         logger.debug(f"Added {count}x {card_name} to collection (now {current + count})")
 
     def remove_cards(self, card_name: str, count: int) -> None:
@@ -529,13 +559,16 @@ class CollectionService:
         if count <= 0:
             return
 
-        current = self._collection.get(card_name, 0)
+        normalized = self._normalize_card_name(card_name)
+        if not normalized:
+            return
+        current = self._collection.get(normalized, 0)
         new_count = max(0, current - count)
 
         if new_count == 0:
-            self._collection.pop(card_name, None)
+            self._collection.pop(normalized, None)
         else:
-            self._collection[card_name] = new_count
+            self._collection[normalized] = new_count
 
         logger.debug(f"Removed {count}x {card_name} from collection (now {new_count})")
 
@@ -547,10 +580,13 @@ class CollectionService:
             card_name: Name of the card
             count: New count
         """
+        normalized = self._normalize_card_name(card_name)
+        if not normalized:
+            return
         if count <= 0:
-            self._collection.pop(card_name, None)
+            self._collection.pop(normalized, None)
         else:
-            self._collection[card_name] = count
+            self._collection[normalized] = count
 
         logger.debug(f"Set {card_name} count to {count}")
 
@@ -572,7 +608,15 @@ class CollectionService:
         Args:
             inventory: Dictionary mapping card names to quantities
         """
-        self._collection = inventory
+        normalized_inventory = {}
+        for name, quantity in inventory.items():
+            normalized_name = self._normalize_card_name(name)
+            if not normalized_name:
+                continue
+            normalized_inventory[normalized_name] = (
+                normalized_inventory.get(normalized_name, 0) + quantity
+            )
+        self._collection = normalized_inventory
         self._collection_loaded = True
 
     def clear_inventory(self) -> None:

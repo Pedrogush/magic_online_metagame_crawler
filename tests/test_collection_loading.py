@@ -48,6 +48,23 @@ def test_collection_service_loads_inventory_from_export(tmp_path):
     assert service.load_collection(temp_file)
 
     inventory = service.get_inventory()
-    assert inventory["Lightning Bolt"] == 5  # 4 + 1 duplicate entry
-    assert inventory["Island"] == 12
-    assert inventory["Spell Pierce"] == 2
+    assert inventory["lightning bolt"] == 5  # 4 + 1 duplicate entry
+    assert inventory["island"] == 12
+    assert inventory["spell pierce"] == 2
+
+
+def test_collection_service_owns_cards_case_insensitively(tmp_path):
+    repo = CardRepository()
+    service = CollectionService(card_repository=repo)
+
+    temp_file = tmp_path / "collection_full_trade_20240102.json"
+    temp_file.write_text(FIXTURE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+
+    service.load_collection(temp_file)
+
+    # Under the hood everything is lowercase, but lookups should be case-insensitive
+    assert service.get_owned_count("Lightning Bolt") == 5
+    assert service.get_owned_count("lightning bolt") == 5
+    assert service.get_owned_count("LIGHTNING BOLT") == 5
+    assert service.owns_card("Spell Pierce", required_count=2)
+    assert not service.owns_card("Spell Pierce", required_count=3)
