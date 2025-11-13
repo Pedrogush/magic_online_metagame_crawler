@@ -18,7 +18,6 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from utils.card_data import CardDataManager
 from utils.constants import (
-    DARK_ALT,
     DARK_BG,
     DARK_PANEL,
     FULL_MANA_SYMBOLS,
