@@ -5,7 +5,7 @@ Allows users to create, edit, and manage sideboard guides for different matchups
 including cards to side in/out and matchup notes.
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
 
 import wx
 import wx.dataview as dv

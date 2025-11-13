@@ -173,9 +173,7 @@ class DeckService:
 
     # ============= Deck Averaging and Aggregation =============
 
-    def add_deck_to_buffer(
-        self, buffer: dict[str, float], deck_text: str
-    ) -> dict[str, float]:
+    def add_deck_to_buffer(self, buffer: dict[str, float], deck_text: str) -> dict[str, float]:
         """
         Add a deck to an averaging buffer.
 
@@ -211,9 +209,7 @@ class DeckService:
         sideboard_lines = []
 
         # Sort cards: mainboard first, then sideboard, alphabetically within each
-        sorted_cards = sorted(
-            buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0])
-        )
+        sorted_cards = sorted(buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0]))
 
         for card, total in sorted_cards:
             # Calculate average
@@ -292,9 +288,7 @@ class DeckService:
 
     # ============= Deck Validation =============
 
-    def validate_deck_format(
-        self, deck_content: str, format_name: str
-    ) -> dict[str, Any]:
+    def validate_deck_format(self, deck_content: str, format_name: str) -> dict[str, Any]:
         """
         Validate a deck against format rules.
 
@@ -345,10 +339,7 @@ class DeckService:
             True if valid size, False otherwise
         """
         analysis = self.analyze_deck(deck_content)
-        return (
-            analysis["mainboard_count"] >= 60
-            and analysis["sideboard_count"] <= 15
-        )
+        return analysis["mainboard_count"] >= 60 and analysis["sideboard_count"] <= 15
 
     # ============= Deck Building Helpers =============
 

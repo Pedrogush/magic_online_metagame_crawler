@@ -1,6 +1,9 @@
-from loguru import logger
-from utils.paths import CURR_DECK_FILE
 from pathlib import Path
+
+from loguru import logger
+
+from utils.paths import CURR_DECK_FILE
+
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
 LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
 

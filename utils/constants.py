@@ -1,5 +1,6 @@
-import wx
 from pathlib import Path
+
+import wx
 
 MANA_RENDER_LOG = Path("cache") / "mana_render.log"
 SUBDUED_TEXT = wx.Colour(185, 191, 202)

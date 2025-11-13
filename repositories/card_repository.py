@@ -8,8 +8,9 @@ This module handles all card-related data access including:
 - Printing information
 """
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -18,7 +19,6 @@ from utils.card_images import (
     BULK_DATA_CACHE,
     BulkImageDownloader,
     ensure_printing_index_cache,
-    get_cache,
     get_card_image,
 )
 

@@ -1,9 +1,10 @@
+from collections.abc import Callable
+from typing import Any
+
 import wx
 
-from collections.abc import Callable
-from utils.constants import DARK_ALT, DARK_ACCENT, LIGHT_TEXT
+from utils.constants import DARK_ACCENT, DARK_ALT, LIGHT_TEXT
 from utils.mana_icon_factory import ManaIconFactory
-from typing import Any
 
 
 class CardBoxPanel(wx.Panel):

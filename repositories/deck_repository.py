@@ -263,7 +263,9 @@ class DeckRepository:
                 return contents
         raise FileNotFoundError("Current deck file not found")
 
-    def save_deck_to_file(self, deck_name: str, deck_content: str, directory: Path | None = None) -> Path:
+    def save_deck_to_file(
+        self, deck_name: str, deck_content: str, directory: Path | None = None
+    ) -> Path:
         """
         Save a deck to a file.
 
