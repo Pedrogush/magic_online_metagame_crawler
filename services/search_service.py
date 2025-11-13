@@ -411,3 +411,14 @@ def get_search_service() -> SearchService:
     if _default_service is None:
         _default_service = SearchService()
     return _default_service
+
+
+def reset_search_service() -> None:
+    """
+    Reset the global search service instance.
+
+    This is primarily useful for testing to ensure test isolation
+    and prevent state leakage between tests.
+    """
+    global _default_service
+    _default_service = None

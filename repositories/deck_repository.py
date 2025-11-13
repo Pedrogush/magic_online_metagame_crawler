@@ -475,3 +475,14 @@ def get_deck_repository() -> DeckRepository:
     if _default_repository is None:
         _default_repository = DeckRepository()
     return _default_repository
+
+
+def reset_deck_repository() -> None:
+    """
+    Reset the global deck repository instance.
+
+    This is primarily useful for testing to ensure test isolation
+    and prevent state leakage between tests.
+    """
+    global _default_repository
+    _default_repository = None
