@@ -1,0 +1,134 @@
+from collections.abc import Callable
+from typing import Any
+
+import wx
+
+from utils.constants import DARK_PANEL, SUBDUED_TEXT
+from utils.mana_icon_factory import ManaIconFactory
+from widgets.panels.card_box_panel import CardBoxPanel
+
+
+class CardTablePanel(wx.Panel):
+    def __init__(
+        self,
+        parent: wx.Window,
+        zone: str,
+        icon_factory: ManaIconFactory,
+        get_metadata: Callable[[str], dict[str, Any] | None],
+        owned_status: Callable[[str, int], tuple[str, wx.Colour]],
+        on_delta: Callable[[str, str, int], None],
+        on_remove: Callable[[str, str], None],
+        on_add: Callable[[str], None],
+        on_select: Callable[[str, dict[str, Any] | None], None],
+    ) -> None:
+        super().__init__(parent)
+        self.zone = zone
+        self.icon_factory = icon_factory
+        self._get_metadata = get_metadata
+        self._owned_status = owned_status
+        self._on_delta = on_delta
+        self._on_remove = on_remove
+        self._on_add = on_add
+        self._on_select = on_select
+        self.cards: list[dict[str, Any]] = []
+        self.card_widgets: list[CardBoxPanel] = []
+        self.active_panel: CardBoxPanel | None = None
+        self.selected_name: str | None = None
+
+        self.SetBackgroundColour(DARK_PANEL)
+        outer = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(outer)
+
+        header = wx.BoxSizer(wx.HORIZONTAL)
+        self.count_label = wx.StaticText(self, label="0 cards")
+        self.count_label.SetForegroundColour(SUBDUED_TEXT)
+        header.Add(self.count_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        header.AddStretchSpacer(1)
+        add_btn = wx.Button(self, label="Add Card")
+        add_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_add(self.zone))
+        header.Add(add_btn, 0)
+        outer.Add(header, 0, wx.EXPAND | wx.BOTTOM, 4)
+
+        self.scroller = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        self.scroller.SetBackgroundColour(DARK_PANEL)
+        self.scroller.SetScrollRate(5, 5)
+        self.grid_sizer = wx.GridSizer(0, 4, 8, 8)
+        self.scroller.SetSizer(self.grid_sizer)
+        outer.Add(self.scroller, 1, wx.EXPAND)
+
+    def set_cards(self, cards: list[dict[str, Any]]) -> None:
+        self.cards = cards
+        self._rebuild_grid()
+
+    def _rebuild_grid(self) -> None:
+        self.grid_sizer.Clear(delete_windows=True)
+        self.card_widgets = []
+        self.active_panel = None
+        total = sum(card["qty"] for card in self.cards)
+        self.count_label.SetLabel(f"{total} card{'s' if total != 1 else ''}")
+        for card in self.cards:
+            cell = CardBoxPanel(
+                self.scroller,
+                self.zone,
+                card,
+                self.icon_factory,
+                self._get_metadata,
+                self._owned_status,
+                self._on_delta,
+                self._on_remove,
+                self._handle_card_click,
+            )
+            self.grid_sizer.Add(cell, 0, wx.EXPAND)
+            self.card_widgets.append(cell)
+        remainder = len(self.cards) % 4
+        if remainder:
+            for _ in range(4 - remainder):
+                spacer = wx.Panel(self.scroller)
+                spacer.SetBackgroundColour(DARK_PANEL)
+                self.grid_sizer.Add(spacer, 0, wx.EXPAND)
+        self.grid_sizer.Layout()
+        self.scroller.Layout()
+        self.scroller.FitInside()
+        self._restore_selection()
+
+    def _handle_card_click(self, zone: str, card: dict[str, Any], panel: CardBoxPanel) -> None:
+        if self.active_panel is panel:
+            return
+        if self.active_panel:
+            self.active_panel.set_active(False)
+        self.active_panel = panel
+        self.selected_name = card["name"]
+        panel.set_active(True)
+        self._notify_selection(card)
+
+    def _restore_selection(self) -> None:
+        if not self.selected_name:
+            self._notify_selection(None)
+            return
+        for widget in self.card_widgets:
+            if widget.card["name"].lower() == self.selected_name.lower():
+                self.active_panel = widget
+                widget.set_active(True)
+                self._notify_selection(widget.card)
+                return
+        previously_had_selection = self.selected_name is not None
+        self.selected_name = None
+        if previously_had_selection:
+            self._notify_selection(None)
+
+    def clear_selection(self) -> None:
+        if self.active_panel:
+            self.active_panel.set_active(False)
+        self.active_panel = None
+        self.selected_name = None
+        self._notify_selection(None)
+
+    def collapse_active(self) -> None:
+        if self.active_panel:
+            self.active_panel.set_active(False)
+        self.active_panel = None
+        self.selected_name = None
+
+    def _notify_selection(self, card: dict[str, Any] | None) -> None:
+        if self._on_select:
+            self._on_select(self.zone, card)

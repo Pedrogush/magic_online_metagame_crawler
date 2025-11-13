@@ -306,27 +306,34 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     yield
 
 
-def pump_ui_events(app: wx.App, *, iterations: int = 5) -> None:
-    """Process pending wx events so CallAfter handlers run during tests."""
-    for _ in range(iterations):
+def pump_ui_events(app: wx.App, *, max_passes: int = 25) -> None:
+    """Process pending wx events until the queue drains or a safety cap is reached."""
+    for _ in range(max_passes):
+        processed = False
         pending = getattr(app, "Pending", None)
         if pending:
             while pending():
                 app.Dispatch()
+                processed = True
         else:
             loop_pending = getattr(app, "ProcessPendingEvents", None)
             if loop_pending:
                 while loop_pending():
                     time_module.sleep(0)
+                    processed = True
             else:
                 # Fall back to the older Pending/Dispatch loop if available
                 pending_func = getattr(wx, "Pending", None)
                 if pending_func:
                     while pending_func():
                         app.Dispatch()
+                        processed = True
                 else:
                     app.Yield()
+                    processed = True
         time_module.sleep(0)
+        if not processed:
+            break
 
 
 @pytest.fixture
@@ -341,5 +348,8 @@ def prepare_card_manager(frame: MTGDeckSelectionFrame) -> None:
     manager = CardDataManager()
     manager._cards = SAMPLE_CARDS
     manager._cards_by_name = {card["name_lower"]: card for card in SAMPLE_CARDS}
+    frame.card_repo.set_card_manager(manager)
+    frame.card_repo.set_card_data_loading(False)
+    frame.card_repo.set_card_data_ready(True)
     frame.card_manager = manager
     frame.card_data_ready = True
