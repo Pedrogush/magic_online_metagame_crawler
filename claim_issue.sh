@@ -8,6 +8,10 @@ set -e
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
+# Determine current branch for metadata
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
+CURRENT_BRANCH="${CURRENT_BRANCH:-unknown}"
+
 # Generate or retrieve session hash
 SESSION_FILE="${HOME}/.claude_session_id"
 if [ ! -f "$SESSION_FILE" ]; then
@@ -91,6 +95,8 @@ claim_issue() {
 
         gh issue comment "$issue" --body "🔧 CLAIMED by AI Session
 
+Branch: ${CURRENT_BRANCH}
+
 Session: ${SESSION_HASH}
 User: ${user}@${hostname}
 Started: ${timestamp}
@@ -131,6 +137,8 @@ release_issue() {
     local timestamp=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
     gh issue comment "$issue" --body "✅ RELEASED by AI Session
+
+Branch: ${CURRENT_BRANCH}
 
 Session: ${SESSION_HASH}
 Completed: ${timestamp}
@@ -230,6 +238,7 @@ show_session() {
     echo "User: $(whoami)"
     echo "Hostname: $(hostname)"
     echo "Session File: ${SESSION_FILE}"
+    echo "Branch: ${CURRENT_BRANCH}"
 }
 
 # Main command processing
