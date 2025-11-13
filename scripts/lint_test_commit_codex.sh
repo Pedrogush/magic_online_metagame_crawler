@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$REPO_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 echo "================================================"
 echo "Codex: Step 1 - Running linters"
@@ -31,7 +32,7 @@ echo "================================================"
 PYTEST_OUTPUT_FILE="/tmp/pytest_codex_$$.txt"
 PYTEST_EXIT_CODE=0
 
-if ./run_pytest_on_host.sh -v 2>&1 | tee "$PYTEST_OUTPUT_FILE"; then
+if "$REPO_ROOT/run_pytest_on_host.sh" -v 2>&1 | tee "$PYTEST_OUTPUT_FILE"; then
     echo "✅ pytest succeeded"
 else
     PYTEST_EXIT_CODE=$?

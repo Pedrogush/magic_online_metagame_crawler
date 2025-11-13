@@ -8,6 +8,7 @@ This module handles all card-related data access including:
 - Printing information
 """
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -244,15 +245,75 @@ class CardRepository:
         Returns:
             List of card dictionaries with quantities
         """
+
+        def _extract_cards(payload: Any) -> list[Any]:
+            """Return the most likely card list from the payload."""
+            if isinstance(payload, list):
+                return payload
+
+            if isinstance(payload, dict):
+                for key in ("cards", "items"):
+                    candidate = payload.get(key)
+                    if isinstance(candidate, list):
+                        return candidate
+
+                collection = payload.get("collection")
+                if collection is not None:
+                    return _extract_cards(collection)
+
+            return []
+
         try:
-            # This would depend on the actual collection file format
-            # For now, return empty list as placeholder
-            logger.info(f"Loading collection from {filepath}")
-            # TODO: Implement actual collection loading logic
+            raw_data = filepath.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            logger.info(f"Collection file {filepath} does not exist")
             return []
-        except Exception as exc:
-            logger.error(f"Failed to load collection from {filepath}: {exc}")
+        except OSError as exc:
+            logger.error(f"Unable to read collection file {filepath}: {exc}")
             return []
+
+        try:
+            payload = json.loads(raw_data)
+        except json.JSONDecodeError as exc:
+            logger.error(f"Invalid JSON in collection file {filepath}: {exc}")
+            return []
+
+        card_entries = _extract_cards(payload)
+        if not card_entries:
+            logger.warning(f"No card entries found in collection file {filepath}")
+            return []
+
+        parsed_cards: list[dict[str, Any]] = []
+        for entry in card_entries:
+            if not isinstance(entry, dict):
+                continue
+
+            name = str(entry.get("name", "")).strip()
+            if not name:
+                continue
+
+            quantity_raw = entry.get("quantity", 0)
+            try:
+                quantity = int(quantity_raw)
+            except (TypeError, ValueError):
+                try:
+                    quantity = int(float(quantity_raw))
+                except (TypeError, ValueError):
+                    logger.debug(f"Skipping {name}: invalid quantity {quantity_raw!r}")
+                    continue
+
+            if quantity < 0:
+                logger.debug(f"Skipping {name}: negative quantity {quantity}")
+                continue
+
+            normalized: dict[str, Any] = {"name": name, "quantity": quantity}
+            if "id" in entry:
+                normalized["id"] = entry.get("id")
+
+            parsed_cards.append(normalized)
+
+        logger.info(f"Loaded {len(parsed_cards)} cards from {filepath}")
+        return parsed_cards
 
     def get_collection_cache_path(self) -> Path:
         """
