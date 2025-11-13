@@ -1,4 +1,4 @@
-from typing import Iterable
+from collections.abc import Iterable
 
 import pytest
 
@@ -23,7 +23,9 @@ from utils.find_opponent_names import find_opponent_names
         ),
     ],
 )
-def test_find_opponent_names_detects_windows(monkeypatch: pytest.MonkeyPatch, titles: Iterable[str], expected: list[str]) -> None:
+def test_find_opponent_names_detects_windows(
+    monkeypatch: pytest.MonkeyPatch, titles: Iterable[str], expected: list[str]
+) -> None:
     """Verify we capture opponent names from window titles containing vs."""
     monkeypatch.setattr(
         "utils.find_opponent_names.pygetwindow.getAllTitles",
