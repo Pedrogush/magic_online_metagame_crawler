@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1001,
+    "name": "Lightning Bolt",
+    "quantity": 4
+  },
+  {
+    "id": 1002,
+    "name": "Island",
+    "quantity": 12
+  },
+  {
+    "id": 1003,
+    "name": "Lightning Bolt",
+    "quantity": 1
+  },
+  {
+    "id": 1004,
+    "name": "Spell Pierce",
+    "quantity": "2"
+  }
+]
