@@ -67,36 +67,6 @@ def sanitize_zone_cards(entries: list) -> list[dict[str, int | str]]:
     return sanitized
 
 
-def deck_to_dictionary(deck: str):
-    """Converts a deck string to a json object"""
-    deck = deck.split("\n")
-    deck_dict = {}
-    is_sideboard = False
-    for index, card in enumerate(deck):
-        if not card and index == len(deck) - 1:
-            continue
-        if not card:
-            is_sideboard = True
-            continue
-        try:
-            card_amount = int(float(card.split(" ")[0]))  # Handle fractional amounts from averages
-        except (ValueError, IndexError):
-            continue  # Skip invalid lines
-        card_name = " ".join(card.split(" ")[1:])
-        if not is_sideboard:
-            if card_name in deck_dict:
-                deck_dict[card_name] += card_amount
-                continue
-            deck_dict[card_name] = card_amount
-            continue
-        if "Sideboard " + card_name in deck_dict:
-            deck_dict["Sideboard " + card_name] += card_amount
-            continue
-        deck_dict["Sideboard " + card_name] = card_amount
-
-    return deck_dict
-
-
 def analyze_deck(deck_content: str):
     """
     Analyzes a deck and returns statistics.
@@ -163,28 +133,6 @@ def analyze_deck(deck_content: str):
     }
 
 
-def render_average_deck(buffer: dict[str, float], decks_added: int) -> str:
-    if not buffer or decks_added <= 0:
-        return ""
-    lines: list[str] = []
-    sideboard_lines: list[str] = []
-    for card, total in sorted(
-        buffer.items(), key=lambda kv: (kv[0].startswith("Sideboard"), kv[0])
-    ):
-        display_name = card.replace("Sideboard ", "")
-        average = float(total) / decks_added
-        value = f"{average:.2f}" if not average.is_integer() else str(int(average))
-        output = f"{value} {display_name}"
-        if card.lower().startswith("sideboard"):
-            sideboard_lines.append(output)
-        else:
-            lines.append(output)
-    if sideboard_lines:
-        lines.append("")
-        lines.extend(sideboard_lines)
-    return "\n".join(lines)
-
-
 def read_curr_deck_file() -> str:
     curr_deck_file = paths.CURR_DECK_FILE
     candidates = [curr_deck_file, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
@@ -205,20 +153,3 @@ def read_curr_deck_file() -> str:
                     logger.debug(f"Failed to migrate curr_deck.txt from {candidate}: {exc}")
             return contents
     raise FileNotFoundError("Current deck file not found")
-
-
-def add_dicts(dict1, dict2):
-    """Adds two dictionaries with integer values"""
-    for key, value in dict2.items():
-        if key in dict1:
-            dict1[key] += value
-        else:
-            dict1[key] = value
-    return dict1
-
-
-if __name__ == "__main__":
-    with paths.CURR_DECK_FILE.open("r", encoding="utf-8") as f:
-        deck = f.read()
-
-    print(deck_to_dictionary(deck))

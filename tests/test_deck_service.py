@@ -28,3 +28,33 @@ def test_deck_to_dictionary_handles_empty_lines(deck_service):
 
     assert deck_dict["Mountain"] == 1.0
     assert deck_dict["Sideboard Lightning Bolt"] == 2.0
+
+
+def test_analyze_deck_preserves_fractional_quantities(deck_service):
+    """Test that analyze_deck preserves fractional quantities from average decks."""
+    deck_text = (
+        "4 Island\n"
+        "2.5 Lightning Bolt\n"
+        "1.33 Consider\n"
+        "\n"
+        "Sideboard\n"
+        "3 Counterspell\n"
+        "1.67 Dismember\n"
+    )
+
+    stats = deck_service.analyze_deck(deck_text)
+
+    # Check mainboard cards preserve fractional quantities
+    mainboard_dict = dict(stats["mainboard_cards"])
+    assert mainboard_dict["Island"] == 4
+    assert mainboard_dict["Lightning Bolt"] == 2.5
+    assert mainboard_dict["Consider"] == pytest.approx(1.33)
+
+    # Check sideboard cards preserve fractional quantities
+    sideboard_dict = dict(stats["sideboard_cards"])
+    assert sideboard_dict["Counterspell"] == 3
+    assert sideboard_dict["Dismember"] == pytest.approx(1.67)
+
+    # Check total counts
+    assert stats["mainboard_count"] == pytest.approx(7.83)
+    assert stats["sideboard_count"] == pytest.approx(4.67)

@@ -1190,10 +1190,22 @@ class MTGDeckSelectionFrame(wx.Frame):
 
     # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
     def _handle_zone_delta(self, zone: str, name: str, delta: int) -> None:
+        import math
+
         cards = self.zone_cards.get(zone, [])
         for entry in cards:
             if entry["name"].lower() == name.lower():
-                entry["qty"] = max(0, entry["qty"] + delta)
+                current_qty = entry["qty"]
+                # If current quantity is fractional, round it appropriately
+                if isinstance(current_qty, float) and not current_qty.is_integer():
+                    if delta > 0:
+                        # Adding: round up to next integer, then add delta
+                        current_qty = math.ceil(current_qty)
+                    else:
+                        # Removing: round down to previous integer, then subtract delta
+                        current_qty = math.floor(current_qty)
+
+                entry["qty"] = max(0, current_qty + delta)
                 if entry["qty"] == 0:
                     cards.remove(entry)
                 break
@@ -1334,7 +1346,13 @@ class MTGDeckSelectionFrame(wx.Frame):
         cleaned: list[dict[str, Any]] = []
         for entry in data:
             name = entry.get("name")
-            qty = int(entry.get("qty", 0))
+            qty_raw = entry.get("qty", 0)
+            # Preserve float quantities from average decks
+            try:
+                qty_float = float(qty_raw)
+                qty = int(qty_float) if qty_float.is_integer() else qty_float
+            except (TypeError, ValueError):
+                qty = 0
             if name and qty > 0:
                 cleaned.append({"name": name, "qty": qty})
         return cleaned
