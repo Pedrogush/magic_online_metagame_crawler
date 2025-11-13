@@ -26,7 +26,7 @@ def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
     return safe_name
 
 
-def sanitize_zone_cards(entries: list) -> list[dict[str, int | str]]:
+def sanitize_zone_cards(entries: list) -> list[dict[str, int | float | str]]:
     """
     Validate and sanitize zone card entries.
 
@@ -36,9 +36,9 @@ def sanitize_zone_cards(entries: list) -> list[dict[str, int | str]]:
         entries: List of card entries (each should be a dict with 'name' and 'qty')
 
     Returns:
-        List of validated card dictionaries with 'name' (str) and 'qty' (int) keys
+        List of validated card dictionaries with 'name' (str) and 'qty' (int or float) keys
     """
-    sanitized: list[dict[str, int | str]] = []
+    sanitized: list[dict[str, int | float | str]] = []
 
     for entry in entries:
         # Skip non-dict entries
@@ -46,23 +46,26 @@ def sanitize_zone_cards(entries: list) -> list[dict[str, int | str]]:
             continue
 
         name = entry.get("name")
-        qty = entry.get("qty", 0)
+        qty_raw = entry.get("qty", 0)
 
         # Skip entries without a name
         if not name:
             continue
 
-        # Parse quantity as integer
+        # Parse and preserve float quantities from average decks
         try:
-            qty_int = max(0, int(qty))
+            qty_float = float(qty_raw)
+            # Convert to int only if it's a whole number
+            qty = int(qty_float) if qty_float.is_integer() else qty_float
+            qty = max(0, qty)
         except (TypeError, ValueError):
             continue
 
         # Skip zero-quantity entries
-        if qty_int <= 0:
+        if qty <= 0:
             continue
 
-        sanitized.append({"name": name, "qty": qty_int})
+        sanitized.append({"name": name, "qty": qty})
 
     return sanitized
 
