@@ -36,6 +36,22 @@ class MetagameRepository:
         """
         self.cache_ttl = cache_ttl
 
+    # ============= Helpers =============
+
+    @staticmethod
+    def _get_archetype_slug(archetype: dict[str, Any] | str | None) -> str:
+        """Extract the slug/identifier for an archetype entry."""
+        if isinstance(archetype, str):
+            return archetype.strip()
+
+        if isinstance(archetype, dict):
+            for key in ("href", "slug", "url"):
+                value = archetype.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+        return ""
+
     # ============= Archetype Operations =============
 
     def get_archetypes_for_format(
@@ -49,7 +65,7 @@ class MetagameRepository:
             force_refresh: If True, bypass cache and fetch fresh data
 
         Returns:
-            List of archetype dictionaries with keys: name, url, share, etc.
+            List of archetype dictionaries with keys: name, href, share, etc.
         """
         # Try cache first unless forced refresh
         if not force_refresh:
@@ -75,24 +91,32 @@ class MetagameRepository:
             raise
 
     def get_decks_for_archetype(
-        self, archetype: dict[str, Any], force_refresh: bool = False
+        self, archetype: dict[str, Any] | str, force_refresh: bool = False
     ) -> list[dict[str, Any]]:
         """
         Get deck lists for a specific archetype.
 
         Args:
-            archetype: Archetype dictionary with 'url' key
+            archetype: Archetype dictionary or slug string (expects 'href'/'slug')
             force_refresh: If True, bypass cache and fetch fresh data
 
         Returns:
             List of deck dictionaries
         """
-        archetype_url = archetype.get("url", "")
-        archetype_name = archetype.get("name", "Unknown")
+        archetype_slug = self._get_archetype_slug(archetype)
+        archetype_name = (
+            archetype.get("name", "Unknown")
+            if isinstance(archetype, dict)
+            else archetype_slug or "Unknown"
+        )
+
+        if not archetype_slug:
+            logger.error(f"Missing archetype slug for {archetype_name}")
+            return []
 
         # Try cache first unless forced refresh
         if not force_refresh:
-            cached = self._load_cached_decks(archetype_url)
+            cached = self._load_cached_decks(archetype_slug)
             if cached is not None:
                 logger.debug(f"Using cached decks for {archetype_name}")
                 return cached
@@ -100,14 +124,14 @@ class MetagameRepository:
         # Fetch fresh data
         logger.info(f"Fetching fresh decks for {archetype_name}")
         try:
-            decks = get_archetype_decks(archetype)
+            decks = get_archetype_decks(archetype_slug)
             # Cache the results
-            self._save_cached_decks(archetype_url, decks)
+            self._save_cached_decks(archetype_slug, decks)
             return decks
         except Exception as exc:
             logger.error(f"Failed to fetch decks for {archetype_name}: {exc}")
             # Try to return stale cache if available
-            cached = self._load_cached_decks(archetype_url, max_age=None)
+            cached = self._load_cached_decks(archetype_slug, max_age=None)
             if cached:
                 logger.warning(f"Returning stale cached decks for {archetype_name}")
                 return cached
@@ -206,18 +230,21 @@ class MetagameRepository:
             logger.warning(f"Failed to cache archetypes: {exc}")
 
     def _load_cached_decks(
-        self, archetype_url: str, max_age: int | None = None
+        self, archetype_slug: str, max_age: int | None = None
     ) -> list[dict[str, Any]] | None:
         """
         Load cached deck list for an archetype.
 
         Args:
-            archetype_url: URL identifying the archetype
+            archetype_slug: Slug identifying the archetype
             max_age: Maximum age in seconds (None = ignore age)
 
         Returns:
             List of decks or None if cache miss
         """
+        if not archetype_slug:
+            return None
+
         if max_age is None:
             max_age = self.cache_ttl
 
@@ -231,7 +258,7 @@ class MetagameRepository:
             logger.warning(f"Cached deck list invalid: {exc}")
             return None
 
-        entry = data.get(archetype_url)
+        entry = data.get(archetype_slug)
         if not entry:
             return None
 
@@ -244,14 +271,17 @@ class MetagameRepository:
 
         return entry.get("items")
 
-    def _save_cached_decks(self, archetype_url: str, items: list[dict[str, Any]]) -> None:
+    def _save_cached_decks(self, archetype_slug: str, items: list[dict[str, Any]]) -> None:
         """
         Save decks to cache.
 
         Args:
-            archetype_url: URL identifying the archetype
+            archetype_slug: Slug identifying the archetype
             items: List of deck dictionaries
         """
+        if not archetype_slug:
+            return
+
         try:
             # Load existing cache
             if DECK_CACHE_FILE.exists():
@@ -261,7 +291,7 @@ class MetagameRepository:
                 data = {}
 
             # Update entry for this archetype
-            data[archetype_url] = {"timestamp": time.time(), "items": items}
+            data[archetype_slug] = {"timestamp": time.time(), "items": items}
 
             # Save back
             DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
