@@ -85,8 +85,10 @@ def analyze_deck(deck_content: str):
     """
     lines = deck_content.strip().split("\n")
 
-    mainboard = []
-    sideboard = []
+    mainboard_totals: dict[str, int] = {}
+    sideboard_totals: dict[str, int] = {}
+    mainboard_order: list[str] = []
+    sideboard_order: list[str] = []
     is_sideboard = False
 
     for line in lines:
@@ -106,11 +108,20 @@ def analyze_deck(deck_content: str):
             card_name = parts[1].strip()
 
             if is_sideboard:
-                sideboard.append((card_name, count))
+                target_totals = sideboard_totals
+                target_order = sideboard_order
             else:
-                mainboard.append((card_name, count))
+                target_totals = mainboard_totals
+                target_order = mainboard_order
+
+            if card_name not in target_totals:
+                target_order.append(card_name)
+            target_totals[card_name] = target_totals.get(card_name, 0) + count
         except (ValueError, IndexError):
             continue
+
+    mainboard = [(card, mainboard_totals[card]) for card in mainboard_order]
+    sideboard = [(card, sideboard_totals[card]) for card in sideboard_order]
 
     mainboard_count = sum(count for _, count in mainboard)
     sideboard_count = sum(count for _, count in sideboard)
