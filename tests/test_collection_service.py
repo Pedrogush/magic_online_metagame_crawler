@@ -133,9 +133,8 @@ def test_load_from_cached_file_success(collection_service, tmp_path):
     filepath = tmp_path / "collection_full_trade_20240101.json"
     filepath.write_text(json.dumps(collection_data), encoding="utf-8")
 
-    success, info = collection_service.load_from_cached_file(tmp_path)
+    info = collection_service.load_from_cached_file(tmp_path)
 
-    assert success is True
     assert info["card_count"] == 2
     assert info["filepath"] == filepath
     assert "age_hours" in info
@@ -144,10 +143,9 @@ def test_load_from_cached_file_success(collection_service, tmp_path):
 
 def test_load_from_cached_file_no_files(collection_service, tmp_path):
     """Test loading from cached file when none exist."""
-    success, info = collection_service.load_from_cached_file(tmp_path)
+    with pytest.raises(FileNotFoundError, match="No cached collection files found"):
+        collection_service.load_from_cached_file(tmp_path)
 
-    assert success is False
-    assert "error" in info
     assert collection_service.get_collection_size() == 0
 
 
@@ -158,9 +156,8 @@ def test_load_from_card_list(collection_service):
         {"name": "Island", "quantity": 20},
     ]
 
-    success, info = collection_service.load_from_card_list(cards)
+    info = collection_service.load_from_card_list(cards)
 
-    assert success is True
     assert info["card_count"] == 2
     assert collection_service.get_owned_count("lightning bolt") == 4
     assert collection_service.get_owned_count("island") == 20
@@ -173,9 +170,8 @@ def test_export_to_file(collection_service, tmp_path):
         {"name": "Island", "quantity": 20},
     ]
 
-    success, filepath = collection_service.export_to_file(cards, tmp_path)
+    filepath = collection_service.export_to_file(cards, tmp_path)
 
-    assert success is True
     assert filepath is not None
     assert filepath.exists()
     assert "collection_full_trade_" in filepath.name

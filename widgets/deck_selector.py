@@ -1,6 +1,8 @@
 import json
 import threading
 import time
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import wx
@@ -22,7 +24,12 @@ from utils.deck import (
 )
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
-from utils.paths import DECK_SELECTOR_SETTINGS_FILE
+from utils.paths import (
+    CACHE_DIR,
+    CONFIG_FILE,
+    DECK_SELECTOR_SETTINGS_FILE,
+    DECKS_DIR,
+)
 from utils.service_config import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
@@ -35,9 +42,8 @@ from utils.ui_constants import (
     SUBDUED_TEXT,
 )
 from utils.ui_helpers import open_child_window
-from widgets import deck_selector_config
-from widgets.background_worker import BackgroundWorker
 from widgets.buttons.deck_action_buttons import DeckActionButtons
+from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
 from widgets.handlers.deck_selector_handlers import DeckSelectorHandlers
@@ -55,19 +61,63 @@ from widgets.panels.deck_stats_panel import DeckStatsPanel
 from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
 
-_paths = deck_selector_config.load_deck_selector_paths()
-CONFIG: dict[str, Any] = _paths.config
-DECK_SAVE_DIR = _paths.deck_save_dir
-NOTES_STORE = _paths.notes_store
-OUTBOARD_STORE = _paths.outboard_store
-GUIDE_STORE = _paths.guide_store
-CARD_INSPECTOR_LOG = _paths.card_inspector_log
-LEGACY_CONFIG_FILE = deck_selector_config.LEGACY_CONFIG_FILE
-LEGACY_CURR_DECK_CACHE = deck_selector_config.LEGACY_CURR_DECK_CACHE
-LEGACY_CURR_DECK_ROOT = deck_selector_config.LEGACY_CURR_DECK_ROOT
-LEGACY_NOTES_STORE = deck_selector_config.LEGACY_NOTES_STORE
-LEGACY_OUTBOARD_STORE = deck_selector_config.LEGACY_OUTBOARD_STORE
-LEGACY_GUIDE_STORE = deck_selector_config.LEGACY_GUIDE_STORE
+LEGACY_CONFIG_FILE = Path("config.json")
+LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
+LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
+NOTES_STORE = CACHE_DIR / "deck_notes.json"
+OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
+GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
+LEGACY_NOTES_STORE = CACHE_DIR / "deck_notes_wx.json"
+LEGACY_OUTBOARD_STORE = CACHE_DIR / "deck_outboard_wx.json"
+LEGACY_GUIDE_STORE = CACHE_DIR / "deck_sbguides_wx.json"
+CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"
+
+for new_path, legacy_path in [
+    (NOTES_STORE, LEGACY_NOTES_STORE),
+    (OUTBOARD_STORE, LEGACY_OUTBOARD_STORE),
+    (GUIDE_STORE, LEGACY_GUIDE_STORE),
+]:
+    if not new_path.exists() and legacy_path.exists():
+        try:
+            legacy_path.replace(new_path)
+            logger.info(f"Migrated {legacy_path.name} to {new_path.name}")
+        except OSError as exc:  # pragma: no cover - migration best-effort
+            logger.warning(f"Failed to migrate {legacy_path} to {new_path}: {exc}")
+
+
+CONFIG: dict[str, Any] = {}
+if CONFIG_FILE.exists():
+    try:
+        with CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
+            CONFIG = json.load(_cfg_file)
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
+        logger.warning(f"Invalid {CONFIG_FILE} ({exc}); using default deck save path")
+        CONFIG = {}
+elif LEGACY_CONFIG_FILE.exists():
+    try:
+        with LEGACY_CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
+            CONFIG = json.load(_cfg_file)
+        logger.warning(
+            "Loaded legacy config.json from project root; migrating to config/ directory"
+        )
+        try:
+            with CONFIG_FILE.open("w", encoding="utf-8") as fh:
+                json.dump(CONFIG, fh, indent=4)
+        except OSError as exc:
+            logger.warning(f"Failed to write migrated config.json: {exc}")
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
+        logger.warning(f"Invalid legacy config.json ({exc}); using default deck save path")
+        CONFIG = {}
+else:
+    logger.debug(f"{CONFIG_FILE} not found; using default deck save path")
+
+default_deck_dir = Path(CONFIG.get("deck_selector_save_path") or DECKS_DIR)
+DECK_SAVE_DIR = default_deck_dir.expanduser()
+try:
+    DECK_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+except OSError as exc:  # pragma: no cover - defensive logging
+    logger.warning(f"Unable to create deck save directory '{DECK_SAVE_DIR}': {exc}")
+CONFIG.setdefault("deck_selector_save_path", str(DECK_SAVE_DIR))
 
 BULK_CACHE_MIN_AGE_DAYS = 1
 BULK_CACHE_MAX_AGE_DAYS = 365
@@ -80,6 +130,36 @@ def format_deck_name(deck: dict[str, Any]) -> str:
     event = deck.get("event", "")
     result = deck.get("result", "")
     return f"{date} | {player} — {event} [{result}]".strip()
+
+
+class _Worker:
+    """Helper for dispatching background work and returning results on the UI thread."""
+
+    def __init__(
+        self,
+        func: Callable,
+        *args,
+        on_success: Callable | None = None,
+        on_error: Callable | None = None,
+    ) -> None:
+        self.func = func
+        self.args = args
+        self.on_success = on_success
+        self.on_error = on_error
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self) -> None:
+        try:
+            result = self.func(*self.args)
+        except Exception as exc:  # pragma: no cover - UI side effects
+            logger.exception(f"Background task failed: {exc}")
+            if self.on_error:
+                wx.CallAfter(self.on_error, exc)
+            return
+        if self.on_success:
+            wx.CallAfter(self.on_success, result)
 
 
 class MTGDeckSelectionFrame(
@@ -254,31 +334,19 @@ class MTGDeckSelectionFrame(
 
         return right_panel
 
-    def _build_toolbar(self, parent: wx.Window) -> wx.BoxSizer:
+    def _build_toolbar(self, parent: wx.Window) -> ToolbarButtons:
         """Build the toolbar with utility buttons."""
-        toolbar = wx.BoxSizer(wx.HORIZONTAL)
-
-        buttons = [
-            ("Opponent Tracker", lambda: self.open_opponent_tracker()),
-            ("Timer Alert", lambda: self.open_timer_alert()),
-            ("Match History", lambda: self.open_match_history()),
-            ("Metagame Analysis", lambda: self.open_metagame_analysis()),
-            ("Load Collection", lambda: self._refresh_collection_inventory(force=True)),
-            (
-                "Download Card Images",
-                lambda: show_image_download_dialog(
-                    self, self.image_cache, self.image_downloader, self._set_status
-                ),
+        return ToolbarButtons(
+            parent,
+            on_open_opponent_tracker=self.open_opponent_tracker,
+            on_open_timer_alert=self.open_timer_alert,
+            on_open_match_history=self.open_match_history,
+            on_open_metagame_analysis=self.open_metagame_analysis,
+            on_load_collection=lambda: self._refresh_collection_inventory(force=True),
+            on_download_card_images=lambda: show_image_download_dialog(
+                self, self.image_cache, self.image_downloader, self._set_status
             ),
-        ]
-
-        for label, handler in buttons:
-            btn = wx.Button(parent, label=label)
-            btn.Bind(wx.EVT_BUTTON, lambda evt, h=handler: h())
-            toolbar.Add(btn, 0, wx.RIGHT, 6)
-
-        toolbar.AddStretchSpacer(1)
-        return toolbar
+        )
 
     def _build_card_data_controls(self, parent: wx.Window) -> wx.Panel:
         """Create cached-data preference controls."""
@@ -319,13 +387,14 @@ class MTGDeckSelectionFrame(
         self._set_force_cached_bulk_data(enabled)
         self._check_and_download_bulk_data()
 
-    def _on_bulk_age_changed(self, event: wx.CommandEvent) -> None:
+    def _on_bulk_age_changed(self, event: wx.CommandEvent | None) -> None:
         """Handle changes to the cache age spinner."""
         if not self.bulk_cache_age_spin:
             return
         self._set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
         self._check_and_download_bulk_data()
-        event.Skip()
+        if event:
+            event.Skip()
 
     def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
         """Build the summary text and deck list column."""
@@ -422,13 +491,20 @@ class MTGDeckSelectionFrame(
 
         self.sideboard_guide_panel = SideboardGuidePanel(
             self.deck_tabs,
-            deck_selector_frame=self,
+            on_add_entry=self._on_add_guide_entry,
+            on_edit_entry=self._on_edit_guide_entry,
+            on_remove_entry=self._on_remove_guide_entry,
+            on_edit_exclusions=self._on_edit_exclusions,
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
         self.deck_notes_panel = DeckNotesPanel(
             self.deck_tabs,
-            deck_selector_frame=self,
+            deck_repo=self.deck_repo,
+            store_service=self.store_service,
+            notes_store=self.deck_notes_store,
+            notes_store_path=self.notes_store_path,
+            on_status_update=self._set_status,
         )
         self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
 
@@ -556,6 +632,8 @@ class MTGDeckSelectionFrame(
                 "window_size": [size.width, size.height],
                 "screen_pos": [pos.x, pos.y],
                 "left_mode": self.left_mode,
+                "force_cached_bulk_data": self._bulk_cache_force,
+                "bulk_data_max_age_days": self._bulk_data_age_days,
                 "saved_deck_text": self.deck_repo.get_current_deck_text(),
                 "saved_zone_cards": self._serialize_zone_cards(),
             }
@@ -658,7 +736,7 @@ class MTGDeckSelectionFrame(
         def loader(fmt: str):
             return get_archetypes(fmt.lower(), allow_stale=not force)
 
-        BackgroundWorker(
+        _Worker(
             loader,
             self.current_format,
             on_success=self._on_archetypes_loaded,
@@ -698,7 +776,7 @@ class MTGDeckSelectionFrame(
         def loader(identifier: str):
             return get_archetype_decks(identifier)
 
-        BackgroundWorker(
+        _Worker(
             loader,
             href,
             on_success=lambda decks: self._on_decks_loaded(name, decks),
@@ -738,7 +816,7 @@ class MTGDeckSelectionFrame(
             self._on_deck_content_ready(content, source="mtggoldfish")
             self.load_button.Enable()
 
-        BackgroundWorker(
+        _Worker(
             worker, deck_number, on_success=on_success, on_error=self._on_deck_download_error
         ).start()
 
@@ -749,9 +827,10 @@ class MTGDeckSelectionFrame(
 
     def _load_collection_from_cache(self) -> bool:
         """Load collection from cached file without calling bridge. Returns True if loaded."""
-        success, info = self.collection_service.load_from_cached_file(DECK_SAVE_DIR)
-
-        if not success:
+        try:
+            info = self.collection_service.load_from_cached_file(DECK_SAVE_DIR)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.debug(f"Could not load collection from cache: {exc}")
             self.collection_status_label.SetLabel(
                 "No collection found. Click 'Refresh Collection' to fetch from MTGO."
             )
@@ -787,7 +866,7 @@ class MTGDeckSelectionFrame(
         )
 
     def _check_and_download_bulk_data(self) -> None:
-        """Check if bulk data exists, and download/load in background if needed."""
+        """Kick off a background freshness check before loading/downloading bulk data."""
         if self._bulk_check_worker_active:
             logger.debug("Bulk data check already running")
             return
@@ -797,7 +876,7 @@ class MTGDeckSelectionFrame(
         status_msg = (
             "Loading cached card image database…"
             if force_cached
-            else "Checking card image database freshness…"
+            else "Checking card image database…"
         )
         self._set_status(status_msg)
         self._bulk_check_worker_active = True
@@ -807,32 +886,49 @@ class MTGDeckSelectionFrame(
                 return False, "Cached-only mode enabled"
             return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
 
-        def on_success(result: tuple[bool, str]) -> None:
+        def on_success(result: tuple[bool, str]):
             self._bulk_check_worker_active = False
             needs_download, reason = result
-            logger.info(f"Bulk data check: {reason}")
+            self._after_bulk_data_check(needs_download, reason, force_cached)
 
-            if force_cached or not needs_download:
-                self._load_bulk_data_into_memory()
-                return
-
-            # Data is stale or missing - attempt to load cached data while we download
-            if not self.image_service.get_bulk_data():
-                self._load_bulk_data_into_memory()
-
-            self._set_status("Downloading card image database...")
-            self.image_service.download_bulk_metadata_async(
-                on_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
-                on_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
-                force=True,
-            )
-
-        def on_error(error: Exception) -> None:
+        def on_error(exc: Exception):
             self._bulk_check_worker_active = False
-            logger.error(f"Bulk data check failed: {error}")
-            self._set_status(f"Bulk data check failed: {error}")
+            self._on_bulk_data_check_failed(exc)
 
-        BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
+        _Worker(worker, on_success=on_success, on_error=on_error).start()
+
+    def _after_bulk_data_check(
+        self, needs_download: bool, reason: str, force_cached: bool = False
+    ) -> None:
+        """Handle the result of bulk data freshness check (UI thread)."""
+        if force_cached or not needs_download:
+            self._load_bulk_data_into_memory()
+            if force_cached:
+                self._set_status("Using cached card image database")
+            else:
+                self._set_status("Card image database ready")
+            return
+
+        # Data is stale or missing - attempt to load cached data while we download
+        if not self.image_service.get_bulk_data():
+            self._load_bulk_data_into_memory()
+
+        logger.info(f"Bulk data needs update: {reason}")
+        self._set_status("Downloading card image database...")
+
+        # Download in background using service
+        self.image_service.download_bulk_metadata_async(
+            on_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
+            on_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
+        )
+
+    def _on_bulk_data_check_failed(self, exc: Exception) -> None:
+        """Fallback when we fail to check bulk data freshness."""
+        logger.warning(f"Failed to check bulk data freshness: {exc}")
+        if not self.image_service.get_bulk_data():
+            self._load_bulk_data_into_memory()
+        else:
+            self._set_status("Ready")
 
     def _load_bulk_data_into_memory(self, force: bool = False) -> None:
         """Load the compact card printings index in the background."""
@@ -954,7 +1050,7 @@ class MTGDeckSelectionFrame(
             )
             self._set_status(f"Daily average failed: {error}")
 
-        BackgroundWorker(worker, todays_decks, on_success=on_success, on_error=on_error).start()
+        _Worker(worker, todays_decks, on_success=on_success, on_error=on_error).start()
 
     def ensure_card_data_loaded(self) -> None:
         """Ensure card data is loaded in background if not already loading/loaded."""
@@ -985,7 +1081,7 @@ class MTGDeckSelectionFrame(
                 wx.OK | wx.ICON_ERROR,
             )
 
-        BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
+        _Worker(worker, on_success=on_success, on_error=on_error).start()
 
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
     def open_opponent_tracker(self) -> None:

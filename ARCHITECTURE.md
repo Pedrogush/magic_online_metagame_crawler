@@ -133,7 +133,7 @@ magic_online_metagame_crawler/
 ├── main.py                          # Application entry point
 │
 ├── widgets/                         # Presentation Layer
-│   ├── deck_selector.py              # Main window (1687 lines - needs refactoring)
+│   ├── deck_selector.py              # Main window (~1000 lines - God Class antipattern)
 │   ├── identify_opponent.py          # Opponent tracking widget
 │   ├── match_history.py              # Match history viewer
 │   ├── metagame_analysis.py          # Meta statistics viewer
@@ -152,6 +152,11 @@ magic_online_metagame_crawler/
 │   │
 │   ├── dialogs/                      # Modal dialogs
 │   │   └── image_download_dialog.py  # Bulk image download
+│   │
+│   ├── handlers/                     # Event handler classes
+│   │   ├── deck_selector_handlers.py # Main window event handlers
+│   │   ├── card_table_panel_handler.py # Card table events
+│   │   └── sideboard_guide_handlers.py # Sideboard guide events
 │   │
 │   └── buttons/                      # Custom buttons
 │       ├── deck_action_buttons.py    # Deck operation buttons
@@ -484,31 +489,71 @@ def _download_deck_async(self, deck_number: int):
 
 ## Known Technical Debt
 
-### Critical Issues
+**For comprehensive analysis, see**: `docs/reviews/CODEBASE_AUDIT_2025-11-14.md`
 
-1. **God Class**: `deck_selector.py` (1687 lines)
-   - **Problem**: Too many responsibilities
-   - **Plan**: Split into multiple controllers (see GitHub issues)
+### Critical Issues (Fix Immediately)
 
-2. **UI/Business Logic Mixing**: Some widgets contain business logic
+1. **Service with UI Dependencies**: `services/collection_service.py`
+   - **Problem**: Imports wxPython, returns wx.Colour objects, violates layering
+   - **Impact**: Cannot test service without UI, cannot reuse in non-UI contexts
+   - **Plan**: Extract color logic to presentation layer
+
+2. **Undefined Method Bug**: `widgets/handlers/deck_selector_handlers.py:84, 102`
+   - **Problem**: Calls `self._build_deck_text()` which doesn't exist
+   - **Impact**: Production bug - AttributeError when copying/saving decks
+   - **Plan**: Replace with `self.deck_service.build_deck_text_from_zones()`
+
+3. **Duplicate Functions**: Two `analyze_deck()` with different logic
+   - **Problem**: `utils/deck.py:73` vs `services/deck_service.py:95` - conflicting implementations
+   - **Impact**: Data correctness issues, developer confusion
+   - **Plan**: Consolidate to single implementation
+
+### High Priority Issues
+
+4. **God Class**: `deck_selector.py` (~1000 lines)
+   - **Problem**: Too many responsibilities (UI, state, I/O, threading)
+   - **Plan**: Extract into focused controllers
+
+5. **UI/Business Logic Mixing**: Widgets contain business logic
    - **Problem**: Hard to test, tight coupling
-   - **Plan**: Extract to services (see CLAUDE_REVIEW_1311.md)
+   - **Locations**: Event handlers, panels with direct file I/O
+   - **Plan**: Extract to services
 
-3. **Test Coverage**: ~12-15% overall
-   - **Problem**: Low confidence in refactoring
-   - **Plan**: Add tests for critical paths (see GitHub issues)
+6. **Test Coverage**: ~15-18% overall
+   - **Problem**: Low confidence in refactoring, bugs reach production
+   - **Gap**: ~2,500 lines of untested critical logic
+   - **Plan**: Target 65-70% coverage (see `docs/TEST_COVERAGE_GAPS.md`)
+
+### Medium Priority Issues
+
+7. **Code Duplication**:
+   - Cache management duplicated across 2 modules (~130 lines)
+   - Singleton boilerplate across 5 services (~100 lines)
+   - Locking pattern repeated 8+ times
+   - **Plan**: Create shared `CacheManager`, singleton decorator
+
+8. **Dead/Unused Code**:
+   - `utils/mtgo_bridge.py`: Stub functions, redundant wrappers
+   - `utils/paths_constants.py`: Could merge into `paths.py`
+   - Test code in production modules
+   - **Plan**: Remove dead code, consolidate modules
 
 ### Refactoring Opportunities
 
 - Extract `MetagameService` from `metagame_analysis.py`
 - Extract `MatchHistoryService` from `match_history.py`
 - Extract `OpponentTrackingService` from `identify_opponent.py`
-- Consolidate duplicate constants across modules
-- Add type hints to remaining functions
+- Standardize service access patterns (choose one: DI vs. service locator)
+- Standardize error handling strategy
+- Add thread safety to loading flags
 
-See code review documents for detailed analysis:
-- `CLAUDE_REVIEW_1311.md`: Comprehensive technical debt audit
-- `CODEX_REVIEW_1311.md`: Additional code quality issues
+### Documentation References
+
+Detailed analysis available in:
+- **`docs/reviews/CODEBASE_AUDIT_2025-11-14.md`**: Comprehensive audit with priorities
+- **`docs/TEST_COVERAGE_GAPS.md`**: Detailed test coverage analysis and roadmap
+- **`docs/reviews/CLAUDE_REVIEW_2025-11-13.md`**: Refactoring review
+- **`docs/reviews/CODEX_REVIEW_2025-11-13.md`**: Branch-specific issues
 
 ## Future Architecture Improvements
 
@@ -529,5 +574,8 @@ The architecture is designed to support incremental improvements:
 
 ---
 
-**Last Updated**: November 2025
-**Document Version**: 1.0
+**Last Updated**: November 14, 2025
+**Document Version**: 1.1
+**Changelog**:
+- v1.1 (2025-11-14): Updated technical debt section, added handler modules, fixed line counts
+- v1.0 (2025-11-13): Initial version

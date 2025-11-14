@@ -15,7 +15,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import wx
 from loguru import logger
 
 from repositories.card_repository import CardRepository, get_card_repository
@@ -23,7 +22,6 @@ from utils.service_config import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     ONE_HOUR_SECONDS,
 )
-from utils.ui_constants import SUBDUED_TEXT
 
 
 class CollectionService:
@@ -90,7 +88,7 @@ class CollectionService:
             logger.error(f"Failed to load collection: {exc}")
             return False
 
-    def get_owned_status(self, name: str, required: int) -> tuple[str, wx.Colour]:
+    def get_owned_status(self, name: str, required: int) -> tuple[str, tuple[int, int, int]]:
         """
         Return ownership status text and color for a given card requirement.
 
@@ -99,17 +97,17 @@ class CollectionService:
             required: Quantity needed
 
         Returns:
-            Tuple containing the status label and wx colour
+            Tuple containing the status label and RGB color tuple (R, G, B)
         """
         collection_inventory = self.get_inventory()
         if not collection_inventory:
-            return ("Owned —", SUBDUED_TEXT)
+            return ("Owned —", (185, 191, 202))  # Subdued text color
         have = collection_inventory.get(name.lower(), 0)
         if have >= required:
-            return (f"Owned {have}/{required}", wx.Colour(120, 200, 120))
+            return (f"Owned {have}/{required}", (120, 200, 120))  # Green
         if have > 0:
-            return (f"Owned {have}/{required}", wx.Colour(230, 200, 90))
-        return ("Owned 0", wx.Colour(230, 120, 120))
+            return (f"Owned {have}/{required}", (230, 200, 90))  # Yellow/Orange
+        return ("Owned 0", (230, 120, 120))  # Red
 
     def find_latest_cached_file(
         self, directory: Path, pattern: str = "collection_full_trade_*.json"
@@ -129,7 +127,7 @@ class CollectionService:
 
     def load_from_cached_file(
         self, directory: Path, pattern: str = "collection_full_trade_*.json"
-    ) -> tuple[bool, dict[str, Any]]:
+    ) -> dict[str, Any]:
         """
         Load collection from the most recent cached file.
 
@@ -138,14 +136,17 @@ class CollectionService:
             pattern: Glob pattern for collection files
 
         Returns:
-            Tuple of (success, info_dict)
-            info_dict contains: filepath, mapping, age_hours, error (if failed)
+            Dictionary containing: filepath, mapping, age_hours, card_count
+
+        Raises:
+            FileNotFoundError: If no cached collection files found
+            ValueError: If file cannot be parsed or is invalid
         """
         latest = self.find_latest_cached_file(directory, pattern)
 
         if not latest:
             self.clear_inventory()
-            return False, {"error": "No cached collection files found"}
+            raise FileNotFoundError("No cached collection files found")
 
         try:
             data = json.loads(latest.read_text(encoding="utf-8"))
@@ -166,20 +167,20 @@ class CollectionService:
                 f"Loaded collection from cache: {len(mapping)} unique cards from {latest.name}"
             )
 
-            return True, {
+            return {
                 "filepath": latest,
                 "mapping": mapping,
                 "age_hours": age_hours,
                 "card_count": len(mapping),
             }
-        except Exception as exc:
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
             logger.warning(f"Failed to load cached collection {latest}: {exc}")
             self.clear_inventory()
-            return False, {"filepath": latest, "error": str(exc)}
+            raise ValueError(f"Failed to parse collection file {latest.name}") from exc
 
     def load_from_card_list(
         self, cards: list[dict[str, Any]], filepath: Path | None = None
-    ) -> tuple[bool, dict[str, Any]]:
+    ) -> dict[str, Any]:
         """
         Load collection from a list of card dictionaries.
 
@@ -188,8 +189,10 @@ class CollectionService:
             filepath: Optional path to associate with this collection
 
         Returns:
-            Tuple of (success, info_dict)
-            info_dict contains: mapping, card_count, error (if failed)
+            Dictionary containing: mapping, card_count
+
+        Raises:
+            ValueError: If card list is invalid or cannot be parsed
         """
         try:
             mapping = {
@@ -204,20 +207,20 @@ class CollectionService:
 
             logger.info(f"Loaded collection from card list: {len(mapping)} unique cards")
 
-            return True, {
+            return {
                 "mapping": mapping,
                 "card_count": len(mapping),
             }
-        except Exception as exc:
+        except (KeyError, TypeError, ValueError) as exc:
             logger.error(f"Failed to load collection from card list: {exc}")
-            return False, {"error": str(exc)}
+            raise ValueError("Failed to parse card list") from exc
 
     def export_to_file(
         self,
         cards: list[dict[str, Any]],
         directory: Path,
         filename_prefix: str = "collection_full_trade",
-    ) -> tuple[bool, Path | None]:
+    ) -> Path:
         """
         Export collection cards to a JSON file.
 
@@ -227,7 +230,11 @@ class CollectionService:
             filename_prefix: Prefix for the filename (timestamp will be added)
 
         Returns:
-            Tuple of (success, filepath)
+            Path to the exported file
+
+        Raises:
+            OSError: If file cannot be written
+            ValueError: If cards list is invalid
         """
         try:
             directory.mkdir(parents=True, exist_ok=True)
@@ -239,10 +246,13 @@ class CollectionService:
                 json.dump(cards, f, indent=2)
 
             logger.info(f"Exported collection to {filepath} ({len(cards)} cards)")
-            return True, filepath
-        except Exception as exc:
+            return filepath
+        except OSError as exc:
             logger.error(f"Failed to export collection: {exc}")
-            return False, None
+            raise
+        except (TypeError, ValueError) as exc:
+            logger.error(f"Invalid card data for export: {exc}")
+            raise ValueError("Invalid card data for export") from exc
 
     # ============= Async Collection Refresh =============
 
@@ -283,8 +293,8 @@ class CollectionService:
                             f"Using cached collection ({file_age_seconds:.0f}s old, max {cache_max_age_seconds}s)"
                         )
                         # Load from cache and call success callback
-                        success, info = self.load_from_cached_file(directory)
-                        if success and on_success:
+                        info = self.load_from_cached_file(directory)
+                        if on_success:
                             on_success(info["filepath"], [])  # Empty cards list for cache hits
                         return False  # Didn't start new fetch
                 except Exception as exc:
@@ -309,11 +319,7 @@ class CollectionService:
                     return
 
                 # Export to file using service
-                success, filepath = self.export_to_file(cards, directory)
-                if not success:
-                    if on_error:
-                        on_error("Failed to write collection file")
-                    return
+                filepath = self.export_to_file(cards, directory)
 
                 # Call success callback
                 if on_success:
