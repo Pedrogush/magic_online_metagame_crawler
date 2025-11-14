@@ -1,4 +1,5 @@
 from services.deck_service import DeckService
+from utils.deck import sanitize_filename
 
 SAMPLE_DECK = """4 Ragavan, Nimble Pilferer
 2 Blood Moon
@@ -97,3 +98,65 @@ Sideboard
     sideboard_dict = dict(summary["sideboard_cards"])
     assert sideboard_dict["Abrade"] == 3
     assert summary["unique_sideboard"] == 1
+
+
+def test_sanitize_filename_removes_null_bytes():
+    """Verify null bytes are removed from filenames."""
+    assert sanitize_filename("test\x00file") == "test_file"
+    assert sanitize_filename("null\x00\x00byte") == "null__byte"
+
+
+def test_sanitize_filename_prevents_path_traversal():
+    """Verify path traversal attempts are neutralized."""
+    assert sanitize_filename("../etc/passwd") == "____etc_passwd"
+    assert sanitize_filename("..\\windows\\system32") == "____windows_system32"
+    assert sanitize_filename("test/../secret") == "test____secret"
+    # Dots are replaced to prevent any traversal
+    assert sanitize_filename("...") == "saved_deck"  # Falls back as only underscores remain
+
+
+def test_sanitize_filename_handles_invalid_characters():
+    """Verify invalid filesystem characters are replaced."""
+    assert sanitize_filename("test:file") == "test_file"
+    assert sanitize_filename("test*file") == "test_file"
+    assert sanitize_filename("test?file") == "test_file"
+    assert sanitize_filename('test"file') == "test_file"
+    assert sanitize_filename("test<file>") == "test_file_"
+    assert sanitize_filename("test|file") == "test_file"
+    assert sanitize_filename("test/file") == "test_file"
+    assert sanitize_filename("test\\file") == "test_file"
+
+
+def test_sanitize_filename_handles_reserved_windows_names():
+    """Verify reserved Windows filenames are prefixed."""
+    assert sanitize_filename("CON") == "_CON"
+    assert sanitize_filename("PRN") == "_PRN"
+    assert sanitize_filename("AUX") == "_AUX"
+    assert sanitize_filename("NUL") == "_NUL"
+    assert sanitize_filename("COM1") == "_COM1"
+    assert sanitize_filename("com1") == "_com1"  # Case insensitive
+    assert sanitize_filename("LPT1") == "_LPT1"
+    assert sanitize_filename("lpt9") == "_lpt9"
+
+
+def test_sanitize_filename_strips_leading_trailing():
+    """Verify leading/trailing whitespace and underscores are removed."""
+    assert sanitize_filename("  test  ") == "test"
+    assert sanitize_filename("__test__") == "test"
+    assert sanitize_filename("  __test__  ") == "test"
+
+
+def test_sanitize_filename_uses_fallback():
+    """Verify fallback is used for empty or invalid results."""
+    assert sanitize_filename("") == "saved_deck"
+    assert sanitize_filename("   ") == "saved_deck"
+    assert sanitize_filename("___") == "saved_deck"
+    assert sanitize_filename("...", fallback="custom") == "custom"
+    assert sanitize_filename("///", fallback="my_deck") == "my_deck"
+
+
+def test_sanitize_filename_normal_cases():
+    """Verify normal filenames work correctly."""
+    assert sanitize_filename("my_deck") == "my_deck"
+    assert sanitize_filename("Mono Red Aggro") == "Mono_Red_Aggro"
+    assert sanitize_filename("UW Control v2") == "UW_Control_v2"

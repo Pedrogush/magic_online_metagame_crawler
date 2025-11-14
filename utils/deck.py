@@ -10,7 +10,14 @@ LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
 
 def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
     """
-    Sanitize a filename by removing invalid characters.
+    Sanitize a filename by removing invalid characters and preventing path traversal.
+
+    Handles:
+    - Null bytes
+    - Path traversal attempts (../, drive letters)
+    - Invalid filesystem characters
+    - Reserved Windows filenames
+    - Leading/trailing dots and spaces
 
     Args:
         filename: Original filename
@@ -19,10 +26,50 @@ def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
     Returns:
         Sanitized filename safe for filesystem use
     """
-    safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in filename).strip()
-    # If the result is empty or only underscores, use fallback
-    if not safe_name or safe_name.replace("_", "").strip() == "":
+    # Remove null bytes
+    filename = filename.replace("\x00", "")
+
+    # Replace invalid filesystem characters
+    safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in filename)
+
+    # Remove dots to prevent path traversal (.., ., etc.)
+    safe_name = safe_name.replace(".", "_")
+
+    # Strip leading/trailing whitespace and underscores
+    safe_name = safe_name.strip().strip("_")
+
+    # Check for reserved Windows filenames (case-insensitive)
+    reserved = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9",
+    }
+    if safe_name.upper() in reserved:
+        safe_name = f"_{safe_name}"
+
+    # If the result is empty or only underscores/whitespace, use fallback
+    if not safe_name or not safe_name.replace("_", "").strip():
         return fallback
+
     return safe_name
 
 
