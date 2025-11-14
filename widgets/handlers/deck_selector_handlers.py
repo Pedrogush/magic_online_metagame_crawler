@@ -162,6 +162,38 @@ class DeckSelectorHandlers:
             self.mana_keyboard_window = None
         event.Skip()
 
+    # Helpers
+    def _build_deck_text(self: MTGDeckSelectionFrame) -> str:
+        """
+        Build the current deck text for copy/save actions.
+
+        Preference order:
+        1. Text persisted in the repository (updated whenever a list downloads or zones change)
+        2. Deck text synthesized from the current zone tables
+        3. Raw text stored on the currently selected deck dictionary
+        """
+        deck_text = self.deck_repo.get_current_deck_text()
+        if deck_text:
+            return deck_text
+
+        zone_cards: dict[str, list[dict[str, Any]]] | None = getattr(self, "zone_cards", None)
+        if zone_cards:
+            try:
+                deck_text = self.deck_service.build_deck_text_from_zones(zone_cards)
+            except Exception as exc:  # pragma: no cover - defensive log
+                logger.debug(f"Failed to build deck text from zones: {exc}")
+            else:
+                if deck_text:
+                    return deck_text
+
+        current_deck = self.deck_repo.get_current_deck() or {}
+        for key in ("deck_text", "content", "text"):
+            value = current_deck.get(key)
+            if value:
+                return value
+
+        return ""
+
     # Async Callback Handlers
     def _on_archetypes_loaded(self: MTGDeckSelectionFrame, items: list[dict[str, Any]]) -> None:
         with self._loading_lock:
