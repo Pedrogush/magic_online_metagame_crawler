@@ -140,19 +140,20 @@ class MetagameRepository:
     # ============= Cache Management =============
 
     def _load_cached_archetypes(
-        self, mtg_format: str, max_age: int | None = None
+        self, mtg_format: str, max_age: int | None = -1
     ) -> list[dict[str, Any]] | None:
         """
         Load cached archetype list.
 
         Args:
             mtg_format: MTG format to load
-            max_age: Maximum age in seconds (None = ignore age)
+            max_age: Maximum age in seconds (None = ignore age, -1 = use default TTL)
 
         Returns:
             List of archetypes or None if cache miss
         """
-        if max_age is None:
+        # Use default TTL if not specified
+        if max_age == -1:
             max_age = self.cache_ttl
 
         if not ARCHETYPE_LIST_CACHE_FILE.exists():
@@ -169,7 +170,7 @@ class MetagameRepository:
         if not entry:
             return None
 
-        # Check age if max_age is specified
+        # Check age if max_age is specified (None means ignore age)
         if max_age is not None:
             timestamp = entry.get("timestamp", 0)
             if time.time() - timestamp > max_age:
@@ -207,19 +208,20 @@ class MetagameRepository:
             logger.warning(f"Failed to cache archetypes: {exc}")
 
     def _load_cached_decks(
-        self, archetype_url: str, max_age: int | None = None
+        self, archetype_url: str, max_age: int | None = -1
     ) -> list[dict[str, Any]] | None:
         """
         Load cached deck list for an archetype.
 
         Args:
             archetype_url: URL identifying the archetype
-            max_age: Maximum age in seconds (None = ignore age)
+            max_age: Maximum age in seconds (None = ignore age, -1 = use default TTL)
 
         Returns:
             List of decks or None if cache miss
         """
-        if max_age is None:
+        # Use default TTL if not specified
+        if max_age == -1:
             max_age = self.cache_ttl
 
         if not DECK_CACHE_FILE.exists():
@@ -236,7 +238,7 @@ class MetagameRepository:
         if not entry:
             return None
 
-        # Check age if max_age is specified
+        # Check age if max_age is specified (None means ignore age)
         if max_age is not None:
             timestamp = entry.get("timestamp", 0)
             if time.time() - timestamp > max_age:
