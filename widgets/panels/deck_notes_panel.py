@@ -6,6 +6,8 @@ Allows users to write and save notes about their decks.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import wx
@@ -14,24 +16,41 @@ from utils.stylize import stylize_button, stylize_textctrl
 from utils.ui_constants import DARK_PANEL
 
 if TYPE_CHECKING:
-    from widgets.deck_selector import MTGDeckSelectionFrame
+    from repositories.deck_repository import DeckRepository
+    from services.store_service import StoreService
 
 
 class DeckNotesPanel(wx.Panel):
     """Panel for editing and saving deck notes."""
 
-    def __init__(self, parent: wx.Window, deck_selector_frame: MTGDeckSelectionFrame):
+    def __init__(
+        self,
+        parent: wx.Window,
+        deck_repo: DeckRepository,
+        store_service: StoreService,
+        notes_store: dict,
+        notes_store_path: Path,
+        on_status_update: Callable[[str], None],
+    ):
         """
         Initialize the deck notes panel.
 
         Args:
             parent: Parent window
-            deck_selector_frame: Reference to the main deck selector frame
+            deck_repo: Repository for deck operations
+            store_service: Service for storing/loading data
+            notes_store: Dictionary containing deck notes
+            notes_store_path: Path to notes store file
+            on_status_update: Callback for status updates
         """
         super().__init__(parent)
         self.SetBackgroundColour(DARK_PANEL)
 
-        self.deck_selector_frame = deck_selector_frame
+        self.deck_repo = deck_repo
+        self.store_service = store_service
+        self.notes_store = notes_store
+        self.notes_store_path = notes_store_path
+        self.on_status_update = on_status_update
 
         self._build_ui()
 
@@ -81,22 +100,17 @@ class DeckNotesPanel(wx.Panel):
         self.notes_text.ChangeValue("")
 
     def load_notes_for_current(self) -> None:
-        """Load notes for the deck currently selected in the frame."""
-        deck_selector = self.deck_selector_frame
-        deck_key = deck_selector.deck_repo.get_current_deck_key()
-        note = deck_selector.deck_notes_store.get(deck_key, "")
+        """Load notes for the deck currently selected."""
+        deck_key = self.deck_repo.get_current_deck_key()
+        note = self.notes_store.get(deck_key, "")
         self.set_notes(note)
 
     def save_current_notes(self) -> None:
         """Persist notes for the currently selected deck."""
-        deck_selector = self.deck_selector_frame
-        deck_key = deck_selector.deck_repo.get_current_deck_key()
-        deck_selector.deck_notes_store[deck_key] = self.get_notes()
-        deck_selector.store_service.save_store(
-            deck_selector.notes_store_path,
-            deck_selector.deck_notes_store,
-        )
-        deck_selector._set_status("Deck notes saved.")
+        deck_key = self.deck_repo.get_current_deck_key()
+        self.notes_store[deck_key] = self.get_notes()
+        self.store_service.save_store(self.notes_store_path, self.notes_store)
+        self.on_status_update("Deck notes saved.")
 
     # ============= Private Methods =============
 

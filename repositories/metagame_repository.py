@@ -149,11 +149,13 @@ class MetagameRepository:
 
         Args:
             mtg_format: MTG format to load
-            max_age: Maximum age in seconds (None = ignore age)
+            max_age: Maximum age in seconds (None = ignore age, -1 = use default TTL)
 
         Returns:
             List of archetypes or None if cache miss
         """
+        if max_age == -1:
+            max_age = _USE_DEFAULT_MAX_AGE
         effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
         if not ARCHETYPE_LIST_CACHE_FILE.exists():
@@ -215,11 +217,13 @@ class MetagameRepository:
 
         Args:
             archetype_url: URL identifying the archetype
-            max_age: Maximum age in seconds (None = ignore age)
+            max_age: Maximum age in seconds (None = ignore age, -1 = use default TTL)
 
         Returns:
             List of decks or None if cache miss
         """
+        if max_age == -1:
+            max_age = _USE_DEFAULT_MAX_AGE
         effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
         if not DECK_CACHE_FILE.exists():
