@@ -34,7 +34,7 @@ from utils.service_config import BULK_DATA_CACHE_FRESHNESS_SECONDS
 IMAGE_CACHE_DIR = CACHE_DIR / "card_images"
 IMAGE_DB_PATH = IMAGE_CACHE_DIR / "images.db"
 BULK_DATA_CACHE = IMAGE_CACHE_DIR / "bulk_data.json"
-PRINTING_INDEX_VERSION = 1
+PRINTING_INDEX_VERSION = 2
 PRINTING_INDEX_CACHE = IMAGE_CACHE_DIR / f"printings_v{PRINTING_INDEX_VERSION}.json"
 
 # Image size options (in order of preference for storage)
@@ -205,6 +205,36 @@ class CardImageCache:
             cursor = conn.execute(
                 "SELECT file_path FROM card_images WHERE LOWER(name) = LOWER(?) AND image_size = ? LIMIT 1",
                 (card_name, size),
+            )
+            row = cursor.fetchone()
+            if row:
+                path = self._resolve_path(row[0])
+                if path.exists():
+                    return path
+
+            alias_path = self._lookup_double_faced_alias(conn, card_name, size)
+            if alias_path:
+                return alias_path
+        return None
+
+    def _lookup_double_faced_alias(
+        self, conn: sqlite3.Connection, card_name: str, size: str
+    ) -> Path | None:
+        """Attempt to resolve front/back face aliases for MDFCs and split layouts."""
+        alias = (card_name or "").strip()
+        if not alias or "//" in alias:
+            return None
+
+        alias_lower = alias.lower()
+        patterns = (
+            f"{alias_lower} // %",
+            f"% // {alias_lower}",
+        )
+
+        for pattern in patterns:
+            cursor = conn.execute(
+                "SELECT file_path FROM card_images WHERE LOWER(name) LIKE ? AND image_size = ? LIMIT 1",
+                (pattern, size),
             )
             row = cursor.fetchone()
             if row:
@@ -562,6 +592,24 @@ class BulkImageDownloader:
             return {"success": False, "error": str(exc)}
 
 
+def _collect_face_aliases(card: dict[str, Any], display_name: str) -> set[str]:
+    """Return alternate face names for MDFCs, split, and adventure cards."""
+    aliases: set[str] = set()
+    for raw_face in card.get("card_faces") or []:
+        face_name = (raw_face.get("name") or "").strip()
+        if face_name:
+            aliases.add(face_name)
+
+    if "//" in display_name:
+        for piece in display_name.split("//"):
+            face_name = piece.strip()
+            if face_name:
+                aliases.add(face_name)
+
+    display_key = display_name.strip().lower()
+    return {alias for alias in aliases if alias.lower() != display_key}
+
+
 def _load_printing_index_payload() -> dict[str, Any] | None:
     """Load the cached card printings index if available."""
     if not PRINTING_INDEX_CACHE.exists():
@@ -610,6 +658,11 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
             "released_at": card.get("released_at") or "",
         }
         by_name.setdefault(key, []).append(entry)
+        for alias in _collect_face_aliases(card, name):
+            alias_key = alias.lower()
+            if alias_key == key:
+                continue
+            by_name.setdefault(alias_key, []).append(entry)
         total_printings += 1
 
     for entries in by_name.values():
