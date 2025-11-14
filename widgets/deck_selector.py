@@ -16,6 +16,7 @@ from services.collection_service import get_collection_service
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
+from services.store_service import get_store_service
 from utils.card_data import CardDataManager
 from utils.deck import (
     read_curr_deck_file,
@@ -35,11 +36,13 @@ from utils.ui_constants import (
     DARK_PANEL,
     LIGHT_TEXT,
     SUBDUED_TEXT,
-    ZONE_TITLES,
 )
+from utils.ui_helpers import open_child_window
 from widgets.buttons.deck_action_buttons import DeckActionButtons
-from widgets.deck_selector_event_handlers import DeckSelectorEventHandlers
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
+from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
+from widgets.handlers.deck_selector_handlers import DeckSelectorHandlers
+from widgets.handlers.sideboard_guide_handlers import SideboardGuideHandlers
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.mana_keyboard import ManaKeyboardFrame, open_mana_keyboard
 from widgets.match_history import MatchHistoryFrame
@@ -50,7 +53,7 @@ from widgets.panels.deck_builder_panel import DeckBuilderPanel
 from widgets.panels.deck_notes_panel import DeckNotesPanel
 from widgets.panels.deck_research_panel import DeckResearchPanel
 from widgets.panels.deck_stats_panel import DeckStatsPanel
-from widgets.panels.sideboard_guide_panel import SideboardGuideHandlers, SideboardGuidePanel
+from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
 
 LEGACY_CONFIG_FILE = Path("config.json")
@@ -151,7 +154,9 @@ class _Worker:
             wx.CallAfter(self.on_success, result)
 
 
-class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, wx.Frame):
+class MTGDeckSelectionFrame(
+    DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandler, wx.Frame
+):
     """wxPython-based metagame research + deck builder UI."""
 
     def __init__(self, parent: wx.Window | None = None):
@@ -165,6 +170,7 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
         self.image_service = get_image_service()
+        self.store_service = get_store_service()
         self.card_data_dialogs_disabled = False
 
         self.settings = self._load_window_settings()
@@ -176,12 +182,13 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
         self.filtered_archetypes: list[dict[str, Any]] = []
         self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": [], "out": []}
 
-        # Load deck metadata stores via repository
-        self.deck_notes_store = self._load_store(NOTES_STORE)
-        self.outboard_store = self._load_store(OUTBOARD_STORE)
-        self.guide_store = self._load_store(GUIDE_STORE)
+        # Load deck metadata stores via store service
+        self.notes_store_path = NOTES_STORE
         self.outboard_store_path = OUTBOARD_STORE
         self.guide_store_path = GUIDE_STORE
+        self.deck_notes_store = self.store_service.load_store(self.notes_store_path)
+        self.outboard_store = self.store_service.load_store(self.outboard_store_path)
+        self.guide_store = self.store_service.load_store(self.guide_store_path)
 
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
@@ -466,13 +473,13 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
     ) -> CardTablePanel:
         """Create a CardTablePanel for a specific zone."""
         if owned_status_func is None:
-            owned_status_func = self._owned_status
+            owned_status_func = self.collection_service.get_owned_status
 
         table = CardTablePanel(
             self.zone_notebook,
             zone,
             self.mana_icons,
-            self._get_card_metadata,
+            self.card_repo.get_card_metadata,
             owned_status_func,
             self._handle_zone_delta,
             self._handle_zone_remove,
@@ -606,7 +613,7 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
         self._save_window_settings()
 
     # ------------------------------------------------------------------ Event handlers -------------------------------------------------------
-    # Event handlers are now in DeckSelectorEventHandlers mixin
+    # Event handlers are now in DeckSelectorHandlers mixin
 
     # ------------------------------------------------------------------ Data loading ---------------------------------------------------------
     def fetch_archetypes(self, force: bool = False) -> None:
@@ -791,100 +798,7 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
         if not started:
             self._set_status("Ready")  # Already loading or loaded
 
-    def _owned_status(self, name: str, required: int) -> tuple[str, wx.Colour]:
-        collection_inventory = self.collection_service.get_inventory()
-        if not collection_inventory:
-            return ("Owned —", SUBDUED_TEXT)
-        have = collection_inventory.get(name.lower(), 0)
-        if have >= required:
-            return (f"Owned {have}/{required}", wx.Colour(120, 200, 120))
-        if have > 0:
-            return (f"Owned {have}/{required}", wx.Colour(230, 200, 90))
-        return ("Owned 0", wx.Colour(230, 120, 120))
-
     # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
-    def _handle_zone_delta(self, zone: str, name: str, delta: int) -> None:
-        import math
-
-        cards = self.zone_cards.get(zone, [])
-        for entry in cards:
-            if entry["name"].lower() == name.lower():
-                current_qty = entry["qty"]
-                # If current quantity is fractional, round it appropriately
-                if isinstance(current_qty, float) and not current_qty.is_integer():
-                    if delta > 0:
-                        # Adding: round up to next integer, then add delta
-                        current_qty = math.ceil(current_qty)
-                    else:
-                        # Removing: round down to previous integer, then subtract delta
-                        current_qty = math.floor(current_qty)
-
-                entry["qty"] = max(0, current_qty + delta)
-                if entry["qty"] == 0:
-                    cards.remove(entry)
-                break
-        else:
-            if delta > 0:
-                cards.append({"name": name, "qty": delta})
-        cards.sort(key=lambda item: item["name"].lower())
-        self.zone_cards[zone] = cards
-        self._after_zone_change(zone)
-
-    def _handle_zone_remove(self, zone: str, name: str) -> None:
-        cards = self.zone_cards.get(zone, [])
-        self.zone_cards[zone] = [entry for entry in cards if entry["name"].lower() != name.lower()]
-        self._after_zone_change(zone)
-
-    def _handle_zone_add(self, zone: str) -> None:
-        if zone == "out":
-            main_cards = [entry["name"] for entry in self.zone_cards.get("main", [])]
-            existing = {entry["name"].lower() for entry in self.zone_cards.get("out", [])}
-            candidates = [name for name in main_cards if name.lower() not in existing]
-            if not candidates:
-                wx.MessageBox(
-                    "All mainboard cards are already in the outboard list.",
-                    "Outboard",
-                    wx.OK | wx.ICON_INFORMATION,
-                )
-                return
-            dlg = wx.SingleChoiceDialog(
-                self, "Select a mainboard card eligible for sideboarding.", "Outboard", candidates
-            )
-            if dlg.ShowModal() != wx.ID_OK:
-                dlg.Destroy()
-                return
-            selection = dlg.GetStringSelection()
-            dlg.Destroy()
-            qty = next(
-                (entry["qty"] for entry in self.zone_cards["main"] if entry["name"] == selection), 1
-            )
-            self.zone_cards.setdefault("out", []).append({"name": selection, "qty": qty})
-            self.zone_cards["out"].sort(key=lambda item: item["name"].lower())
-            self._after_zone_change("out")
-            return
-
-        dlg = wx.TextEntryDialog(
-            self, f"Add card to {ZONE_TITLES.get(zone, zone)} (format: 'Qty Card Name')", "Add Card"
-        )
-        if dlg.ShowModal() != wx.ID_OK:
-            dlg.Destroy()
-            return
-        value = dlg.GetValue().strip()
-        dlg.Destroy()
-        if not value:
-            return
-        parts = value.split(" ", 1)
-        try:
-            qty = int(parts[0]) if len(parts) > 1 else 1
-        except ValueError:
-            qty = 1
-        name = parts[1].strip() if len(parts) > 1 else value
-        if not name:
-            return
-        self.zone_cards.setdefault(zone, []).append({"name": name, "qty": max(1, qty)})
-        self.zone_cards[zone].sort(key=lambda item: item["name"].lower())
-        self._after_zone_change(zone)
-
     def _after_zone_change(self, zone: str) -> None:
         if zone == "main":
             self.main_table.set_cards(self.zone_cards["main"])
@@ -901,15 +815,6 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
         self._schedule_settings_save()
 
     # ------------------------------------------------------------------ Card inspector -----------------------------------------------------
-    def _handle_card_focus(self, zone: str, card: dict[str, Any] | None) -> None:
-        if card is None:
-            if self.card_inspector_panel.active_zone == zone:
-                self.card_inspector_panel.reset()
-            return
-        self._collapse_other_zone_tables(zone)
-        meta = self._get_card_metadata(card["name"])
-        self.card_inspector_panel.update_card(card, zone=zone, meta=meta)
-
     def _collapse_other_zone_tables(self, active_zone: str) -> None:
         tables = {
             "main": self.main_table,
@@ -921,50 +826,14 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
                 continue
             table.collapse_active()
 
-    def _get_card_metadata(self, card_name: str) -> dict[str, Any] | None:
-        """Get card metadata from the card manager if available."""
-        card_manager = self.card_repo.get_card_manager()
-        if not card_manager:
-            return None
-        return card_manager.get_card(card_name)
-
     # ------------------------------------------------------------------ Stats + notes --------------------------------------------------------
     def _update_stats(self, deck_text: str) -> None:
         """Update stats display using the DeckStatsPanel."""
         self.deck_stats_panel.update_stats(deck_text, self.zone_cards)
 
-    def _load_notes_for_current(self) -> None:
-        """Load notes for the current deck into the notes panel."""
-        key = self._current_deck_key()
-        note = self.deck_notes_store.get(key, "")
-        self.deck_notes_panel.set_notes(note)
-
-    def _save_current_notes(self) -> None:
-        """Save notes from the notes panel."""
-        key = self._current_deck_key()
-        notes = self.deck_notes_panel.get_notes()
-        self.deck_notes_store[key] = notes
-        self._save_store(NOTES_STORE, self.deck_notes_store)
-        self._set_status("Deck notes saved.")
-
     # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
-    def _load_store(self, path: Path) -> dict[str, Any]:
-        if not path.exists():
-            return {}
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            logger.warning(f"Invalid JSON at {path}; ignoring store")
-            return {}
-
-    def _save_store(self, path: Path, data: dict[str, Any]) -> None:
-        try:
-            path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        except OSError as exc:
-            logger.warning(f"Failed to write {path}: {exc}")
-
     # ------------------------------------------------------------------ Daily average --------------------------------------------------------
-    def _build_daily_average_deck(self) -> None:
+    def _start_daily_average_build(self) -> None:
         today = time.strftime("%Y-%m-%d").lower()
         todays_decks = [
             deck
@@ -996,13 +865,13 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
             def update_progress(index: int, total: int) -> None:
                 wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{total} decks…")
 
-            buffer: dict[str, float] = {}
-            for index, deck in enumerate(rows, start=1):
-                download_deck(deck["number"])
-                deck_content = read_curr_deck_file()
-                buffer = self.deck_service.add_deck_to_buffer(buffer, deck_content)
-                update_progress(index, len(rows))
-            return buffer
+            return self.deck_repo.build_daily_average_deck(
+                rows,
+                download_deck,
+                read_curr_deck_file,
+                self.deck_service.add_deck_to_buffer,
+                progress_callback=update_progress,
+            )
 
         def on_success(buffer: dict[str, float]):
             # Process the deck data first
@@ -1045,9 +914,7 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
         self._set_status("Loading card database...")
 
         def worker():
-            from utils.card_data import load_card_manager
-
-            return load_card_manager()
+            return self.card_repo.ensure_card_data_loaded()
 
         def on_success(manager: CardDataManager):
             self.card_repo.set_card_manager(manager)
@@ -1071,59 +938,48 @@ class MTGDeckSelectionFrame(DeckSelectorEventHandlers, SideboardGuideHandlers, w
         _Worker(worker, on_success=on_success, on_error=on_error).start()
 
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
-    def _current_deck_key(self) -> str:
-        current_deck = self.deck_repo.get_current_deck()
-        if current_deck:
-            return current_deck.get("href") or current_deck.get("name", "manual").lower()
-        return "manual"
-
-    def _widget_exists(self, window: wx.Window | None) -> bool:
-        if window is None:
-            return False
-        try:
-            return bool(window.IsShown())
-        except wx.PyDeadObjectError:
-            return False
-
-    def _open_child_window(
-        self, attr: str, window_class: type, title: str, *args, **kwargs
-    ) -> None:
-        """Generic factory method for opening child windows."""
-        existing = getattr(self, attr, None)
-        if self._widget_exists(existing):
-            existing.Raise()
-            return
-        try:
-            window = window_class(self, *args, **kwargs)
-            window.Bind(wx.EVT_CLOSE, lambda evt: self._handle_child_close(evt, attr))
-            window.Show()
-            setattr(self, attr, window)
-        except Exception as exc:
-            logger.error(f"Failed to open {title.lower()}: {exc}")
-            wx.MessageBox(
-                f"Unable to open {title.lower()}:\n{exc}",
-                title,
-                wx.OK | wx.ICON_ERROR,
-            )
-
     def open_opponent_tracker(self) -> None:
-        self._open_child_window("tracker_window", MTGOpponentDeckSpy, "Opponent Tracker")
+        open_child_window(
+            self,
+            "tracker_window",
+            MTGOpponentDeckSpy,
+            "Opponent Tracker",
+            self._handle_child_close,
+        )
 
     def open_timer_alert(self) -> None:
-        self._open_child_window("timer_window", TimerAlertFrame, "Timer Alert")
+        open_child_window(
+            self,
+            "timer_window",
+            TimerAlertFrame,
+            "Timer Alert",
+            self._handle_child_close,
+        )
 
     def open_match_history(self) -> None:
-        self._open_child_window("history_window", MatchHistoryFrame, "Match History")
+        open_child_window(
+            self,
+            "history_window",
+            MatchHistoryFrame,
+            "Match History",
+            self._handle_child_close,
+        )
 
     def open_metagame_analysis(self) -> None:
-        self._open_child_window("metagame_window", MetagameAnalysisFrame, "Metagame Analysis")
+        open_child_window(
+            self,
+            "metagame_window",
+            MetagameAnalysisFrame,
+            "Metagame Analysis",
+            self._handle_child_close,
+        )
 
     def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
         setattr(self, attr, None)
         event.Skip()
 
     # ------------------------------------------------------------------ Lifecycle ------------------------------------------------------------
-    # Lifecycle handlers are now in DeckSelectorEventHandlers mixin
+    # Lifecycle handlers are now in DeckSelectorHandlers mixin
 
 
 def launch_app() -> None:

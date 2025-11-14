@@ -80,8 +80,26 @@ class DeckNotesPanel(wx.Panel):
         """Clear the notes text."""
         self.notes_text.ChangeValue("")
 
+    def load_notes_for_current(self) -> None:
+        """Load notes for the deck currently selected in the frame."""
+        deck_selector = self.deck_selector_frame
+        deck_key = deck_selector.deck_repo.get_current_deck_key()
+        note = deck_selector.deck_notes_store.get(deck_key, "")
+        self.set_notes(note)
+
+    def save_current_notes(self) -> None:
+        """Persist notes for the currently selected deck."""
+        deck_selector = self.deck_selector_frame
+        deck_key = deck_selector.deck_repo.get_current_deck_key()
+        deck_selector.deck_notes_store[deck_key] = self.get_notes()
+        deck_selector.store_service.save_store(
+            deck_selector.notes_store_path,
+            deck_selector.deck_notes_store,
+        )
+        deck_selector._set_status("Deck notes saved.")
+
     # ============= Private Methods =============
 
     def _on_save_clicked(self, _event: wx.Event) -> None:
         """Handle Save Notes button click."""
-        self.deck_selector_frame._save_current_notes()
+        self.save_current_notes()

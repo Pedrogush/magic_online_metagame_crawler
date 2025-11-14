@@ -60,14 +60,14 @@ def test_notes_persist_across_frames(
     try:
         first_frame.deck_repo.set_current_deck({"href": "manual", "name": "Manual Deck"})
         first_frame.deck_notes_panel.notes_text.ChangeValue("Important note")
-        first_frame._save_current_notes()
+        first_frame.deck_notes_panel.save_current_notes()
     finally:
         first_frame.Destroy()
 
     second_frame = deck_selector_factory()
     try:
         second_frame.deck_repo.set_current_deck({"href": "manual", "name": "Manual Deck"})
-        second_frame._load_notes_for_current()
+        second_frame.deck_notes_panel.load_notes_for_current()
         assert second_frame.deck_notes_panel.notes_text.GetValue() == "Important note"
     finally:
         second_frame.Destroy()

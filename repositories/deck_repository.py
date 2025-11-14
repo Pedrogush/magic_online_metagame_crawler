@@ -412,6 +412,13 @@ class DeckRepository:
         """Get the currently selected deck."""
         return self._current_deck
 
+    def get_current_deck_key(self) -> str:
+        """Return a stable key for the current deck for store lookups."""
+        current_deck = self.get_current_deck()
+        if current_deck:
+            return current_deck.get("href") or current_deck.get("name", "manual").lower()
+        return "manual"
+
     def set_current_deck(self, deck: dict[str, Any] | None) -> None:
         """Set the currently selected deck."""
         self._current_deck = deck
@@ -446,7 +453,12 @@ class DeckRepository:
         self._decks_added = 0
 
     def build_daily_average_deck(
-        self, decks: list[dict[str, Any]], download_func, read_func, add_to_buffer_func
+        self,
+        decks: list[dict[str, Any]],
+        download_func,
+        read_func,
+        add_to_buffer_func,
+        progress_callback=None,
     ) -> dict[str, float]:
         """
         Build daily average deck by downloading and averaging multiple decks.
@@ -457,14 +469,20 @@ class DeckRepository:
             read_func: Function to read downloaded deck content
             add_to_buffer_func: Function to add deck to averaging buffer
 
+        Args:
+            progress_callback: Optional callback invoked with (index, total)
+
         Returns:
             Buffer dictionary with averaged card counts
         """
         buffer: dict[str, float] = {}
-        for deck in decks:
+        total = len(decks)
+        for index, deck in enumerate(decks, start=1):
             download_func(deck["number"])
             deck_content = read_func()
             buffer = add_to_buffer_func(buffer, deck_content)
+            if progress_callback:
+                progress_callback(index, total)
         return buffer
 
     # ============= Private Helper Methods =============

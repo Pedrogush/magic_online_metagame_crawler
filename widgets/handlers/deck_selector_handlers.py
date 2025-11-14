@@ -8,11 +8,13 @@ from typing import TYPE_CHECKING, Any
 import wx
 from loguru import logger
 
+from utils.ui_helpers import widget_exists
+
 if TYPE_CHECKING:
     from widgets.deck_selector import MTGDeckSelectionFrame
 
 
-class DeckSelectorEventHandlers:
+class DeckSelectorHandlers:
     """Mixin class containing all event handlers for MTGDeckSelectionFrame."""
 
     # UI Event Handlers
@@ -76,7 +78,7 @@ class DeckSelectorEventHandlers:
                 return
         if not self.deck_repo.get_decks_list():
             return
-        self._build_daily_average_deck()
+        self._start_daily_average_build()
 
     def on_copy_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         deck_content = self._build_deck_text().strip()
@@ -152,7 +154,7 @@ class DeckSelectorEventHandlers:
         self._save_window_settings()
         for attr in ("tracker_window", "timer_window", "history_window"):
             window = getattr(self, attr)
-            if self._widget_exists(window):
+            if widget_exists(window):
                 window.Destroy()
                 setattr(self, attr, None)
         if self.mana_keyboard_window and self.mana_keyboard_window.IsShown():
@@ -236,7 +238,7 @@ class DeckSelectorEventHandlers:
         self._update_stats(deck_text)
         self.copy_button.Enable(True)
         self.save_button.Enable(True)
-        self._load_notes_for_current()
+        self.deck_notes_panel.load_notes_for_current()
         self._load_guide_for_current()
         self._set_status(f"Deck ready ({source}).")
         self._show_left_panel("builder")
