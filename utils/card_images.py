@@ -20,11 +20,12 @@ import json
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime
+
 try:  # Python 3.10 fallback for datetime.UTC
     from datetime import UTC
 except ImportError:  # pragma: no cover - compatibility shim
-    UTC = timezone.utc
+    UTC = UTC
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -309,16 +310,12 @@ class CardImageCache:
         self, uuid: str, size: str = "normal", face_index: int | None = 0
     ) -> Path | None:
         """Get cached image path by Scryfall UUID."""
-        query = (
-            "SELECT file_path FROM card_images WHERE uuid = ? AND image_size = ? ORDER BY face_index"
-        )
+        query = "SELECT file_path FROM card_images WHERE uuid = ? AND image_size = ? ORDER BY face_index"
         params: tuple[object, ...]
         if face_index is None:
             params = (uuid, size)
         else:
-            query = (
-                "SELECT file_path FROM card_images WHERE uuid = ? AND face_index = ? AND image_size = ?"
-            )
+            query = "SELECT file_path FROM card_images WHERE uuid = ? AND face_index = ? AND image_size = ?"
             params = (uuid, face_index, size)
 
         with sqlite3.connect(self.db_path) as conn:

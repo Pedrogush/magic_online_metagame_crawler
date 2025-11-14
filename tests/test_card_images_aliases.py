@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+
 from utils import card_images
 
 
@@ -84,7 +85,5 @@ def test_card_image_cache_resolves_double_faced_alias(tmp_path):
 
     assert cache.get_image_path("Delver of Secrets") == front_path
     assert cache.get_image_path("Insectile Aberration") == back_path
-    assert (
-        cache.get_image_path("Delver of Secrets // Insectile Aberration") == front_path
-    )
+    assert cache.get_image_path("Delver of Secrets // Insectile Aberration") == front_path
     assert cache.get_image_paths_by_uuid("uuid-delver") == [front_path, back_path]
