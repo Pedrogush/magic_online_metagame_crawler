@@ -21,6 +21,7 @@ from utils.card_images import (
     ensure_printing_index_cache,
     get_cache,
 )
+from utils.service_config import BULK_DATA_CACHE_FRESHNESS_SECONDS
 
 
 class ImageService:
@@ -66,7 +67,7 @@ class ImageService:
             # Fallback to age-based check
             try:
                 age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-                if age_seconds < 86400:  # Less than 24 hours
+                if age_seconds < BULK_DATA_CACHE_FRESHNESS_SECONDS:
                     reason = f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)"
                     logger.info(reason)
                     return False, reason

@@ -22,12 +22,13 @@ from utils.paths import (
     ARCHETYPE_LIST_CACHE_FILE,
     DECK_CACHE_FILE,
 )
+from utils.service_config import METAGAME_CACHE_TTL_SECONDS
 
 
 class MetagameRepository:
     """Repository for metagame data access operations."""
 
-    def __init__(self, cache_ttl: int = 3600):
+    def __init__(self, cache_ttl: int = METAGAME_CACHE_TTL_SECONDS):
         """
         Initialize the metagame repository.
 

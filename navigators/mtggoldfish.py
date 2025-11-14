@@ -16,6 +16,7 @@ from utils.paths import (
     CURR_DECK_FILE,
     DECK_CACHE_FILE,
 )
+from utils.service_config import METAGAME_CACHE_TTL_SECONDS, ONE_DAY_SECONDS
 
 LEGACY_ARCHETYPE_CACHE_FILE = Path("archetype_cache.json")
 LEGACY_DECK_CACHE_FILE = Path("deck_cache.json")
@@ -25,7 +26,7 @@ LEGACY_CURR_DECK_CACHE_FILE = Path("cache") / "curr_deck.txt"
 LEGACY_CURR_DECK_ROOT_FILE = Path("curr_deck.txt")
 
 
-def _load_cached_archetypes(mtg_format: str, max_age: int = 60 * 60):
+def _load_cached_archetypes(mtg_format: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):
     if not ARCHETYPE_LIST_CACHE_FILE.exists():
         return None
     try:
@@ -57,7 +58,9 @@ def _save_cached_archetypes(mtg_format: str, items: list[dict]):
         json.dump(data, fh, indent=2)
 
 
-def get_archetypes(mtg_format: str, cache_ttl: int = 60 * 60, allow_stale: bool = True):
+def get_archetypes(
+    mtg_format: str, cache_ttl: int = METAGAME_CACHE_TTL_SECONDS, allow_stale: bool = True
+):
     mtg_format = mtg_format.lower()
     cached = _load_cached_archetypes(mtg_format, cache_ttl)
     if cached is not None:
@@ -75,7 +78,7 @@ def get_archetypes(mtg_format: str, cache_ttl: int = 60 * 60, allow_stale: bool 
     except Exception as exc:
         logger.error(f"Failed to fetch archetype page: {exc}")
         if allow_stale:
-            stale = _load_cached_archetypes(mtg_format, max_age=60 * 60 * 24 * 7)
+            stale = _load_cached_archetypes(mtg_format, max_age=ONE_DAY_SECONDS * 7)
             if stale is not None:
                 logger.warning(f"Using stale archetype cache for {mtg_format}")
                 return stale
@@ -154,7 +157,7 @@ def get_archetype_stats(mtg_format: str):
             stats = {}
         if (
             mtg_format in stats
-            and time.time() - stats[mtg_format].get("timestamp", 0) < 60 * 60 * 24
+            and time.time() - stats[mtg_format].get("timestamp", 0) < ONE_DAY_SECONDS
         ):
             if legacy_source:
                 try:

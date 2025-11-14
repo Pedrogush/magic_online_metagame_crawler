@@ -1,0 +1,21 @@
+"""Service-level configuration defaults shared across modules."""
+
+ONE_HOUR_SECONDS = 60 * 60
+ONE_DAY_SECONDS = 24 * 60 * 60
+
+# Collection inventory refresh settings
+COLLECTION_CACHE_MAX_AGE_SECONDS = ONE_HOUR_SECONDS
+
+# Metagame scraping cache TTL
+METAGAME_CACHE_TTL_SECONDS = ONE_HOUR_SECONDS
+
+# Card image bulk data refresh thresholds
+BULK_DATA_CACHE_FRESHNESS_SECONDS = ONE_DAY_SECONDS
+
+__all__ = [
+    "ONE_HOUR_SECONDS",
+    "ONE_DAY_SECONDS",
+    "COLLECTION_CACHE_MAX_AGE_SECONDS",
+    "METAGAME_CACHE_TTL_SECONDS",
+    "BULK_DATA_CACHE_FRESHNESS_SECONDS",
+]
