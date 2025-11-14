@@ -761,9 +761,23 @@ class MTGDeckSelectionFrame(
         )
 
     def _check_and_download_bulk_data(self) -> None:
-        """Check if bulk data exists, and download/load in background if needed."""
-        needs_download, reason = self.image_service.check_bulk_data_freshness()
+        """Kick off a background freshness check before loading/downloading bulk data."""
+        self._set_status("Checking card image database…")
 
+        def worker():
+            return self.image_service.check_bulk_data_freshness()
+
+        def on_success(result: tuple[bool, str]):
+            needs_download, reason = result
+            self._after_bulk_data_check(needs_download, reason)
+
+        def on_error(exc: Exception):
+            self._on_bulk_data_check_failed(exc)
+
+        _Worker(worker, on_success=on_success, on_error=on_error).start()
+
+    def _after_bulk_data_check(self, needs_download: bool, reason: str) -> None:
+        """Handle the result of bulk data freshness check (UI thread)."""
         if not needs_download:
             # Data is fresh, just load into memory
             self._load_bulk_data_into_memory()
@@ -781,6 +795,14 @@ class MTGDeckSelectionFrame(
             on_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
             on_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
         )
+
+    def _on_bulk_data_check_failed(self, exc: Exception) -> None:
+        """Fallback when we fail to check bulk data freshness."""
+        logger.warning(f"Failed to check bulk data freshness: {exc}")
+        if not self.image_service.get_bulk_data():
+            self._load_bulk_data_into_memory()
+        else:
+            self._set_status("Ready")
 
     def _load_bulk_data_into_memory(self, force: bool = False) -> None:
         """Load the compact card printings index in the background."""
