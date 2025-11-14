@@ -40,6 +40,7 @@ from utils.ui_constants import (
 )
 from utils.ui_helpers import open_child_window
 from widgets.buttons.deck_action_buttons import DeckActionButtons
+from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
 from widgets.handlers.deck_selector_handlers import DeckSelectorHandlers
@@ -314,31 +315,19 @@ class MTGDeckSelectionFrame(
 
         return right_panel
 
-    def _build_toolbar(self, parent: wx.Window) -> wx.BoxSizer:
+    def _build_toolbar(self, parent: wx.Window) -> ToolbarButtons:
         """Build the toolbar with utility buttons."""
-        toolbar = wx.BoxSizer(wx.HORIZONTAL)
-
-        buttons = [
-            ("Opponent Tracker", lambda: self.open_opponent_tracker()),
-            ("Timer Alert", lambda: self.open_timer_alert()),
-            ("Match History", lambda: self.open_match_history()),
-            ("Metagame Analysis", lambda: self.open_metagame_analysis()),
-            ("Load Collection", lambda: self._refresh_collection_inventory(force=True)),
-            (
-                "Download Card Images",
-                lambda: show_image_download_dialog(
-                    self, self.image_cache, self.image_downloader, self._set_status
-                ),
+        return ToolbarButtons(
+            parent,
+            on_open_opponent_tracker=self.open_opponent_tracker,
+            on_open_timer_alert=self.open_timer_alert,
+            on_open_match_history=self.open_match_history,
+            on_open_metagame_analysis=self.open_metagame_analysis,
+            on_load_collection=lambda: self._refresh_collection_inventory(force=True),
+            on_download_card_images=lambda: show_image_download_dialog(
+                self, self.image_cache, self.image_downloader, self._set_status
             ),
-        ]
-
-        for label, handler in buttons:
-            btn = wx.Button(parent, label=label)
-            btn.Bind(wx.EVT_BUTTON, lambda evt, h=handler: h())
-            toolbar.Add(btn, 0, wx.RIGHT, 6)
-
-        toolbar.AddStretchSpacer(1)
-        return toolbar
+        )
 
     def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
         """Build the summary text and deck list column."""
