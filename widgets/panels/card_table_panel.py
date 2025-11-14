@@ -74,18 +74,17 @@ class CardTablePanel(wx.Panel):
             if old_card["name"].lower() != new_card["name"].lower():
                 return False
 
-        # All cards match, only quantities may have changed
+        # All cards match - update all widgets since we can't reliably detect which changed
+        # (new_cards and self.cards may reference the same list)
         total = 0
         for i, new_card in enumerate(new_cards):
             qty = new_card["qty"]
             total += qty
 
-            # Update widget if quantity changed
-            if qty != self.cards[i]["qty"]:
-                widget = self.card_widgets[i]
-                widget.card = new_card
-                owned_text, owned_colour = self._owned_status(new_card["name"], int(qty))
-                widget.update_quantity(qty, owned_text, owned_colour)
+            widget = self.card_widgets[i]
+            widget.card = new_card
+            owned_text, owned_colour = self._owned_status(new_card["name"], int(qty))
+            widget.update_quantity(qty, owned_text, owned_colour)
 
         self.count_label.SetLabel(f"{total} card{'s' if total != 1 else ''}")
         return True
