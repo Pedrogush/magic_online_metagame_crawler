@@ -36,6 +36,8 @@ class CollectionService:
         self._collection: dict[str, int] = {}
         self._collection_path: Path | None = None
         self._collection_loaded = False
+        self._cached_deck_text: str | None = None
+        self._cached_deck_requirements: dict[str, int] | None = None
 
     # ============= Collection Loading =============
 
@@ -397,25 +399,10 @@ class CollectionService:
 
     # ============= Deck Analysis =============
 
-    def analyze_deck_ownership(self, deck_text: str) -> dict[str, Any]:
-        """
-        Analyze what cards from a deck are owned.
-
-        Args:
-            deck_text: Deck list as text
-
-        Returns:
-            Dictionary with ownership analysis:
-                - total_unique: int - total unique cards in deck
-                - fully_owned: int - cards fully owned
-                - partially_owned: int - cards partially owned
-                - not_owned: int - cards not owned
-                - missing_cards: list of (card_name, owned, needed) tuples
-                - ownership_percentage: float - percentage fully owned
-        """
+    def _parse_deck_text(self, deck_text: str) -> dict[str, int]:
+        """Parse deck text into aggregated card requirements."""
         card_requirements: dict[str, int] = {}
 
-        # Parse deck to get requirements
         for line in deck_text.split("\n"):
             line = line.strip()
             if not line:
@@ -437,6 +424,42 @@ class CollectionService:
 
             except (ValueError, IndexError):
                 continue
+
+        return card_requirements
+
+    def _get_deck_requirements(self, deck_text: str) -> dict[str, int]:
+        """
+        Return cached deck requirements when the deck text hasn't changed.
+
+        The raw deck text is normalized via strip() so cosmetic newline changes
+        (e.g., trailing whitespace) do not thrash the cache.
+        """
+        normalized = deck_text.strip()
+        if normalized == self._cached_deck_text and self._cached_deck_requirements is not None:
+            return dict(self._cached_deck_requirements)
+
+        requirements = self._parse_deck_text(deck_text)
+        self._cached_deck_text = normalized
+        self._cached_deck_requirements = dict(requirements)
+        return requirements
+
+    def analyze_deck_ownership(self, deck_text: str) -> dict[str, Any]:
+        """
+        Analyze what cards from a deck are owned.
+
+        Args:
+            deck_text: Deck list as text
+
+        Returns:
+            Dictionary with ownership analysis:
+                - total_unique: int - total unique cards in deck
+                - fully_owned: int - cards fully owned
+                - partially_owned: int - cards partially owned
+                - not_owned: int - cards not owned
+                - missing_cards: list of (card_name, owned, needed) tuples
+                - ownership_percentage: float - percentage fully owned
+        """
+        card_requirements = self._get_deck_requirements(deck_text)
 
         # Analyze ownership
         fully_owned = 0

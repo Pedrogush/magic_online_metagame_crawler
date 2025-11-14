@@ -6,6 +6,19 @@ from pathlib import Path
 from repositories.card_repository import CardRepository
 from services.collection_service import CollectionService
 
+
+class TrackingCollectionService(CollectionService):
+    """Collection service that records deck parse invocations for testing."""
+
+    def __init__(self, card_repository: CardRepository | None = None):
+        super().__init__(card_repository=card_repository)
+        self.parse_calls = 0
+
+    def _parse_deck_text(self, deck_text: str) -> dict[str, int]:
+        self.parse_calls += 1
+        return super()._parse_deck_text(deck_text)
+
+
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample_collection_export.json"
 
 
@@ -51,3 +64,22 @@ def test_collection_service_loads_inventory_from_export(tmp_path):
     assert inventory["Lightning Bolt"] == 5  # 4 + 1 duplicate entry
     assert inventory["Island"] == 12
     assert inventory["Spell Pierce"] == 2
+
+
+def test_analyze_deck_ownership_uses_cached_requirements():
+    repo = CardRepository()
+    service = TrackingCollectionService(card_repository=repo)
+    service.set_inventory({"Lightning Bolt": 4, "Island": 12})
+
+    deck_text = "4 Lightning Bolt\n\nSideboard\n1 Island"
+
+    first = service.analyze_deck_ownership(deck_text)
+    second = service.analyze_deck_ownership(deck_text)
+
+    assert first == second
+    assert service.parse_calls == 1
+
+    updated_deck = deck_text + "\n1 Spell Pierce"
+    service.analyze_deck_ownership(updated_deck)
+
+    assert service.parse_calls == 2
