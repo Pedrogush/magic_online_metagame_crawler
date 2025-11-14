@@ -116,3 +116,7 @@ pytest -n auto  # Run with pytest-xdist
 ```
 
 The automatic fixture ensures each test gets a clean environment regardless of execution order.
+
+### Challenge Alarm Testing
+
+The timer alert widget (widgets/timer_alert.py) has comprehensive test coverage in tests/test_timer_alert.py. Tests focus on logic validation rather than full GUI mocking to avoid wx dependencies on Linux. Core logic is tested in isolation including time parsing, threshold detection, alert triggers, and sound mapping. See the test file docstring for extending coverage with new alert scenarios.

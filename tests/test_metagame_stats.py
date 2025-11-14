@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from utils.metagame_stats import (
@@ -10,7 +10,7 @@ from utils.metagame_stats import (
 
 
 def _deck(publish_offset_days: int, fmt: str, archetype: str, player: str, event_name: str) -> dict:
-    publish = (datetime.now(UTC) - timedelta(days=publish_offset_days)).isoformat()
+    publish = (datetime.now(timezone.utc) - timedelta(days=publish_offset_days)).isoformat()
     return {
         "publish_date": publish,
         "format": fmt,

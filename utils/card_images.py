@@ -20,7 +20,7 @@ import json
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -255,7 +255,7 @@ class CardImageCache:
                     collector_number,
                     image_size,
                     file_path_str,
-                    datetime.now(UTC).isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     scryfall_uri,
                     artist,
                 ),
@@ -392,7 +392,7 @@ class BulkImageDownloader:
                     VALUES (1, ?, ?, ?)
                 """,
                     (
-                        remote_updated_at or datetime.now(UTC).isoformat(),
+                        remote_updated_at or datetime.now(timezone.utc).isoformat(),
                         0,
                         download_uri,
                     ),
@@ -617,7 +617,7 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
 
     payload = {
         "version": PRINTING_INDEX_VERSION,
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "bulk_mtime": bulk_mtime,
         "unique_names": len(by_name),
         "total_printings": total_printings,

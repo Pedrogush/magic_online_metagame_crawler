@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from utils import mtgo_bridge
@@ -44,8 +44,8 @@ def _format_timestamp(raw: Any) -> str:
     if isinstance(raw, str) and raw:
         return raw
     if isinstance(raw, (int, float)):
-        return datetime.fromtimestamp(raw, tz=UTC).isoformat()
-    return datetime.now(tz=UTC).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(raw, tz=timezone.utc).isoformat()
+    return datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
 
 
 def monitor_currency(
