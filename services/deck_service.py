@@ -139,8 +139,6 @@ class DeckService:
 
                 # Preserve float quantities from average decks
                 count_float = float(parts[0])
-                # Convert to int only if it's a whole number
-                count = int(count_float) if count_float.is_integer() else count_float
                 card_name = parts[1].strip()
 
                 if is_sideboard:
@@ -157,7 +155,9 @@ class DeckService:
             except (ValueError, IndexError):
                 continue
 
-        def _build_card_list(order: list[str], totals: dict[str, float]) -> list[tuple[str, int | float]]:
+        def _build_card_list(
+            order: list[str], totals: dict[str, float]
+        ) -> list[tuple[str, int | float]]:
             cards: list[tuple[str, int | float]] = []
             for card in order:
                 total = totals[card]
