@@ -113,7 +113,7 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         card_images, "BULK_DATA_CACHE", image_cache / "bulk_data.json", raising=False
     )
     monkeypatch.setattr(
-        card_images, "PRINTING_INDEX_CACHE", image_cache / "printings_v1.json", raising=False
+        card_images, "PRINTING_INDEX_CACHE", image_cache / "printings_v2.json", raising=False
     )
 
     def fake_ensure_latest(self: CardDataManager, force: bool = False) -> None:

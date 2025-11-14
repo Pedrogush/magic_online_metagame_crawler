@@ -263,10 +263,13 @@ class CardInspectorPanel(wx.Panel):
         uuid = printing.get("id")
 
         # Try to load from cache
-        image_path = self.image_cache.get_image_by_uuid(uuid, "normal")
+        image_paths = self.image_cache.get_image_paths_by_uuid(uuid, "normal")
 
-        if image_path:
-            self.card_image_display.show_image(image_path)
+        if image_paths:
+            if len(image_paths) > 1:
+                self.card_image_display.show_images(image_paths)
+            else:
+                self.card_image_display.show_image(image_paths[0])
         else:
             self.card_image_display.show_placeholder("Not cached")
 

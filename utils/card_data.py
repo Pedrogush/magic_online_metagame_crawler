@@ -219,31 +219,41 @@ class CardDataManager:
 
     def _build_index(self, atomic_cards: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         cards: dict[str, dict[str, Any]] = {}
+        alias_map: dict[str, dict[str, Any]] = {}
         for variations in atomic_cards.values():
             if not isinstance(variations, list):
                 continue
             for printing in variations:
                 if printing.get("isToken") or printing.get("layout") == "token":
                     continue
-                face_name = printing.get("faceName") or printing.get("name")
-                if not face_name:
+                canonical_name = (printing.get("name") or printing.get("faceName") or "").strip()
+                if not canonical_name:
                     continue
-                key = face_name.lower()
+                key = canonical_name.lower()
                 existing = cards.get(key)
-                candidate = self._simplify_printing(printing, face_name)
+                candidate = self._simplify_printing(printing, canonical_name)
                 if not existing:
                     cards[key] = candidate
                 else:
                     existing["legalities"] = self._merge_legalities(
                         existing.get("legalities"), candidate.get("legalities")
                     )
+                aliases = candidate.setdefault("aliases", set())
+                aliases.update(self._collect_name_aliases(canonical_name, printing))
         card_list = sorted(cards.values(), key=lambda c: c["name_lower"])
+        for card in card_list:
+            alias_set = card.pop("aliases", set()) or set()
+            alias_set.add(card["name"])
+            cleaned_aliases = sorted({alias.strip() for alias in alias_set if alias})
+            card["aliases"] = cleaned_aliases
+            for alias in cleaned_aliases:
+                alias_map.setdefault(alias.lower(), card)
         return {
             "cards": card_list,
-            "cards_by_name": {card["name_lower"]: card for card in card_list},
+            "cards_by_name": alias_map,
         }
 
-    def _simplify_printing(self, printing: dict[str, Any], face_name: str) -> dict[str, Any]:
+    def _simplify_printing(self, printing: dict[str, Any], canonical_name: str) -> dict[str, Any]:
         legalities = printing.get("legalities") or {}
         mana_value = printing.get("manaValue")
         if isinstance(mana_value, str):
@@ -252,8 +262,8 @@ class CardDataManager:
             except ValueError:
                 pass
         simplified = {
-            "name": face_name,
-            "name_lower": face_name.lower(),
+            "name": canonical_name,
+            "name_lower": canonical_name.lower(),
             "mana_cost": printing.get("manaCost"),
             "mana_value": mana_value,
             "type_line": printing.get("type"),
@@ -264,8 +274,25 @@ class CardDataManager:
             "colors": printing.get("colors") or [],
             "color_identity": printing.get("colorIdentity") or [],
             "legalities": {k.lower(): v for k, v in legalities.items()},
+            "aliases": set(),
         }
         return simplified
+
+    @staticmethod
+    def _collect_name_aliases(canonical_name: str, printing: dict[str, Any]) -> set[str]:
+        """Gather alias names for a printing, including individual faces."""
+        aliases: set[str] = set()
+        face_name = (printing.get("faceName") or "").strip()
+        if face_name:
+            aliases.add(face_name)
+        if canonical_name:
+            aliases.add(canonical_name)
+            if "//" in canonical_name:
+                for piece in canonical_name.split("//"):
+                    alias = piece.strip()
+                    if alias:
+                        aliases.add(alias)
+        return aliases
 
     def _merge_legalities(
         self,

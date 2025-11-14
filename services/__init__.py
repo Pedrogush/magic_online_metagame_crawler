@@ -5,7 +5,15 @@ This package contains service classes that handle all business logic,
 orchestrating between repositories and the UI layer.
 """
 
-from services.collection_service import CollectionService, get_collection_service
+try:  # wxPython may be missing in headless environments
+    from services.collection_service import CollectionService, get_collection_service
+except Exception:  # pragma: no cover - collection service not available without wx
+    CollectionService = None
+
+    def get_collection_service():
+        raise RuntimeError("CollectionService is unavailable (wxPython not installed)")
+
+
 from services.deck_service import DeckService, get_deck_service
 from services.image_service import ImageService, get_image_service
 from services.search_service import SearchService, get_search_service

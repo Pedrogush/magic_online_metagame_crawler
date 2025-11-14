@@ -12,14 +12,32 @@ parent_dir = Path(__file__).parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
+
 # ruff: noqa: E402
-from repositories.card_repository import reset_card_repository
-from repositories.deck_repository import reset_deck_repository
-from repositories.metagame_repository import reset_metagame_repository
-from services.collection_service import reset_collection_service
-from services.deck_service import reset_deck_service
-from services.image_service import reset_image_service
-from services.search_service import reset_search_service
+def _optional_reset(module_path: str, attr_name: str):
+    """Dynamically import a reset function, falling back to a no-op."""
+    try:
+        module = __import__(module_path, fromlist=[attr_name])
+        return getattr(module, attr_name)
+    except Exception:  # pragma: no cover - used in CI without optional deps
+
+        def _noop(*_args, **_kwargs):
+            return None
+
+        return _noop
+
+
+reset_card_repository = _optional_reset("repositories.card_repository", "reset_card_repository")
+reset_deck_repository = _optional_reset("repositories.deck_repository", "reset_deck_repository")
+reset_metagame_repository = _optional_reset(
+    "repositories.metagame_repository", "reset_metagame_repository"
+)
+reset_deck_service = _optional_reset("services.deck_service", "reset_deck_service")
+reset_image_service = _optional_reset("services.image_service", "reset_image_service")
+reset_search_service = _optional_reset("services.search_service", "reset_search_service")
+reset_collection_service = _optional_reset(
+    "services.collection_service", "reset_collection_service"
+)
 
 
 def reset_all_services() -> None:

@@ -58,6 +58,7 @@ class CardImageDisplay(wx.Panel):
 
         # Image display area
         self.bitmap_ctrl = wx.StaticBitmap(self, size=(self.image_width, self.image_height))
+        self.bitmap_ctrl.Bind(wx.EVT_LEFT_UP, self._on_bitmap_left_click)
         main_sizer.Add(self.bitmap_ctrl, 1, wx.EXPAND | wx.ALL, 0)
 
         # Navigation panel
@@ -324,6 +325,13 @@ class CardImageDisplay(wx.Panel):
             self._on_previous_clicked(None)
         elif keycode == wx.WXK_RIGHT and self.right_button.IsEnabled():
             self._on_next_clicked(None)
+        else:
+            event.Skip()
+
+    def _on_bitmap_left_click(self, event: wx.MouseEvent) -> None:
+        """Toggle to the next image when the bitmap is clicked."""
+        if len(self.image_paths) > 1:
+            self._on_next_clicked(event)
         else:
             event.Skip()
 
