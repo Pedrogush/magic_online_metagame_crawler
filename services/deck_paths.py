@@ -22,7 +22,7 @@ CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"
 
 __all__ = [
     "CARD_INSPECTOR_LOG",
-    "DeckSelectorPaths",
+    "DeckPaths",
     "GUIDE_STORE",
     "LEGACY_CONFIG_FILE",
     "LEGACY_CURR_DECK_CACHE",
@@ -32,12 +32,14 @@ __all__ = [
     "LEGACY_OUTBOARD_STORE",
     "NOTES_STORE",
     "OUTBOARD_STORE",
-    "load_deck_selector_paths",
+    "load_deck_paths",
 ]
 
 
 @dataclass(frozen=True)
-class DeckSelectorPaths:
+class DeckPaths:
+    """Configuration paths for deck management."""
+
     config: dict[str, Any]
     deck_save_dir: Path
     notes_store: Path
@@ -46,8 +48,8 @@ class DeckSelectorPaths:
     card_inspector_log: Path
 
 
-def load_deck_selector_paths() -> DeckSelectorPaths:
-    """Load deck selector configuration and ensure directories exist."""
+def load_deck_paths() -> DeckPaths:
+    """Load deck configuration and ensure directories exist."""
     config = _load_config()
     deck_save_dir = Path(config.get("deck_selector_save_path") or DECKS_DIR).expanduser()
     try:
@@ -58,7 +60,7 @@ def load_deck_selector_paths() -> DeckSelectorPaths:
 
     _migrate_legacy_stores()
 
-    return DeckSelectorPaths(
+    return DeckPaths(
         config=config,
         deck_save_dir=deck_save_dir,
         notes_store=NOTES_STORE,

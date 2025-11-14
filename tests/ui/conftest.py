@@ -15,6 +15,7 @@ import utils.card_images as card_images
 import utils.paths as paths
 import widgets.deck_selector as deck_selector
 import widgets.identify_opponent as identify_opponent
+from services import deck_research_service
 from utils.card_data import CardDataManager
 from utils.service_config import METAGAME_CACHE_TTL_SECONDS
 from widgets.deck_selector import MTGDeckSelectionFrame
@@ -295,6 +296,12 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(deck_selector, "get_archetype_decks", fake_archetype_decks, raising=False)
     monkeypatch.setattr(mtggoldfish, "download_deck", fake_download, raising=False)
     monkeypatch.setattr(deck_selector, "download_deck", fake_download, raising=False)
+    # Patch DeckResearchService imports
+    monkeypatch.setattr(deck_research_service, "get_archetypes", fake_archetypes, raising=False)
+    monkeypatch.setattr(
+        deck_research_service, "get_archetype_decks", fake_archetype_decks, raising=False
+    )
+    monkeypatch.setattr(deck_research_service, "download_deck", fake_download, raising=False)
 
     payload_data: dict[str, list[dict[str, Any]]] = {}
     for card in SAMPLE_CARDS:
