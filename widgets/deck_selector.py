@@ -1,4 +1,3 @@
-import json
 import threading
 import time
 from typing import Any
@@ -9,7 +8,7 @@ from loguru import logger
 from repositories.card_repository import get_card_repository
 from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
-from services import get_deck_research_service
+from services import get_deck_research_service, get_deck_selector_state_store
 from services.collection_service import get_collection_service
 from services.deck_selector_config import (
     CARD_INSPECTOR_LOG as DEFAULT_CARD_INSPECTOR_LOG,
@@ -50,13 +49,9 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
-from utils.deck import (
-    read_curr_deck_file,
-    sanitize_zone_cards,
-)
+from utils.deck import read_curr_deck_file
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
-from utils.paths import DECK_SELECTOR_SETTINGS_FILE
 from utils.service_config import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
@@ -127,6 +122,7 @@ class MTGDeckSelectionFrame(
         self.card_repo = get_card_repository()
         self.deck_service = get_deck_service()
         self.deck_research_service = get_deck_research_service()
+        self.state_store = get_deck_selector_state_store()
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
         self.image_service = get_image_service()
@@ -138,9 +134,12 @@ class MTGDeckSelectionFrame(
         if self.current_format not in FORMAT_OPTIONS:
             self.current_format = "Modern"
         raw_force = self.settings.get("force_cached_bulk_data", False)
-        self._bulk_cache_force = self._coerce_bool(raw_force)
-        self._bulk_data_age_days = self._validate_bulk_cache_age(
-            self.settings.get("bulk_data_max_age_days", DEFAULT_BULK_DATA_MAX_AGE_DAYS)
+        self._bulk_cache_force = self.state_store.coerce_bool(raw_force)
+        self._bulk_data_age_days = self.state_store.clamp_bulk_cache_age(
+            self.settings.get("bulk_data_max_age_days", DEFAULT_BULK_DATA_MAX_AGE_DAYS),
+            default_days=DEFAULT_BULK_DATA_MAX_AGE_DAYS,
+            min_days=BULK_CACHE_MIN_AGE_DAYS,
+            max_days=BULK_CACHE_MAX_AGE_DAYS,
         )
         self.settings.setdefault("force_cached_bulk_data", self._bulk_cache_force)
         self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
@@ -528,17 +527,11 @@ class MTGDeckSelectionFrame(
         if saved_mode in {"research", "builder"}:
             self.left_mode = saved_mode
             self._show_left_panel(self.left_mode, force=True)
-        saved_zones = self.settings.get("saved_zone_cards") or {}
-        changed = False
-        for zone in ("main", "side", "out"):
-            entries = saved_zones.get(zone, [])
-            if not isinstance(entries, list):
-                continue
-            sanitized = sanitize_zone_cards(entries)
-            if sanitized:
-                self.zone_cards[zone] = sanitized
-                changed = True
-        if changed:
+        restored_zones = self.state_store.deserialize_zone_cards(
+            self.settings.get("saved_zone_cards")
+        )
+        if restored_zones:
+            self.zone_cards.update(restored_zones)
             self.main_table.set_cards(self.zone_cards["main"])
             self.side_table.set_cards(self.zone_cards["side"])
             self.out_table.set_cards(self.zone_cards["out"])
@@ -565,14 +558,7 @@ class MTGDeckSelectionFrame(
 
     # ------------------------------------------------------------------ Window persistence ---------------------------------------------------
     def _load_window_settings(self) -> dict[str, Any]:
-        if not DECK_SELECTOR_SETTINGS_FILE.exists():
-            return {}
-        try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
-            logger.warning(f"Failed to load deck selector settings: {exc}")
-            return {}
+        return self.state_store.load()
 
     def _save_window_settings(self) -> None:
         data = dict(self.settings)
@@ -587,7 +573,7 @@ class MTGDeckSelectionFrame(
                 "force_cached_bulk_data": self._bulk_cache_force,
                 "bulk_data_max_age_days": self._bulk_data_age_days,
                 "saved_deck_text": self.deck_repo.get_current_deck_text(),
-                "saved_zone_cards": self._serialize_zone_cards(),
+                "saved_zone_cards": self.state_store.serialize_zone_cards(self.zone_cards),
             }
         )
         current_deck = self.deck_repo.get_current_deck()
@@ -595,30 +581,8 @@ class MTGDeckSelectionFrame(
             data["saved_deck_info"] = current_deck
         elif "saved_deck_info" in data:
             data.pop("saved_deck_info")
-        try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
-                json.dump(data, fh, indent=2)
-        except OSError as exc:  # pragma: no cover - defensive logging
-            logger.warning(f"Unable to persist deck selector settings: {exc}")
+        self.state_store.save(data)
         self.settings = data
-
-    def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
-        return {zone: sanitize_zone_cards(cards) for zone, cards in self.zone_cards.items()}
-
-    @staticmethod
-    def _coerce_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(value)
-
-    def _validate_bulk_cache_age(self, value: Any) -> int:
-        try:
-            days = int(float(value))
-        except (TypeError, ValueError):
-            days = int(DEFAULT_BULK_DATA_MAX_AGE_DAYS)
-        return max(BULK_CACHE_MIN_AGE_DAYS, min(days, BULK_CACHE_MAX_AGE_DAYS))
 
     def _get_bulk_cache_age_days(self) -> int:
         return self._bulk_data_age_days
@@ -634,7 +598,12 @@ class MTGDeckSelectionFrame(
         self._schedule_settings_save()
 
     def _set_bulk_cache_age_days(self, days: int) -> None:
-        clamped = self._validate_bulk_cache_age(days)
+        clamped = self.state_store.clamp_bulk_cache_age(
+            days,
+            default_days=self._bulk_data_age_days,
+            min_days=BULK_CACHE_MIN_AGE_DAYS,
+            max_days=BULK_CACHE_MAX_AGE_DAYS,
+        )
         if clamped == self._bulk_data_age_days:
             return
         self._bulk_data_age_days = clamped
