@@ -15,7 +15,7 @@ class CardBoxPanel(wx.Panel):
         card: dict[str, Any],
         icon_factory: ManaIconFactory,
         get_metadata: Callable[[str], dict[str, Any] | None],
-        owned_status: Callable[[str, int], tuple[str, wx.Colour]],
+        owned_status: Callable[[str, int], tuple[str, tuple[int, int, int]]],
         on_delta: Callable[[str, str, int], None],
         on_remove: Callable[[str, str], None],
         on_select: Callable[[str, dict[str, Any], "CardBoxPanel"], None],
@@ -50,11 +50,11 @@ class CardBoxPanel(wx.Panel):
         # Owned status - convert fractional qty to int for collection check
         qty_value = card["qty"]
         qty_for_check = int(qty_value) if isinstance(qty_value, float) else qty_value
-        _, owned_colour = owned_status(card["name"], qty_for_check)
+        _, owned_colour_rgb = owned_status(card["name"], qty_for_check)
 
         # Name label
         self.name_label = wx.StaticText(self, label=card["name"], style=wx.ST_NO_AUTORESIZE)
-        self.name_label.SetForegroundColour(owned_colour)
+        self.name_label.SetForegroundColour(wx.Colour(*owned_colour_rgb))
         self.name_label.SetFont(base_font)
         self.name_label.Wrap(110)
         row.Add(self.name_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
@@ -83,9 +83,11 @@ class CardBoxPanel(wx.Panel):
         # Bind click events to all widgets so clicks anywhere on the card work
         self._bind_click_targets([self, self.qty_label, self.name_label, mana_panel])
 
-    def update_quantity(self, qty: int | float, owned_text: str, owned_colour: wx.Colour) -> None:
+    def update_quantity(
+        self, qty: int | float, owned_text: str, owned_colour: tuple[int, int, int]
+    ) -> None:
         self.qty_label.SetLabel(str(qty))
-        self.name_label.SetForegroundColour(owned_colour)
+        self.name_label.SetForegroundColour(wx.Colour(*owned_colour))
         self.Layout()
 
     def set_active(self, active: bool) -> None:

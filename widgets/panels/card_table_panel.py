@@ -15,7 +15,7 @@ class CardTablePanel(wx.Panel):
         zone: str,
         icon_factory: ManaIconFactory,
         get_metadata: Callable[[str], dict[str, Any] | None],
-        owned_status: Callable[[str, int], tuple[str, wx.Colour]],
+        owned_status: Callable[[str, int], tuple[str, tuple[int, int, int]]],
         on_delta: Callable[[str, str, int], None],
         on_remove: Callable[[str, str], None],
         on_add: Callable[[str], None],
