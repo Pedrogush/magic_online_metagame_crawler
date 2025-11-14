@@ -247,12 +247,13 @@ class DeckSelectorHandlers:
     def _on_collection_fetched(self: MTGDeckSelectionFrame, filepath: Path, cards: list) -> None:
         """Handle successful collection fetch."""
         if cards:
-            success, info = self.collection_service.load_from_card_list(cards, filepath)
-            if not success:
-                error = info.get("error", "Unknown error")
-                self.collection_status_label.SetLabel(f"Collection load failed: {error}")
+            try:
+                info = self.collection_service.load_from_card_list(cards, filepath)
+                card_count = info["card_count"]
+            except ValueError as exc:
+                logger.error(f"Failed to load collection: {exc}")
+                self.collection_status_label.SetLabel(f"Collection load failed: {exc}")
                 return
-            card_count = info["card_count"]
         else:
             card_count = len(self.collection_service.get_inventory())
 
