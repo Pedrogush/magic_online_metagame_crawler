@@ -424,13 +424,20 @@ class MTGDeckSelectionFrame(
 
         self.sideboard_guide_panel = SideboardGuidePanel(
             self.deck_tabs,
-            deck_selector_frame=self,
+            on_add_entry=self._on_add_guide_entry,
+            on_edit_entry=self._on_edit_guide_entry,
+            on_remove_entry=self._on_remove_guide_entry,
+            on_edit_exclusions=self._on_edit_exclusions,
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
         self.deck_notes_panel = DeckNotesPanel(
             self.deck_tabs,
-            deck_selector_frame=self,
+            deck_repo=self.deck_repo,
+            store_service=self.store_service,
+            notes_store=self.deck_notes_store,
+            notes_store_path=self.notes_store_path,
+            on_status_update=self._set_status,
         )
         self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
 
