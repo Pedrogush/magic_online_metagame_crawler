@@ -19,8 +19,8 @@ from services.deck_selector_card_data import DeckSelectorCardDataLoader
 from services.deck_selector_collection import DeckSelectorCollectionManager
 from services.deck_selector_daily_average import DeckSelectorDailyAverageBuilder
 from services.deck_selector_image import DeckSelectorImageManager
-from services.deck_selector_zones import DeckZoneManager
 from services.deck_selector_state import DeckSelectorStateStore
+from services.deck_selector_zones import DeckZoneManager
 from services.deck_service import DeckService, get_deck_service
 from services.image_service import ImageService, get_image_service
 from services.search_service import SearchService, get_search_service

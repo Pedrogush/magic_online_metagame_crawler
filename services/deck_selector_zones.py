@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from services.deck_service import DeckService
 from repositories.deck_repository import DeckRepository
+from services.deck_service import DeckService
 
 
 @dataclass(frozen=True)
