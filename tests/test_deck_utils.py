@@ -1,4 +1,5 @@
 from services.deck_service import DeckService
+from utils.deck import sanitize_filename
 
 SAMPLE_DECK = """4 Ragavan, Nimble Pilferer
 2 Blood Moon
@@ -97,3 +98,82 @@ Sideboard
     sideboard_dict = dict(summary["sideboard_cards"])
     assert sideboard_dict["Abrade"] == 3
     assert summary["unique_sideboard"] == 1
+
+
+def test_sanitize_filename_removes_null_bytes():
+    """Verify null bytes are replaced with underscores (consecutive underscores collapsed)."""
+    assert sanitize_filename("test\x00file") == "test_file"
+    # Multiple null bytes collapse to single underscore
+    assert sanitize_filename("null\x00\x00byte") == "null_byte"
+
+
+def test_sanitize_filename_prevents_path_traversal():
+    """Verify path traversal attempts are neutralized."""
+    # ".." becomes "_", "/" becomes "_", consecutive _ collapsed, leading/trailing _ stripped
+    assert sanitize_filename("../etc/passwd") == "etc_passwd"
+    # ".." becomes "_", "\\" becomes "_", consecutive _ collapsed, leading/trailing _ stripped
+    assert sanitize_filename("..\\windows\\system32") == "windows_system32"
+    # ".." becomes "_", "/" becomes "_", consecutive _ collapsed
+    assert sanitize_filename("test/../secret") == "test_secret"
+    # "..." becomes "_", fallback triggered as only underscores remain after stripping
+    assert sanitize_filename("...") == "saved_deck"
+
+
+def test_sanitize_filename_handles_invalid_characters():
+    """Verify invalid filesystem characters are replaced."""
+    assert sanitize_filename("test:file") == "test_file"
+    assert sanitize_filename("test*file") == "test_file"
+    assert sanitize_filename("test?file") == "test_file"
+    assert sanitize_filename('test"file') == "test_file"
+    assert sanitize_filename("test<file>") == "test_file"
+    assert sanitize_filename("test|file") == "test_file"
+    assert sanitize_filename("test/file") == "test_file"
+    assert sanitize_filename("test\\file") == "test_file"
+
+
+def test_sanitize_filename_handles_reserved_windows_names():
+    """Verify reserved Windows filenames are prefixed."""
+    assert sanitize_filename("CON") == "_CON"
+    assert sanitize_filename("PRN") == "_PRN"
+    assert sanitize_filename("AUX") == "_AUX"
+    assert sanitize_filename("NUL") == "_NUL"
+    assert sanitize_filename("COM1") == "_COM1"
+    assert sanitize_filename("com1") == "_com1"  # Case insensitive
+    assert sanitize_filename("LPT1") == "_LPT1"
+    assert sanitize_filename("lpt9") == "_lpt9"
+    # Reserved names with extensions should also be prefixed
+    assert sanitize_filename("CON.txt") == "_CON.txt"
+    assert sanitize_filename("aux.backup") == "_aux.backup"
+
+
+def test_sanitize_filename_strips_leading_trailing():
+    """Verify leading/trailing whitespace and underscores are removed."""
+    assert sanitize_filename("  test  ") == "test"
+    assert sanitize_filename("__test__") == "test"
+    assert sanitize_filename("  __test__  ") == "test"
+    # Leading dots are removed (prevents hidden files)
+    assert sanitize_filename(".hidden") == "hidden"
+    assert sanitize_filename("...test") == "test"  # Multiple dots become _, then leading _ stripped
+    # Trailing dots are removed
+    assert sanitize_filename("test.") == "test"
+    assert sanitize_filename("test..") == "test"
+
+
+def test_sanitize_filename_uses_fallback():
+    """Verify fallback is used for empty or invalid results."""
+    assert sanitize_filename("") == "saved_deck"
+    assert sanitize_filename("   ") == "saved_deck"
+    assert sanitize_filename("___") == "saved_deck"
+    assert sanitize_filename("...", fallback="custom") == "custom"
+    assert sanitize_filename("///", fallback="my_deck") == "my_deck"
+
+
+def test_sanitize_filename_normal_cases():
+    """Verify normal filenames work correctly."""
+    assert sanitize_filename("my_deck") == "my_deck"
+    # Spaces are preserved in filenames
+    assert sanitize_filename("Mono Red Aggro") == "Mono Red Aggro"
+    assert sanitize_filename("UW Control v2") == "UW Control v2"
+    # Single dots are allowed for version numbers
+    assert sanitize_filename("UW Control v2.0") == "UW Control v2.0"
+    assert sanitize_filename("deck.backup") == "deck.backup"
