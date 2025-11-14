@@ -7,47 +7,42 @@ from loguru import logger
 from repositories.card_repository import get_card_repository
 from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
-from services import get_deck_research_service, get_deck_selector_state_store
+from services import get_deck_research_service, get_state_service
 from services.collection_service import get_collection_service
-from services.deck_selector_card_data import DeckSelectorCardDataLoader
-from services.deck_selector_collection import DeckSelectorCollectionManager
-from services.deck_selector_config import (
+from services.deck_paths import (
     CARD_INSPECTOR_LOG as DEFAULT_CARD_INSPECTOR_LOG,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     GUIDE_STORE as DEFAULT_GUIDE_STORE,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     LEGACY_CONFIG_FILE as DEFAULT_LEGACY_CONFIG_FILE,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     LEGACY_CURR_DECK_CACHE as DEFAULT_LEGACY_CURR_DECK_CACHE,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     LEGACY_CURR_DECK_ROOT as DEFAULT_LEGACY_CURR_DECK_ROOT,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     LEGACY_GUIDE_STORE as DEFAULT_LEGACY_GUIDE_STORE,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     LEGACY_NOTES_STORE as DEFAULT_LEGACY_NOTES_STORE,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     LEGACY_OUTBOARD_STORE as DEFAULT_LEGACY_OUTBOARD_STORE,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     NOTES_STORE as DEFAULT_NOTES_STORE,
 )
-from services.deck_selector_config import (
+from services.deck_paths import (
     OUTBOARD_STORE as DEFAULT_OUTBOARD_STORE,
 )
-from services.deck_selector_config import (
-    DeckSelectorPaths,
-    load_deck_selector_paths,
+from services.deck_paths import (
+    DeckPaths,
+    load_deck_paths,
 )
-from services.deck_selector_daily_average import DeckSelectorDailyAverageBuilder
-from services.deck_selector_image import DeckSelectorImageManager
-from services.deck_selector_zones import DeckZoneManager
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
@@ -99,7 +94,7 @@ GUIDE_STORE = DEFAULT_GUIDE_STORE
 CARD_INSPECTOR_LOG = DEFAULT_CARD_INSPECTOR_LOG
 
 # Load deck selector paths/configuration
-_deck_paths: DeckSelectorPaths = load_deck_selector_paths()
+_deck_paths: DeckPaths = load_deck_paths()
 CONFIG = _deck_paths.config
 DECK_SAVE_DIR = _deck_paths.deck_save_dir
 NOTES_STORE = _deck_paths.notes_store
@@ -125,17 +120,10 @@ class MTGDeckSelectionFrame(
         self.card_repo = get_card_repository()
         self.deck_service = get_deck_service()
         self.deck_research_service = get_deck_research_service()
-        self.state_store = get_deck_selector_state_store()
+        self.state_store = get_state_service()
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
         self.image_service = get_image_service()
-        self.collection_manager = DeckSelectorCollectionManager(self.collection_service)
-        self.card_data_loader = DeckSelectorCardDataLoader(self.card_repo)
-        self.image_manager = DeckSelectorImageManager(self.image_service)
-        self.zone_manager = DeckZoneManager(self.deck_service, self.deck_repo)
-        self.daily_average_builder = DeckSelectorDailyAverageBuilder(
-            self.deck_repo, self.deck_service, self.deck_research_service
-        )
         self.store_service = get_store_service()
         self.card_data_dialogs_disabled = False
 
@@ -744,7 +732,7 @@ class MTGDeckSelectionFrame(
     def _load_collection_from_cache(self) -> bool:
         """Load collection from cached file without calling bridge. Returns True if loaded."""
         try:
-            status = self.collection_manager.load_cached_status(DECK_SAVE_DIR)
+            status = self.collection_service.load_cached_status(DECK_SAVE_DIR)
         except (FileNotFoundError, ValueError) as exc:
             logger.debug(f"Could not load collection from cache: {exc}")
             self.collection_status_label.SetLabel(
@@ -775,7 +763,7 @@ class MTGDeckSelectionFrame(
 
     def _check_and_download_bulk_data(self) -> None:
         """Kick off a background freshness check before loading/downloading bulk data."""
-        self.image_manager.ensure_data_ready(
+        self.image_service.ensure_data_ready(
             force_cached=self._is_forcing_cached_bulk_data(),
             max_age_days=self._get_bulk_cache_age_days(),
             worker_factory=BackgroundWorker,
@@ -793,7 +781,7 @@ class MTGDeckSelectionFrame(
         """Fallback when we fail to check bulk data freshness."""
         logger.warning(f"Failed to check bulk data freshness: {exc}")
         if not self.image_service.get_bulk_data():
-            self.image_manager.load_bulk_data_direct(
+            self.image_service.load_bulk_data_direct(
                 force=False,
                 set_status=self._set_status,
                 on_load_success=lambda data, stats: wx.CallAfter(
@@ -813,7 +801,7 @@ class MTGDeckSelectionFrame(
         else:
             self.out_table.set_cards(self.zone_cards["out"])
             self._persist_outboard_for_current()
-        result = self.zone_manager.handle_zone_change(self.zone_cards)
+        result = self.deck_service.handle_zone_change(self.zone_cards)
         self._update_stats(result.deck_text)
         self.copy_button.Enable(result.has_loaded_deck)
         self.save_button.Enable(result.has_loaded_deck)
@@ -839,7 +827,7 @@ class MTGDeckSelectionFrame(
     # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
     # ------------------------------------------------------------------ Daily average --------------------------------------------------------
     def _start_daily_average_build(self) -> None:
-        todays_decks = self.daily_average_builder.filter_today_decks(
+        todays_decks = self.deck_service.filter_today_decks(
             self.deck_repo.get_decks_list()
         )
 
@@ -867,8 +855,12 @@ class MTGDeckSelectionFrame(
             def update_progress(index: int, total: int) -> None:
                 wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{total} decks…")
 
-            return self.daily_average_builder.build_average_text(
+            from utils.deck import read_curr_deck_file
+
+            return self.deck_service.build_average_text(
                 rows,
+                self.deck_research_service.download_deck,
+                read_curr_deck_file,
                 progress_callback=update_progress,
             )
 
@@ -906,9 +898,15 @@ class MTGDeckSelectionFrame(
 
     def ensure_card_data_loaded(self) -> None:
         """Ensure card data is loaded in background if not already loading/loaded."""
-        if not self.card_data_loader.needs_loading():
+        # Check if loading is needed
+        if self.card_repo.get_card_manager() or self.card_repo.is_card_data_loading():
             return
+
         self._set_status("Loading card database...")
+        self.card_repo.set_card_data_loading(True)
+
+        def worker():
+            return self.card_repo.ensure_card_data_loaded()
 
         def on_success(manager: CardDataManager):
             self.card_repo.set_card_manager(manager)
@@ -929,7 +927,7 @@ class MTGDeckSelectionFrame(
                 wx.OK | wx.ICON_ERROR,
             )
 
-        self.card_data_loader.load_async(BackgroundWorker, on_success=on_success, on_error=on_error)
+        BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
 
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
     def open_opponent_tracker(self) -> None:

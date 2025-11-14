@@ -10,8 +10,8 @@ from utils import paths
 from utils.deck import sanitize_zone_cards
 
 
-class DeckSelectorStateStore:
-    """Load and persist deck selector window state/settings."""
+class StateService:
+    """Load and persist application window state/settings."""
 
     def __init__(self, settings_path: Path | None = None) -> None:
         self.settings_path = settings_path or paths.DECK_SELECTOR_SETTINGS_FILE
@@ -76,4 +76,4 @@ class DeckSelectorStateStore:
         return restored
 
 
-__all__ = ["DeckSelectorStateStore"]
+__all__ = ["StateService"]
