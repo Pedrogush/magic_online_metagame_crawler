@@ -1,5 +1,4 @@
 import threading
-import time
 from typing import Any
 
 import wx
@@ -10,6 +9,8 @@ from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
 from services import get_deck_research_service, get_deck_selector_state_store
 from services.collection_service import get_collection_service
+from services.deck_selector_card_data import DeckSelectorCardDataLoader
+from services.deck_selector_collection import DeckSelectorCollectionManager
 from services.deck_selector_config import (
     CARD_INSPECTOR_LOG as DEFAULT_CARD_INSPECTOR_LOG,
 )
@@ -44,12 +45,14 @@ from services.deck_selector_config import (
     DeckSelectorPaths,
     load_deck_selector_paths,
 )
+from services.deck_selector_daily_average import DeckSelectorDailyAverageBuilder
+from services.deck_selector_image import DeckSelectorImageManager
+from services.deck_selector_zones import DeckZoneManager
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
-from utils.deck import read_curr_deck_file
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
 from utils.service_config import (
@@ -125,6 +128,13 @@ class MTGDeckSelectionFrame(
         self.state_store = get_deck_selector_state_store()
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
+        self.collection_manager = DeckSelectorCollectionManager(self.collection_service)
+        self.card_data_loader = DeckSelectorCardDataLoader(self.card_repo)
+        self.image_manager = DeckSelectorImageManager(self.image_service)
+        self.zone_manager = DeckZoneManager(self.deck_service, self.deck_repo)
+        self.daily_average_builder = DeckSelectorDailyAverageBuilder(
+            self.deck_repo, self.deck_service, self.deck_research_service
+        )
         self.image_service = get_image_service()
         self.store_service = get_store_service()
         self.card_data_dialogs_disabled = False
@@ -179,7 +189,6 @@ class MTGDeckSelectionFrame(
         self.mana_keyboard_window: ManaKeyboardFrame | None = None
         self.force_cache_checkbox: wx.CheckBox | None = None
         self.bulk_cache_age_spin: wx.SpinCtrl | None = None
-        self._bulk_check_worker_active = False
 
         self._build_ui()
         self._apply_window_preferences()
@@ -735,7 +744,7 @@ class MTGDeckSelectionFrame(
     def _load_collection_from_cache(self) -> bool:
         """Load collection from cached file without calling bridge. Returns True if loaded."""
         try:
-            info = self.collection_service.load_from_cached_file(DECK_SAVE_DIR)
+            status = self.collection_manager.load_cached_status(DECK_SAVE_DIR)
         except (FileNotFoundError, ValueError) as exc:
             logger.debug(f"Could not load collection from cache: {exc}")
             self.collection_status_label.SetLabel(
@@ -743,15 +752,7 @@ class MTGDeckSelectionFrame(
             )
             return False
 
-        # Update UI with collection info
-        filepath = info["filepath"]
-        card_count = info["card_count"]
-        age_hours = info["age_hours"]
-        age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
-
-        self.collection_status_label.SetLabel(
-            f"Collection: {filepath.name} ({card_count} entries, {age_str})"
-        )
+        self.collection_status_label.SetLabel(status.label)
         self.main_table.set_cards(self.zone_cards["main"])
         self.side_table.set_cards(self.zone_cards["side"])
         return True
@@ -774,82 +775,34 @@ class MTGDeckSelectionFrame(
 
     def _check_and_download_bulk_data(self) -> None:
         """Kick off a background freshness check before loading/downloading bulk data."""
-        if self._bulk_check_worker_active:
-            logger.debug("Bulk data check already running")
-            return
-
-        force_cached = self._is_forcing_cached_bulk_data()
-        max_age_days = self._get_bulk_cache_age_days()
-        status_msg = (
-            "Loading cached card image database…"
-            if force_cached
-            else "Checking card image database…"
-        )
-        self._set_status(status_msg)
-        self._bulk_check_worker_active = True
-
-        def worker():
-            if force_cached:
-                return False, "Cached-only mode enabled"
-            return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
-
-        def on_success(result: tuple[bool, str]):
-            self._bulk_check_worker_active = False
-            needs_download, reason = result
-            self._after_bulk_data_check(needs_download, reason, force_cached)
-
-        def on_error(exc: Exception):
-            self._bulk_check_worker_active = False
-            self._on_bulk_data_check_failed(exc)
-
-        BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
-
-    def _after_bulk_data_check(
-        self, needs_download: bool, reason: str, force_cached: bool = False
-    ) -> None:
-        """Handle the result of bulk data freshness check (UI thread)."""
-        if force_cached or not needs_download:
-            self._load_bulk_data_into_memory()
-            if force_cached:
-                self._set_status("Using cached card image database")
-            else:
-                self._set_status("Card image database ready")
-            return
-
-        # Data is stale or missing - attempt to load cached data while we download
-        if not self.image_service.get_bulk_data():
-            self._load_bulk_data_into_memory()
-
-        logger.info(f"Bulk data needs update: {reason}")
-        self._set_status("Downloading card image database...")
-
-        # Download in background using service
-        self.image_service.download_bulk_metadata_async(
-            on_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
-            on_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
+        self.image_manager.ensure_data_ready(
+            force_cached=self._is_forcing_cached_bulk_data(),
+            max_age_days=self._get_bulk_cache_age_days(),
+            worker_factory=BackgroundWorker,
+            set_status=self._set_status,
+            on_load_success=lambda data, stats: wx.CallAfter(
+                self._on_bulk_data_loaded, data, stats
+            ),
+            on_load_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
+            on_download_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
+            on_download_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
+            on_check_failed=self._on_bulk_data_check_failed,
         )
 
     def _on_bulk_data_check_failed(self, exc: Exception) -> None:
         """Fallback when we fail to check bulk data freshness."""
         logger.warning(f"Failed to check bulk data freshness: {exc}")
         if not self.image_service.get_bulk_data():
-            self._load_bulk_data_into_memory()
+            self.image_manager.load_bulk_data_direct(
+                force=False,
+                set_status=self._set_status,
+                on_load_success=lambda data, stats: wx.CallAfter(
+                    self._on_bulk_data_loaded, data, stats
+                ),
+                on_load_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
+            )
         else:
             self._set_status("Ready")
-
-    def _load_bulk_data_into_memory(self, force: bool = False) -> None:
-        """Load the compact card printings index in the background."""
-        self._set_status("Preparing card printings cache…")
-
-        # Load using service
-        started = self.image_service.load_printing_index_async(
-            force=force,
-            on_success=lambda data, stats: wx.CallAfter(self._on_bulk_data_loaded, data, stats),
-            on_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
-        )
-
-        if not started:
-            self._set_status("Ready")  # Already loading or loaded
 
     # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
     def _after_zone_change(self, zone: str) -> None:
@@ -860,11 +813,10 @@ class MTGDeckSelectionFrame(
         else:
             self.out_table.set_cards(self.zone_cards["out"])
             self._persist_outboard_for_current()
-        deck_text = self.deck_service.build_deck_text_from_zones(self.zone_cards)
-        self.deck_repo.set_current_deck_text(deck_text)
-        self._update_stats(deck_text)
-        self.copy_button.Enable(self._has_deck_loaded())
-        self.save_button.Enable(self._has_deck_loaded())
+        result = self.zone_manager.handle_zone_change(self.zone_cards)
+        self._update_stats(result.deck_text)
+        self.copy_button.Enable(result.has_loaded_deck)
+        self.save_button.Enable(result.has_loaded_deck)
         self._schedule_settings_save()
 
     # ------------------------------------------------------------------ Card inspector -----------------------------------------------------
@@ -887,12 +839,9 @@ class MTGDeckSelectionFrame(
     # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
     # ------------------------------------------------------------------ Daily average --------------------------------------------------------
     def _start_daily_average_build(self) -> None:
-        today = time.strftime("%Y-%m-%d").lower()
-        todays_decks = [
-            deck
-            for deck in self.deck_repo.get_decks_list()
-            if today in deck.get("date", "").lower()
-        ]
+        todays_decks = self.daily_average_builder.filter_today_decks(
+            self.deck_repo.get_decks_list()
+        )
 
         if not todays_decks:
             wx.MessageBox(
@@ -918,20 +867,16 @@ class MTGDeckSelectionFrame(
             def update_progress(index: int, total: int) -> None:
                 wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{total} decks…")
 
-            return self.deck_repo.build_daily_average_deck(
+            return self.daily_average_builder.build_average_text(
                 rows,
-                self.deck_research_service.download_deck,
-                read_curr_deck_file,
-                self.deck_service.add_deck_to_buffer,
                 progress_callback=update_progress,
             )
 
-        def on_success(buffer: dict[str, float]):
+        def on_success(deck_text: str):
             # Process the deck data first
             with self._loading_lock:
                 self.loading_daily_average = False
             self.daily_average_button.Enable()
-            deck_text = self.deck_service.render_average_deck(buffer, len(todays_decks))
             self._on_deck_content_ready(deck_text, source="average")
 
             # Close progress dialog AFTER everything else is done
@@ -961,13 +906,9 @@ class MTGDeckSelectionFrame(
 
     def ensure_card_data_loaded(self) -> None:
         """Ensure card data is loaded in background if not already loading/loaded."""
-        if self.card_repo.get_card_manager() or self.card_repo.is_card_data_loading():
+        if not self.card_data_loader.needs_loading():
             return
-        self.card_repo.set_card_data_loading(True)
         self._set_status("Loading card database...")
-
-        def worker():
-            return self.card_repo.ensure_card_data_loaded()
 
         def on_success(manager: CardDataManager):
             self.card_repo.set_card_manager(manager)
@@ -988,7 +929,7 @@ class MTGDeckSelectionFrame(
                 wx.OK | wx.ICON_ERROR,
             )
 
-        BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
+        self.card_data_loader.load_async(BackgroundWorker, on_success=on_success, on_error=on_error)
 
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
     def open_opponent_tracker(self) -> None:
