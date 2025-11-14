@@ -1,6 +1,5 @@
 """Tests for search filter utility functions."""
 
-
 from utils.search_filters import matches_color_filter, matches_mana_cost, matches_mana_value
 
 # ============= Mana Cost Tests =============

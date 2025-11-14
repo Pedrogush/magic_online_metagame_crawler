@@ -11,10 +11,10 @@ from services.collection_service import CollectionService
 
 
 @pytest.fixture
-def mock_card_repo():
+def mock_card_repo(tmp_path):
     """Mock CardRepository for testing."""
     repo = SimpleNamespace()
-    repo.get_collection_cache_path = Mock(return_value=Path("/tmp/collection.json"))
+    repo.get_collection_cache_path = Mock(return_value=tmp_path / "collection.json")
     repo.load_collection_from_file = Mock(
         return_value=[
             {"name": "Lightning Bolt", "quantity": 4},
@@ -72,9 +72,9 @@ def test_load_collection_from_file(collection_service, mock_card_repo, temp_coll
     assert collection_service.get_owned_count("Island") == 20
 
 
-def test_load_collection_nonexistent_file(collection_service):
+def test_load_collection_nonexistent_file(collection_service, tmp_path):
     """Test loading collection from nonexistent file."""
-    nonexistent = Path("/tmp/nonexistent_collection.json")
+    nonexistent = tmp_path / "nonexistent_collection.json"
     success = collection_service.load_collection(nonexistent)
 
     assert success is True
@@ -408,10 +408,10 @@ def test_get_inventory(collection_service):
     assert inventory == test_inventory
 
 
-def test_clear_inventory(collection_service):
+def test_clear_inventory(collection_service, tmp_path):
     """Test clearing inventory."""
     collection_service.set_inventory({"Lightning Bolt": 4})
-    collection_service.set_collection_path(Path("/tmp/test.json"))
+    collection_service.set_collection_path(tmp_path / "test.json")
 
     collection_service.clear_inventory()
 
@@ -420,9 +420,9 @@ def test_clear_inventory(collection_service):
     assert collection_service.get_collection_path() is None
 
 
-def test_get_and_set_collection_path(collection_service):
+def test_get_and_set_collection_path(collection_service, tmp_path):
     """Test getting and setting collection path."""
-    test_path = Path("/tmp/collection.json")
+    test_path = tmp_path / "collection.json"
 
     collection_service.set_collection_path(test_path)
     assert collection_service.get_collection_path() == test_path
