@@ -87,6 +87,8 @@ from widgets.panels.deck_stats_panel import DeckStatsPanel
 from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
 
+DECK_SELECTOR_MANA_ICON_SIZE = int(26 * 0.7)
+
 LEGACY_CONFIG_FILE = DEFAULT_LEGACY_CONFIG_FILE
 LEGACY_CURR_DECK_CACHE = DEFAULT_LEGACY_CURR_DECK_CACHE
 LEGACY_CURR_DECK_ROOT = DEFAULT_LEGACY_CURR_DECK_ROOT
@@ -181,7 +183,7 @@ class MTGDeckSelectionFrame(
         self.loading_daily_average = False
 
         self._save_timer: wx.Timer | None = None
-        self.mana_icons = ManaIconFactory()
+        self.mana_icons = ManaIconFactory(icon_size=DECK_SELECTOR_MANA_ICON_SIZE)
         self.tracker_window: MTGOpponentDeckSpy | None = None
         self.timer_window: TimerAlertFrame | None = None
         self.history_window: MatchHistoryFrame | None = None
