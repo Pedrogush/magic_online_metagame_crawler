@@ -29,8 +29,8 @@ def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
     # Replace null bytes with underscores
     filename = filename.replace("\x00", "_")
 
-    # Replace invalid filesystem characters and spaces
-    safe_name = "".join(ch if ch not in '\\/:*?"<>| ' else "_" for ch in filename)
+    # Replace invalid filesystem characters (preserve spaces)
+    safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in filename)
 
     # Prevent path traversal by collapsing consecutive dots and removing leading dots
     # This prevents "..", "..." and leading "." while allowing single dots in filenames
@@ -40,6 +40,9 @@ def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
     safe_name = re.sub(r"\.{2,}", "_", safe_name)
     # Remove leading dots
     safe_name = safe_name.lstrip(".")
+
+    # Collapse consecutive underscores into single underscore
+    safe_name = re.sub(r"_{2,}", "_", safe_name)
 
     # Strip leading/trailing whitespace, dots, and underscores
     safe_name = safe_name.strip().strip("._")

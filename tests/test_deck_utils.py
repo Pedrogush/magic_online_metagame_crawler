@@ -108,11 +108,11 @@ def test_sanitize_filename_removes_null_bytes():
 
 def test_sanitize_filename_prevents_path_traversal():
     """Verify path traversal attempts are neutralized."""
-    # ".." becomes "_", "/" becomes "_", leading/trailing _ stripped
+    # ".." becomes "_", "/" becomes "_", consecutive _ collapsed, leading/trailing _ stripped
     assert sanitize_filename("../etc/passwd") == "etc_passwd"
-    # ".." becomes "_", "\\" becomes "_", leading/trailing _ stripped
+    # ".." becomes "_", "\\" becomes "_", consecutive _ collapsed, leading/trailing _ stripped
     assert sanitize_filename("..\\windows\\system32") == "windows_system32"
-    # ".." becomes "_", middle underscores preserved
+    # ".." becomes "_", "/" becomes "_", consecutive _ collapsed
     assert sanitize_filename("test/../secret") == "test_secret"
     # "..." becomes "_", fallback triggered as only underscores remain after stripping
     assert sanitize_filename("...") == "saved_deck"
@@ -170,8 +170,9 @@ def test_sanitize_filename_uses_fallback():
 def test_sanitize_filename_normal_cases():
     """Verify normal filenames work correctly."""
     assert sanitize_filename("my_deck") == "my_deck"
-    assert sanitize_filename("Mono Red Aggro") == "Mono_Red_Aggro"
-    assert sanitize_filename("UW Control v2") == "UW_Control_v2"
+    # Spaces are preserved in filenames
+    assert sanitize_filename("Mono Red Aggro") == "Mono Red Aggro"
+    assert sanitize_filename("UW Control v2") == "UW Control v2"
     # Single dots are allowed for version numbers
-    assert sanitize_filename("UW Control v2.0") == "UW_Control_v2.0"
+    assert sanitize_filename("UW Control v2.0") == "UW Control v2.0"
     assert sanitize_filename("deck.backup") == "deck.backup"
