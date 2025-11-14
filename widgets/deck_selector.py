@@ -30,6 +30,7 @@ from utils.paths import (
     DECK_SELECTOR_SETTINGS_FILE,
     DECKS_DIR,
 )
+from utils.service_config import COLLECTION_CACHE_MAX_AGE_SECONDS
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_constants import (
     DARK_BG,
@@ -759,7 +760,7 @@ class MTGDeckSelectionFrame(
                 self._on_collection_fetched, filepath, cards
             ),
             on_error=lambda error_msg: wx.CallAfter(self._on_collection_fetch_failed, error_msg),
-            cache_max_age_seconds=3600,  # 1 hour
+            cache_max_age_seconds=COLLECTION_CACHE_MAX_AGE_SECONDS,
         )
 
     def _check_and_download_bulk_data(self) -> None:

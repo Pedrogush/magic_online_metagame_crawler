@@ -28,6 +28,7 @@ import requests
 from loguru import logger
 
 from utils.paths import CACHE_DIR
+from utils.service_config import BULK_DATA_CACHE_FRESHNESS_SECONDS
 
 # Image cache configuration
 IMAGE_CACHE_DIR = CACHE_DIR / "card_images"
@@ -332,7 +333,7 @@ class BulkImageDownloader:
         # Fallback to age-based check when the vendor metadata lacks timestamps/URIs
         try:
             age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-            if age_seconds < 86400:
+            if age_seconds < BULK_DATA_CACHE_FRESHNESS_SECONDS:
                 return False, metadata
         except OSError:
             pass

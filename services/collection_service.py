@@ -19,6 +19,10 @@ import wx
 from loguru import logger
 
 from repositories.card_repository import CardRepository, get_card_repository
+from utils.service_config import (
+    COLLECTION_CACHE_MAX_AGE_SECONDS,
+    ONE_HOUR_SECONDS,
+)
 from utils.ui_constants import SUBDUED_TEXT
 
 
@@ -156,7 +160,7 @@ class CollectionService:
 
             # Calculate file age
             file_age_seconds = datetime.now().timestamp() - latest.stat().st_mtime
-            age_hours = int(file_age_seconds / 3600)
+            age_hours = int(file_age_seconds / ONE_HOUR_SECONDS)
 
             logger.info(
                 f"Loaded collection from cache: {len(mapping)} unique cards from {latest.name}"
@@ -248,7 +252,7 @@ class CollectionService:
         force: bool = False,
         on_success: Callable[[Path, list], None] | None = None,
         on_error: Callable[[str], None] | None = None,
-        cache_max_age_seconds: int = 3600,
+        cache_max_age_seconds: int = COLLECTION_CACHE_MAX_AGE_SECONDS,
     ) -> bool:
         """
         Fetch collection from MTGO Bridge and export to file (async).

@@ -16,6 +16,7 @@ import utils.paths as paths
 import widgets.deck_selector as deck_selector
 import widgets.identify_opponent as identify_opponent
 from utils.card_data import CardDataManager
+from utils.service_config import METAGAME_CACHE_TTL_SECONDS
 from widgets.deck_selector import MTGDeckSelectionFrame
 
 wx = pytest.importorskip("wx")
@@ -271,7 +272,9 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         {"name": "Azorius Control", "href": "azorius-control"},
     ]
 
-    def fake_archetypes(fmt: str, cache_ttl: int = 3600, allow_stale: bool = True):
+    def fake_archetypes(
+        fmt: str, cache_ttl: int = METAGAME_CACHE_TTL_SECONDS, allow_stale: bool = True
+    ):
         return archetype_list
 
     def fake_archetype_decks(archetype: str):
