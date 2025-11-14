@@ -35,9 +35,9 @@ from utils.ui_constants import (
     SUBDUED_TEXT,
 )
 from utils.ui_helpers import open_child_window
+from widgets import deck_selector_config
 from widgets.background_worker import BackgroundWorker
 from widgets.buttons.deck_action_buttons import DeckActionButtons
-from widgets import deck_selector_config
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
 from widgets.handlers.deck_selector_handlers import DeckSelectorHandlers

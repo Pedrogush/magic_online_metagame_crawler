@@ -22,7 +22,6 @@ from utils.card_images import (
     get_cache,
 )
 from utils.service_config import (
-    BULK_DATA_CACHE_FRESHNESS_SECONDS,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
     ONE_DAY_SECONDS,
 )
