@@ -20,7 +20,11 @@ import json
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+try:  # Python 3.10 fallback for datetime.UTC
+    from datetime import UTC
+except ImportError:  # pragma: no cover - compatibility shim
+    UTC = timezone.utc
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -94,43 +98,89 @@ class CardImageCache:
     def _init_database(self) -> None:
         """Initialize SQLite database schema."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS card_images (
-                    uuid TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    set_code TEXT,
-                    collector_number TEXT,
-                    image_size TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    downloaded_at TEXT NOT NULL,
-                    scryfall_uri TEXT,
-                    artist TEXT,
-                    UNIQUE(uuid, image_size)
-                )
-            """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_card_name ON card_images(name)
-            """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_set_code ON card_images(set_code)
-            """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS bulk_data_meta (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    downloaded_at TEXT NOT NULL,
-                    total_cards INTEGER NOT NULL,
-                    bulk_data_uri TEXT NOT NULL
-                )
-            """
-            )
+            self._create_schema(conn)
+            self._ensure_face_index_support(conn)
             conn.commit()
+
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
+        """Create base tables if they do not exist."""
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS card_images (
+                uuid TEXT NOT NULL,
+                face_index INTEGER NOT NULL DEFAULT 0,
+                name TEXT NOT NULL,
+                set_code TEXT,
+                collector_number TEXT,
+                image_size TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                downloaded_at TEXT NOT NULL,
+                scryfall_uri TEXT,
+                artist TEXT,
+                PRIMARY KEY (uuid, face_index, image_size)
+            )
+        """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_card_name ON card_images(name)
+        """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_set_code ON card_images(set_code)
+        """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bulk_data_meta (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                downloaded_at TEXT NOT NULL,
+                total_cards INTEGER NOT NULL,
+                bulk_data_uri TEXT NOT NULL
+            )
+        """
+        )
+
+    def _ensure_face_index_support(self, conn: sqlite3.Connection) -> None:
+        """Ensure the card_images table can store multiple faces per UUID."""
+        info = conn.execute("PRAGMA table_info(card_images)").fetchall()
+        has_face_index = any(column[1] == "face_index" for column in info)
+        if has_face_index:
+            return
+
+        logger.info("Migrating card_images table to support multi-face entries")
+        conn.execute("ALTER TABLE card_images RENAME TO card_images_old")
+        self._create_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO card_images (
+                uuid,
+                face_index,
+                name,
+                set_code,
+                collector_number,
+                image_size,
+                file_path,
+                downloaded_at,
+                scryfall_uri,
+                artist
+            )
+            SELECT
+                uuid,
+                0,
+                name,
+                set_code,
+                collector_number,
+                image_size,
+                file_path,
+                downloaded_at,
+                scryfall_uri,
+                artist
+            FROM card_images_old
+        """
+        )
+        conn.execute("DROP TABLE card_images_old")
 
     def _resolve_path(self, stored_path: str) -> Path:
         """Convert stored path strings into usable filesystem Paths.
@@ -203,7 +253,13 @@ class CardImageCache:
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                "SELECT file_path FROM card_images WHERE LOWER(name) = LOWER(?) AND image_size = ? LIMIT 1",
+                """
+                SELECT file_path
+                FROM card_images
+                WHERE LOWER(name) = LOWER(?) AND image_size = ?
+                ORDER BY face_index
+                LIMIT 1
+                """,
                 (card_name, size),
             )
             row = cursor.fetchone()
@@ -220,7 +276,7 @@ class CardImageCache:
     def _lookup_double_faced_alias(
         self, conn: sqlite3.Connection, card_name: str, size: str
     ) -> Path | None:
-        """Attempt to resolve front/back face aliases for MDFCs and split layouts."""
+        """Attempt to resolve legacy front/back alias lookups."""
         alias = (card_name or "").strip()
         if not alias or "//" in alias:
             return None
@@ -233,7 +289,13 @@ class CardImageCache:
 
         for pattern in patterns:
             cursor = conn.execute(
-                "SELECT file_path FROM card_images WHERE LOWER(name) LIKE ? AND image_size = ? LIMIT 1",
+                """
+                SELECT file_path
+                FROM card_images
+                WHERE LOWER(name) LIKE ? AND image_size = ?
+                ORDER BY face_index
+                LIMIT 1
+                """,
                 (pattern, size),
             )
             row = cursor.fetchone()
@@ -243,18 +305,49 @@ class CardImageCache:
                     return path
         return None
 
-    def get_image_by_uuid(self, uuid: str, size: str = "normal") -> Path | None:
+    def get_image_by_uuid(
+        self, uuid: str, size: str = "normal", face_index: int | None = 0
+    ) -> Path | None:
         """Get cached image path by Scryfall UUID."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT file_path FROM card_images WHERE uuid = ? AND image_size = ?", (uuid, size)
+        query = (
+            "SELECT file_path FROM card_images WHERE uuid = ? AND image_size = ? ORDER BY face_index"
+        )
+        params: tuple[object, ...]
+        if face_index is None:
+            params = (uuid, size)
+        else:
+            query = (
+                "SELECT file_path FROM card_images WHERE uuid = ? AND face_index = ? AND image_size = ?"
             )
+            params = (uuid, face_index, size)
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(query, params)
             row = cursor.fetchone()
             if row:
                 path = self._resolve_path(row[0])
                 if path.exists():
                     return path
         return None
+
+    def get_image_paths_by_uuid(self, uuid: str, size: str = "normal") -> list[Path]:
+        """Return all cached face images for a UUID, ordered by face index."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT face_index, file_path
+                FROM card_images
+                WHERE uuid = ? AND image_size = ? AND face_index >= 0
+                ORDER BY face_index
+                """,
+                (uuid, size),
+            ).fetchall()
+        paths: list[Path] = []
+        for _, file_path in rows:
+            path = self._resolve_path(file_path)
+            if path.exists():
+                paths.append(path)
+        return paths
 
     def add_image(
         self,
@@ -266,6 +359,7 @@ class CardImageCache:
         file_path: Path,
         scryfall_uri: str = None,
         artist: str = None,
+        face_index: int = 0,
     ) -> None:
         """Add image record to database."""
         file_path_str = str(Path(file_path).resolve())
@@ -274,12 +368,13 @@ class CardImageCache:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO card_images
-                (uuid, name, set_code, collector_number, image_size, file_path,
+                (uuid, face_index, name, set_code, collector_number, image_size, file_path,
                  downloaded_at, scryfall_uri, artist)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     uuid,
+                    face_index,
                     name,
                     set_code,
                     collector_number,
@@ -314,9 +409,9 @@ class CardImageCache:
             "bulk_total_cards": bulk_meta[1] if bulk_meta else None,
         }
 
-    def is_cached(self, uuid: str, size: str = "normal") -> bool:
+    def is_cached(self, uuid: str, size: str = "normal", face_index: int | None = 0) -> bool:
         """Check if image is already cached."""
-        return self.get_image_by_uuid(uuid, size) is not None
+        return self.get_image_by_uuid(uuid, size, face_index=face_index) is not None
 
 
 class BulkImageDownloader:
@@ -454,61 +549,120 @@ class BulkImageDownloader:
         if not uuid:
             return False, f"No UUID for {name}"
 
-        # Check if already cached
-        if self.cache.is_cached(uuid, size):
-            return True, f"Already cached: {name}"
+        card_faces = card.get("card_faces") or []
+        if card_faces:
+            return self._download_multi_face_card(card, card_faces, size)
 
-        # Get image URI
-        image_uris = card.get("image_uris")
-        if not image_uris:
-            # Check card faces for double-faced cards
-            card_faces = card.get("card_faces", [])
-            if card_faces and card_faces[0].get("image_uris"):
-                image_uris = card_faces[0]["image_uris"]
-            else:
-                return False, f"No image URIs for {name}"
+        success, message, _ = self._download_face_asset(
+            uuid=uuid,
+            face_index=0,
+            name=name,
+            image_uris=card.get("image_uris") or {},
+            size=size,
+            card=card,
+        )
+        return success, message
 
-        image_url = image_uris.get(size)
-        if not image_url:
-            # Fallback to normal size
-            image_url = image_uris.get("normal")
-            if not image_url:
-                return False, f"No {size} image for {name}"
+    def _download_multi_face_card(
+        self, card: dict[str, Any], faces: list[dict[str, Any]], size: str
+    ) -> tuple[bool, str]:
+        """Download images for each face of a double-faced card."""
+        uuid = card.get("id")
+        if not uuid:
+            return False, "Missing UUID for multi-face card"
 
-        try:
-            # Download image
-            resp = self.session.get(image_url, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
+        downloaded = 0
+        front_path: Path | None = None
+        for idx, face in enumerate(faces):
+            face_name = face.get("name") or card.get("name", "Unknown")
+            image_uris = face.get("image_uris") or {}
+            success, _, file_path = self._download_face_asset(
+                uuid=uuid,
+                face_index=idx,
+                name=face_name,
+                image_uris=image_uris,
+                size=size,
+                card=card,
+            )
+            if success:
+                downloaded += 1
+                if idx == 0:
+                    front_path = file_path
 
-            # Determine file extension
-            ext = "jpg"
-            if size == "png":
-                ext = "png"
-
-            # Save to cache
-            filename = f"{uuid}.{ext}"
-            file_path = self.cache.cache_dir / size / filename
-
-            with file_path.open("wb") as f:
-                f.write(resp.content)
-
-            # Add to database
+        # Store combined display name pointing to the front face
+        combined_name = card.get("name")
+        if combined_name and front_path:
             self.cache.add_image(
                 uuid=uuid,
-                name=name,
+                name=combined_name,
                 set_code=card.get("set", ""),
                 collector_number=card.get("collector_number", ""),
                 image_size=size,
-                file_path=file_path,
+                file_path=front_path,
                 scryfall_uri=card.get("scryfall_uri"),
                 artist=card.get("artist"),
+                face_index=-1,
             )
 
-            return True, f"Downloaded: {name}"
+        if downloaded == 0:
+            return False, f"No downloadable faces for {card.get('name', 'Unknown')}"
+        return True, f"Downloaded {downloaded} faces for {card.get('name', 'Unknown')}"
 
+    def _download_face_asset(
+        self,
+        uuid: str,
+        face_index: int,
+        name: str,
+        image_uris: dict[str, Any],
+        size: str,
+        card: dict[str, Any],
+    ) -> tuple[bool, str, Path | None]:
+        """Download a specific face image."""
+        if self.cache.is_cached(uuid, size, face_index=face_index):
+            path = self.cache.get_image_by_uuid(uuid, size, face_index=face_index)
+            return True, f"Already cached: {name}", path
+
+        image_url = image_uris.get(size) or image_uris.get("normal")
+        if not image_url:
+            return False, f"No {size} image for {name}", None
+
+        try:
+            resp = self.session.get(image_url, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
         except Exception as exc:
             logger.debug(f"Failed to download {name}: {exc}")
-            return False, f"Error: {name} - {exc}"
+            return False, f"Error: {name} - {exc}", None
+
+        ext = "png" if size == "png" else "jpg"
+        filename = self._build_face_filename(uuid, face_index, ext)
+        file_path = self.cache.cache_dir / size / filename
+
+        try:
+            with file_path.open("wb") as fh:
+                fh.write(resp.content)
+        except Exception as exc:
+            logger.debug(f"Failed to write image {name}: {exc}")
+            return False, f"Error saving image for {name}: {exc}", None
+
+        self.cache.add_image(
+            uuid=uuid,
+            name=name,
+            set_code=card.get("set", ""),
+            collector_number=card.get("collector_number", ""),
+            image_size=size,
+            file_path=file_path,
+            scryfall_uri=card.get("scryfall_uri"),
+            artist=card.get("artist"),
+            face_index=face_index,
+        )
+        return True, f"Downloaded: {name}", file_path
+
+    @staticmethod
+    def _build_face_filename(uuid: str, face_index: int, ext: str) -> str:
+        """Return deterministic filename for a face image."""
+        if face_index <= 0:
+            return f"{uuid}.{ext}"
+        return f"{uuid}-f{face_index}.{ext}"
 
     def download_all_images(
         self,

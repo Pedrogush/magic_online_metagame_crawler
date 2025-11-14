@@ -48,22 +48,43 @@ def test_card_image_cache_resolves_double_faced_alias(tmp_path):
     cache_dir = tmp_path / "cache"
     db_path = cache_dir / "images.db"
     cache = card_images.CardImageCache(cache_dir=cache_dir, db_path=db_path)
-    image_path = cache.cache_dir / "normal" / "uuid-delver.jpg"
-    image_path.parent.mkdir(parents=True, exist_ok=True)
-    image_path.write_bytes(b"fake")
+    front_path = cache.cache_dir / "normal" / "uuid-delver.jpg"
+    back_path = cache.cache_dir / "normal" / "uuid-delver-f1.jpg"
+    front_path.parent.mkdir(parents=True, exist_ok=True)
+    front_path.write_bytes(b"front")
+    back_path.write_bytes(b"back")
 
+    cache.add_image(
+        uuid="uuid-delver",
+        name="Delver of Secrets",
+        set_code="ISD",
+        collector_number="51",
+        image_size="normal",
+        file_path=front_path,
+        face_index=0,
+    )
+    cache.add_image(
+        uuid="uuid-delver",
+        name="Insectile Aberration",
+        set_code="ISD",
+        collector_number="51",
+        image_size="normal",
+        file_path=back_path,
+        face_index=1,
+    )
     cache.add_image(
         uuid="uuid-delver",
         name="Delver of Secrets // Insectile Aberration",
         set_code="ISD",
         collector_number="51",
         image_size="normal",
-        file_path=image_path,
+        file_path=front_path,
+        face_index=-1,
     )
 
-    assert cache.get_image_path("Delver of Secrets") == image_path
-    assert cache.get_image_path("Insectile Aberration") == image_path
-    # Regression guard: canonical name still resolves
+    assert cache.get_image_path("Delver of Secrets") == front_path
+    assert cache.get_image_path("Insectile Aberration") == back_path
     assert (
-        cache.get_image_path("Delver of Secrets // Insectile Aberration") == image_path
+        cache.get_image_path("Delver of Secrets // Insectile Aberration") == front_path
     )
+    assert cache.get_image_paths_by_uuid("uuid-delver") == [front_path, back_path]
