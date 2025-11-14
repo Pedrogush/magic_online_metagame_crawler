@@ -26,7 +26,7 @@ class _SearchResultsView(dv.DataViewListCtrl):
 class DeckBuilderPanel(wx.Panel):
     """Panel for searching and filtering MTG cards by various properties."""
 
-    _MANA_ICON_SCALE = 0.3  # deck search display needs icons reduced by 70%
+    _MANA_ICON_SCALE = 1  # deck search display needs icons reduced by 70%
 
     def __init__(
         self,
