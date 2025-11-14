@@ -64,8 +64,9 @@ def create_mana_button(
         wx.Button (or wx.BitmapButton) configured for the mana symbol
     """
     bmp: wx.Bitmap | None = None
+    button_bg = DARK_ALT
     try:
-        bmp = mana_icons.bitmap_for_symbol(token)
+        bmp = mana_icons.bitmap_for_symbol(token, button_bg)
     except Exception:
         bmp = None
 
@@ -80,7 +81,7 @@ def create_mana_button(
         btn = wx.Button(parent, label=token, size=(44, 28))
         btn.SetFont(get_mana_font(font_size))
 
-    btn.SetBackgroundColour(DARK_ALT)
+    btn.SetBackgroundColour(button_bg)
     btn.SetForegroundColour(LIGHT_TEXT)
     btn.SetToolTip(token)
     btn.Bind(wx.EVT_BUTTON, lambda _evt, sym=token: handler(sym))

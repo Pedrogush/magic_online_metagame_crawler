@@ -38,7 +38,7 @@ def test_builder_search_populates_results(
 ):
     frame = deck_selector_factory()
     try:
-        frame.card_data_dialogs_disabled = True
+        frame.app_state.card_data_dialogs_disabled = True
         prepare_card_manager(frame)
         frame._show_left_panel("builder", force=True)
         name_ctrl = frame.builder_panel.inputs["name"]

@@ -31,10 +31,11 @@ class ManaIconFactory:
     _FONT_NAME = "Mana"
 
     def __init__(self, icon_size: int = 26) -> None:
-        self._cache: dict[str, wx.Bitmap] = {}
-        self._cost_cache: dict[str, wx.Bitmap] = {}
+        self._cache: dict[tuple[str, tuple[int, int, int]], wx.Bitmap] = {}
+        self._cost_cache: dict[tuple[tuple[str, ...], tuple[int, int, int]], wx.Bitmap] = {}
         self._glyph_map, self._color_map = self._load_css_resources()
         self._ensure_font_loaded()
+        self._default_background = self._background_tuple(DARK_ALT)
         self._icon_size = max(8, icon_size)
 
     def render(self, parent: wx.Window, mana_cost: str) -> wx.Window:
@@ -48,8 +49,9 @@ class ManaIconFactory:
             label.SetForegroundColour(SUBDUED_TEXT)
             sizer.Add(label)
             return panel
+        background = self._background_tuple(panel.GetBackgroundColour())
         for idx, token in enumerate(tokens):
-            bmp = self._get_bitmap(token)
+            bmp = self._get_bitmap(token, background)
             icon = wx.StaticBitmap(panel, bitmap=bmp)
             margin = 1 if idx < len(tokens) - 1 else 0
             sizer.Add(icon, 0, wx.RIGHT, margin)
@@ -57,13 +59,18 @@ class ManaIconFactory:
         panel.SetMinSize((max(icon_span, len(tokens) * icon_span), self._icon_size + 6))
         return panel
 
-    def bitmap_for_symbol(self, symbol: str) -> wx.Bitmap:
+    def bitmap_for_symbol(
+        self, symbol: str, background: wx.Colour | tuple[int, int, int] | None = None
+    ) -> wx.Bitmap:
         token = symbol.strip()
         if token.startswith("{") and token.endswith("}"):
             token = token[1:-1]
-        return self._get_bitmap(token or "")
+        bg_tuple = self._background_tuple(background)
+        return self._get_bitmap(token or "", bg_tuple)
 
-    def bitmap_for_cost(self, mana_cost: str) -> wx.Bitmap | None:
+    def bitmap_for_cost(
+        self, mana_cost: str, background: wx.Colour | tuple[int, int, int] | None = None
+    ) -> wx.Bitmap | None:
         """
         Render an entire mana cost into a single bitmap for compact display.
 
@@ -76,10 +83,11 @@ class ManaIconFactory:
         tokens = self._tokenize(mana_cost)
         if not tokens:
             return None
-        cache_key = "|".join(tokens)
+        bg_tuple = self._background_tuple(background)
+        cache_key = (tuple(tokens), bg_tuple)
         if cache_key in self._cost_cache:
             return self._cost_cache[cache_key]
-        bitmaps = [self._get_bitmap(token) for token in tokens]
+        bitmaps = [self._get_bitmap(token, bg_tuple) for token in tokens]
         height = max((bmp.GetHeight() for bmp in bitmaps), default=0)
         width = sum(bmp.GetWidth() for bmp in bitmaps) + max(0, len(bitmaps) - 1) * 2
         if width <= 0 or height <= 0:
@@ -114,9 +122,10 @@ class ManaIconFactory:
             tokens.append(token)
         return tokens
 
-    def _get_bitmap(self, symbol: str) -> wx.Bitmap:
-        if symbol in self._cache:
-            return self._cache[symbol]
+    def _get_bitmap(self, symbol: str, background: tuple[int, int, int]) -> wx.Bitmap:
+        cache_key = (symbol, background)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
         key = self._normalize_symbol(symbol)
         components = self._hybrid_components(key)
         second_color: tuple[int, int, int] | None = None
@@ -128,11 +137,14 @@ class ManaIconFactory:
             f"glyph={'yes' if glyph else 'no'}",
             f"components={components}",
         )
+        # Render at a higher scale so the custom gradients/shadows stay crisp once resized.
+        # The mana glyph itself uses a font, but the circular badge is painted manually,
+        # so scaling the entire bitmap after drawing remains necessary.
         scale = 3
         size = self._icon_size * scale
         bmp = wx.Bitmap(size, size)
         dc = wx.MemoryDC(bmp)
-        dc.SetBackground(wx.Brush(DARK_ALT))
+        dc.SetBackground(wx.Brush(wx.Colour(*background)))
         dc.Clear()
 
         cx = cy = size // 2
@@ -170,7 +182,7 @@ class ManaIconFactory:
         img = img.Blur(1)
         img = img.Scale(self._icon_size, self._icon_size, wx.IMAGE_QUALITY_HIGH)
         final = wx.Bitmap(img)
-        self._cache[symbol] = final
+        self._cache[cache_key] = final
         return final
 
     def _build_render_font(self, font_size: int) -> wx.Font:
@@ -325,6 +337,17 @@ class ManaIconFactory:
         if len(key) >= 2 and key[0].isdigit() and key[1] in self._color_map:
             return self._color_map[key[1]]
         return self.FALLBACK_COLORS["multicolor"]
+
+    def _background_tuple(
+        self, background: wx.Colour | tuple[int, int, int] | None
+    ) -> tuple[int, int, int]:
+        if isinstance(background, wx.Colour):
+            return (background.Red(), background.Green(), background.Blue())
+        if isinstance(background, tuple) and len(background) == 3:
+            return tuple(int(max(0, min(255, comp))) for comp in background)
+        if hasattr(self, "_default_background"):
+            return self._default_background
+        return (DARK_ALT.Red(), DARK_ALT.Green(), DARK_ALT.Blue())
 
     def _normalize_symbol(self, symbol: str) -> str | None:
         token = symbol.strip().lower().replace("{", "").replace("}", "")

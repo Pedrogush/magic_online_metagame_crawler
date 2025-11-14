@@ -5,7 +5,7 @@ import wx
 import wx.dataview as dv
 
 from utils.game_constants import FORMAT_OPTIONS
-from utils.mana_icon_factory import ManaIconFactory
+from utils.mana_icon_factory import ManaIconFactory, tokenize_mana_symbols
 from utils.stylize import (
     stylize_button,
     stylize_choice,
@@ -25,8 +25,6 @@ class _SearchResultsView(dv.DataViewListCtrl):
 
 class DeckBuilderPanel(wx.Panel):
     """Panel for searching and filtering MTG cards by various properties."""
-
-    _MANA_ICON_SCALE = 1  # deck search display needs icons reduced by 70%
 
     def __init__(
         self,
@@ -61,7 +59,7 @@ class DeckBuilderPanel(wx.Panel):
         self.results_ctrl: dv.DataViewListCtrl | None = None
         self.status_label: wx.StaticText | None = None
         self.results_cache: list[dict[str, Any]] = []
-        self._mana_icon_cache: dict[str, dv.DataViewIconText] = {}
+        self._mana_icon_cache: dict[tuple[str, tuple[int, int, int]], dv.DataViewIconText] = {}
 
         # Build the UI
         self._build_ui()
@@ -202,8 +200,8 @@ class DeckBuilderPanel(wx.Panel):
 
         # Results list
         results = _SearchResultsView(self, style=dv.DV_ROW_LINES | dv.DV_SINGLE)
-        results.AppendTextColumn("Name", width=230)
-        results.AppendIconTextColumn("Mana", width=120)
+        results.AppendTextColumn("Name", width=200)
+        results.AppendIconTextColumn("Mana", width=170)
         results.SetBackgroundColour(DARK_ALT)
         results.SetForegroundColour(LIGHT_TEXT)
         results.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self._on_result_item_selected)
@@ -320,28 +318,34 @@ class DeckBuilderPanel(wx.Panel):
     def _get_mana_icon_text(self, mana_cost: str) -> dv.DataViewIconText:
         """Return cached icon text object for a mana cost."""
         cost_key = mana_cost.strip()
-        cache_key = f"{cost_key}|{self._MANA_ICON_SCALE}"
+        tokens = tokenize_mana_symbols(cost_key)
+        if not tokens:
+            return dv.DataViewIconText("—", wx.NullIcon)
+
+        visible_cost = "".join(f"{{{token}}}" for token in tokens)
+        bg_color = self._results_background_colour()
+        bg_key = self._colour_key(bg_color)
+        cache_key = (visible_cost, bg_key)
         if cache_key in self._mana_icon_cache:
             return self._mana_icon_cache[cache_key]
-        bitmap = self.mana_icons.bitmap_for_cost(cost_key)
+
+        bitmap = self.mana_icons.bitmap_for_cost(visible_cost, bg_color)
+        icon = wx.Icon() if bitmap else wx.NullIcon
         if bitmap:
-            bitmap = self._scale_bitmap(bitmap, self._MANA_ICON_SCALE)
-            icon = wx.Icon()
             icon.CopyFromBitmap(bitmap)
-            value = dv.DataViewIconText("", icon)
+
+        if not bitmap:
+            value = dv.DataViewIconText(visible_cost, wx.NullIcon)
         else:
-            value = dv.DataViewIconText("—", wx.NullIcon)
+            value = dv.DataViewIconText("", icon)
         self._mana_icon_cache[cache_key] = value
         return value
 
-    def _scale_bitmap(self, bitmap: wx.Bitmap, scale: float) -> wx.Bitmap:
-        """Return a bitmap scaled by the provided factor."""
-        if scale <= 0:
-            return bitmap
-        width = max(1, int(bitmap.GetWidth() * scale))
-        height = max(1, int(bitmap.GetHeight() * scale))
-        if width == bitmap.GetWidth() and height == bitmap.GetHeight():
-            return bitmap
-        image = bitmap.ConvertToImage()
-        scaled = image.Scale(width, height, wx.IMAGE_QUALITY_HIGH)
-        return wx.Bitmap(scaled)
+    def _results_background_colour(self) -> wx.Colour:
+        if self.results_ctrl:
+            return self.results_ctrl.GetBackgroundColour()
+        return self.GetBackgroundColour()
+
+    @staticmethod
+    def _colour_key(colour: wx.Colour) -> tuple[int, int, int]:
+        return (colour.Red(), colour.Green(), colour.Blue())

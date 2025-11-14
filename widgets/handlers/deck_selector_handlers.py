@@ -21,7 +21,9 @@ class DeckSelectorHandlers:
     # UI Event Handlers
     def on_format_changed(self: MTGDeckSelectionFrame) -> None:
         """Handle format selection change."""
-        self.current_format = self.research_panel.get_selected_format()
+        new_format = self.research_panel.get_selected_format()
+        self.app_state.current_format = new_format
+        self.settings["format"] = new_format
         self.fetch_archetypes(force=True)
 
     def on_archetype_filter(self: MTGDeckSelectionFrame) -> None:
@@ -38,7 +40,7 @@ class DeckSelectorHandlers:
     def on_archetype_selected(self: MTGDeckSelectionFrame) -> None:
         """Handle archetype selection from the list."""
         with self._loading_lock:
-            if self.loading_archetypes or self.loading_decks:
+            if self.app_state.loading_archetypes or self.app_state.loading_decks:
                 return
         idx = self.research_panel.get_selected_archetype_index()
         if idx < 0:
@@ -48,7 +50,7 @@ class DeckSelectorHandlers:
 
     def on_deck_selected(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         with self._loading_lock:
-            if self.loading_decks:
+            if self.app_state.loading_decks:
                 return
         idx = self.deck_list.GetSelection()
         if idx == wx.NOT_FOUND:
@@ -65,7 +67,7 @@ class DeckSelectorHandlers:
     def on_load_deck_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         current_deck = self.deck_repo.get_current_deck()
         with self._loading_lock:
-            if self.loading_decks:
+            if self.app_state.loading_decks:
                 return
         if not current_deck:
             return
@@ -73,7 +75,7 @@ class DeckSelectorHandlers:
 
     def on_daily_average_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         with self._loading_lock:
-            if self.loading_daily_average:
+            if self.app_state.loading_daily_average:
                 return
         if not self.deck_repo.get_decks_list():
             return
@@ -125,7 +127,7 @@ class DeckSelectorHandlers:
             deck_id = self.deck_repo.save_to_db(
                 deck_name=deck_name,
                 deck_content=deck_content,
-                format_type=self.current_format,
+                format_type=self.app_state.current_format,
                 archetype=current_deck.get("name") if current_deck else None,
                 player=current_deck.get("player") if current_deck else None,
                 source="mtggoldfish" if current_deck else "manual",
@@ -195,20 +197,20 @@ class DeckSelectorHandlers:
     # Async Callback Handlers
     def _on_archetypes_loaded(self: MTGDeckSelectionFrame, items: list[dict[str, Any]]) -> None:
         with self._loading_lock:
-            self.loading_archetypes = False
+            self.app_state.loading_archetypes = False
         self.archetypes = sorted(items, key=lambda entry: entry.get("name", "").lower())
         self.filtered_archetypes = list(self.archetypes)
         self._populate_archetype_list()
         self.research_panel.enable_controls()
         count = len(self.archetypes)
-        self._set_status(f"Loaded {count} archetypes for {self.current_format}.")
+        self._set_status(f"Loaded {count} archetypes for {self.app_state.current_format}.")
         self.summary_text.ChangeValue(
             f"Select an archetype to view decks.\nLoaded {count} archetypes."
         )
 
     def _on_archetypes_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
         with self._loading_lock:
-            self.loading_archetypes = False
+            self.app_state.loading_archetypes = False
         self.research_panel.set_error_state()
         self._set_status(f"Error: {error}")
         wx.MessageBox(
@@ -219,7 +221,7 @@ class DeckSelectorHandlers:
         self: MTGDeckSelectionFrame, archetype_name: str, decks: list[dict[str, Any]]
     ) -> None:
         with self._loading_lock:
-            self.loading_decks = False
+            self.app_state.loading_decks = False
         self.deck_repo.set_decks_list(decks)
         self.deck_list.Clear()
         if not decks:
@@ -237,7 +239,7 @@ class DeckSelectorHandlers:
 
     def _on_decks_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
         with self._loading_lock:
-            self.loading_decks = False
+            self.app_state.loading_decks = False
         self.deck_list.Clear()
         self.deck_list.Append("Failed to load decks.")
         self._set_status(f"Error loading decks: {error}")
@@ -339,7 +341,7 @@ class DeckSelectorHandlers:
         if not card_manager:
             if not self.card_repo.is_card_data_loading():
                 self.ensure_card_data_loaded()
-            if not self.card_data_dialogs_disabled:
+            if not self.app_state.card_data_dialogs_disabled:
                 wx.MessageBox(
                     "Card database is still loading. Please try again in a moment.",
                     "Card Search",

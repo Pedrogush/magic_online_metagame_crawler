@@ -24,7 +24,7 @@ from services.deck_research_service import DeckResearchService
 from services.deck_service import DeckService, ZoneUpdateResult, get_deck_service
 from services.image_service import ImageService, get_image_service
 from services.search_service import SearchService, get_search_service
-from services.state_service import StateService
+from services.state_service import DeckSelectorState, StateService
 from services.store_service import StoreService, get_store_service
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "DeckService",
     "ImageService",
     "SearchService",
+    "DeckSelectorState",
     "StateService",
     "StoreService",
     "ZoneUpdateResult",
