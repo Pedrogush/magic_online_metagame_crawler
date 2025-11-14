@@ -733,9 +733,10 @@ class MTGDeckSelectionFrame(
 
     def _load_collection_from_cache(self) -> bool:
         """Load collection from cached file without calling bridge. Returns True if loaded."""
-        success, info = self.collection_service.load_from_cached_file(DECK_SAVE_DIR)
-
-        if not success:
+        try:
+            info = self.collection_service.load_from_cached_file(DECK_SAVE_DIR)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.debug(f"Could not load collection from cache: {exc}")
             self.collection_status_label.SetLabel(
                 "No collection found. Click 'Refresh Collection' to fetch from MTGO."
             )
