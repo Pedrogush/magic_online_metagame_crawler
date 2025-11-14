@@ -288,7 +288,7 @@ class DeckBuilderPanel(wx.Panel):
         if not self.results_ctrl:
             return
         self.results_ctrl.DeleteAllItems()
-        for idx, card in enumerate(results):
+        for _idx, card in enumerate(results):
             name = card.get("name", "Unknown")
             mana_cost = card.get("mana_cost") or ""
             icon_text = self._get_mana_icon_text(mana_cost)
