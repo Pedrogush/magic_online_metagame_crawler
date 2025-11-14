@@ -256,7 +256,7 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(mtggoldfish, attr, value, raising=False)
 
     monkeypatch.setattr(
-        deck_selector._Worker,
+        deck_selector.BackgroundWorker,
         "start",
         lambda self: self._run(),
         raising=False,
