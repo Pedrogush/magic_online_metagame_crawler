@@ -17,6 +17,7 @@ __pycache__/
 !ARCHITECTURE.md
 !INSTALLATION.md
 !WORKFLOW.md
+!ISSUE_FILE_MAPPING.md
 !packaging/README.md
 !dotnet/MTGOBridge/README.md
 !sounds/README.md
