@@ -47,32 +47,65 @@ usage() {
 
 get_issue_comments() {
     local issue=$1
-    gh issue view "$issue" --json comments --jq '.comments[].body' 2>/dev/null || echo ""
+    gh issue view "$issue" --json comments --jq '.comments[] | @base64' 2>/dev/null || echo ""
+}
+
+get_issue_claim_state() {
+    local issue=$1
+    local comments
+    comments=$(get_issue_comments "$issue")
+
+    local status="available"
+    local session=""
+
+    if [ -z "$comments" ]; then
+        echo "${status}|${session}"
+        return
+    fi
+
+    while IFS= read -r comment; do
+        [ -z "$comment" ] && continue
+
+        local body
+        body=$(echo "$comment" | base64 --decode | python3 -c 'import json, sys; print(json.load(sys.stdin)["body"])')
+
+        if printf '%s\n' "$body" | grep -q "🔧 CLAIMED"; then
+            session=$(printf '%s\n' "$body" | grep -m1 "Session:" | sed 's/.*Session:[[:space:]]*//' | tr -d '\r')
+            session=$(echo "$session" | tr -d ' ')
+            status="claimed"
+        elif printf '%s\n' "$body" | grep -q "✅ RELEASED"; then
+            status="available"
+            session=""
+        fi
+    done <<< "$comments"
+
+    echo "${status}|${session}"
 }
 
 is_issue_claimed() {
     local issue=$1
-    local comments=$(get_issue_comments "$issue")
+    local claim_state
+    claim_state=$(get_issue_claim_state "$issue")
+    local status=${claim_state%%|*}
 
-    # Check for claim markers
-    if echo "$comments" | grep -q "🔧 CLAIMED"; then
-        return 0  # Issue is claimed
+    if [ "$status" = "claimed" ]; then
+        return 0
     fi
-    return 1  # Issue is not claimed
+    return 1
 }
 
 get_claiming_session() {
     local issue=$1
-    local comments=$(get_issue_comments "$issue")
-
-    echo "$comments" | grep -A 3 "🔧 CLAIMED" | grep "Session:" | head -1 | sed 's/Session: //' | tr -d ' '
+    local claim_state
+    claim_state=$(get_issue_claim_state "$issue")
+    echo "${claim_state#*|}"
 }
 
 claim_issue() {
     local issue=$1
 
     # Check if issue exists
-    if ! gh issue view "$issue" &>/dev/null; then
+    if ! gh issue view "$issue" --json number &>/dev/null; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
@@ -115,7 +148,7 @@ release_issue() {
     local issue=$1
 
     # Check if issue exists
-    if ! gh issue view "$issue" &>/dev/null; then
+    if ! gh issue view "$issue" --json number &>/dev/null; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
@@ -151,7 +184,7 @@ Issue is now available for other sessions to work on."
 check_issue() {
     local issue=$1
 
-    if ! gh issue view "$issue" &>/dev/null; then
+    if ! gh issue view "$issue" --json number &>/dev/null; then
         echo -e "${RED}Error: Issue #${issue} does not exist${NC}"
         exit 1
     fi
