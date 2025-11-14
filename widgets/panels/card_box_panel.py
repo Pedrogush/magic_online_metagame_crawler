@@ -83,7 +83,9 @@ class CardBoxPanel(wx.Panel):
         # Bind click events to all widgets so clicks anywhere on the card work
         self._bind_click_targets([self, self.qty_label, self.name_label, mana_panel])
 
-    def update_quantity(self, qty: int | float, owned_text: str, owned_colour: tuple[int, int, int]) -> None:
+    def update_quantity(
+        self, qty: int | float, owned_text: str, owned_colour: tuple[int, int, int]
+    ) -> None:
         self.qty_label.SetLabel(str(qty))
         self.name_label.SetForegroundColour(wx.Colour(*owned_colour))
         self.Layout()
