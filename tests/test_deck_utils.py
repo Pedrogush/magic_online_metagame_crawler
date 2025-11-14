@@ -101,9 +101,10 @@ Sideboard
 
 
 def test_sanitize_filename_removes_null_bytes():
-    """Verify null bytes are removed from filenames."""
+    """Verify null bytes are replaced with underscores (consecutive underscores collapsed)."""
     assert sanitize_filename("test\x00file") == "test_file"
-    assert sanitize_filename("null\x00\x00byte") == "null__byte"
+    # Multiple null bytes collapse to single underscore
+    assert sanitize_filename("null\x00\x00byte") == "null_byte"
 
 
 def test_sanitize_filename_prevents_path_traversal():
