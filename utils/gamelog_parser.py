@@ -33,6 +33,7 @@ def get_current_username() -> str | None:
     try:
         from utils.config import CONFIG
     except ImportError:
+        logger.debug("CONFIG module not available; using defaults for MTGO username lookup")
         CONFIG = {}
 
     bridge_path = CONFIG.get(
@@ -201,6 +202,7 @@ def locate_gamelog_directory_via_bridge() -> str | None:
     try:
         from utils.config import CONFIG
     except ImportError:
+        logger.debug("CONFIG module not available; using defaults for MTGO bridge path")
         CONFIG = {}
     bridge_path = CONFIG.get(
         "mtgo_bridge_path", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
@@ -385,7 +387,13 @@ def parse_timestamp(timestamp_str: str, file_path: str = None) -> datetime:
         dt_str = f"{year}-{month}-{day} {hour}:{minute}:00"
         return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
 
-    except Exception:
+    except Exception as exc:
+        logger.debug(
+            "Failed to parse timestamp '%s' from %s: %s",
+            timestamp_str,
+            file_path or "unknown file",
+            exc,
+        )
         # Silent fallback to file modification time or current time
         if file_path and os.path.exists(file_path):
             return datetime.fromtimestamp(os.path.getmtime(file_path))
@@ -728,7 +736,8 @@ def parse_gamelog_file(file_path: str) -> dict | None:
             "notes": "",
         }
 
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to parse GameLog file %s: %s", file_path, exc)
         # Silently skip unparseable files
         return None
 
