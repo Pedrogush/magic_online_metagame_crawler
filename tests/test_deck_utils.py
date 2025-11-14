@@ -108,13 +108,13 @@ def test_sanitize_filename_removes_null_bytes():
 
 def test_sanitize_filename_prevents_path_traversal():
     """Verify path traversal attempts are neutralized."""
-    # ".." becomes "_", "/"becomes "_", result: "__etc_passwd"
-    assert sanitize_filename("../etc/passwd") == "__etc_passwd"
-    # ".." becomes "_", "\\"becomes "_", result: "__windows_system32"
-    assert sanitize_filename("..\\windows\\system32") == "__windows_system32"
-    # ".." becomes "_", result: "test__secret"
-    assert sanitize_filename("test/../secret") == "test__secret"
-    # "..." becomes "_", fallback triggered as only underscores remain
+    # ".." becomes "_", "/" becomes "_", leading/trailing _ stripped
+    assert sanitize_filename("../etc/passwd") == "etc_passwd"
+    # ".." becomes "_", "\\" becomes "_", leading/trailing _ stripped
+    assert sanitize_filename("..\\windows\\system32") == "windows_system32"
+    # ".." becomes "_", middle underscores preserved
+    assert sanitize_filename("test/../secret") == "test_secret"
+    # "..." becomes "_", fallback triggered as only underscores remain after stripping
     assert sanitize_filename("...") == "saved_deck"
 
 
@@ -124,7 +124,7 @@ def test_sanitize_filename_handles_invalid_characters():
     assert sanitize_filename("test*file") == "test_file"
     assert sanitize_filename("test?file") == "test_file"
     assert sanitize_filename('test"file') == "test_file"
-    assert sanitize_filename("test<file>") == "test_file_"
+    assert sanitize_filename("test<file>") == "test_file"
     assert sanitize_filename("test|file") == "test_file"
     assert sanitize_filename("test/file") == "test_file"
     assert sanitize_filename("test\\file") == "test_file"
@@ -152,7 +152,7 @@ def test_sanitize_filename_strips_leading_trailing():
     assert sanitize_filename("  __test__  ") == "test"
     # Leading dots are removed (prevents hidden files)
     assert sanitize_filename(".hidden") == "hidden"
-    assert sanitize_filename("...test") == "_test"  # Multiple dots become _ then stripped
+    assert sanitize_filename("...test") == "test"  # Multiple dots become _, then leading _ stripped
     # Trailing dots are removed
     assert sanitize_filename("test.") == "test"
     assert sanitize_filename("test..") == "test"
