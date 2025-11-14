@@ -70,7 +70,7 @@ class CardTablePanel(wx.Panel):
             return False
 
         # Check if only quantities changed (same cards in same order)
-        for i, (old_card, new_card) in enumerate(zip(self.cards, new_cards)):
+        for old_card, new_card in zip(self.cards, new_cards):
             if old_card["name"].lower() != new_card["name"].lower():
                 return False
 
