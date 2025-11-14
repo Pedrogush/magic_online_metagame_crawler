@@ -66,26 +66,31 @@ class CardTablePanel(wx.Panel):
     def _try_incremental_update(self, new_cards: list[dict[str, Any]]) -> bool:
         """Try to update existing widgets incrementally instead of rebuilding.
         Returns True if incremental update was possible, False if full rebuild needed."""
-        if len(new_cards) != len(self.cards):
+        if len(new_cards) != len(self.card_widgets):
             return False
 
-        # Check if only quantities changed (same cards in same order)
-        for old_card, new_card in zip(self.cards, new_cards):
-            if old_card["name"].lower() != new_card["name"].lower():
+        # Check if cards match widgets in the same order
+        # (new_cards may have been sorted while widgets are in old order)
+        for widget, new_card in zip(self.card_widgets, new_cards):
+            if widget.card["name"].lower() != new_card["name"].lower():
                 return False
 
-        # All cards match, only quantities may have changed
+        # All cards match widget order - update only changed quantities
         total = 0
-        for i, new_card in enumerate(new_cards):
+        for widget, new_card in zip(self.card_widgets, new_cards):
             qty = new_card["qty"]
             total += qty
 
-            # Update widget if quantity changed
-            if qty != self.cards[i]["qty"]:
-                widget = self.card_widgets[i]
+            # Only update widget if quantity or ownership color changed
+            # Compare against widget's current displayed value to detect changes
+            current_qty_str = widget.qty_label.GetLabel()
+            if current_qty_str != str(qty):
                 widget.card = new_card
                 owned_text, owned_colour = self._owned_status(new_card["name"], int(qty))
                 widget.update_quantity(qty, owned_text, owned_colour)
+            else:
+                # Still need to update card reference even if qty didn't change
+                widget.card = new_card
 
         self.count_label.SetLabel(f"{total} card{'s' if total != 1 else ''}")
         return True
