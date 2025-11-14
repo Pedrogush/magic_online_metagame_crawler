@@ -30,11 +30,12 @@ class ManaIconFactory:
     _FONT_LOADED = False
     _FONT_NAME = "Mana"
 
-    def __init__(self) -> None:
+    def __init__(self, icon_size: int = 26) -> None:
         self._cache: dict[str, wx.Bitmap] = {}
         self._cost_cache: dict[str, wx.Bitmap] = {}
         self._glyph_map, self._color_map = self._load_css_resources()
         self._ensure_font_loaded()
+        self._icon_size = max(8, icon_size)
 
     def render(self, parent: wx.Window, mana_cost: str) -> wx.Window:
         panel = wx.Panel(parent)
@@ -52,7 +53,8 @@ class ManaIconFactory:
             icon = wx.StaticBitmap(panel, bitmap=bmp)
             margin = 1 if idx < len(tokens) - 1 else 0
             sizer.Add(icon, 0, wx.RIGHT, margin)
-        panel.SetMinSize((max(28, len(tokens) * 28), 32))
+        icon_span = self._icon_size + 2
+        panel.SetMinSize((max(icon_span, len(tokens) * icon_span), self._icon_size + 6))
         return panel
 
     def bitmap_for_symbol(self, symbol: str) -> wx.Bitmap:
@@ -127,7 +129,7 @@ class ManaIconFactory:
             f"components={components}",
         )
         scale = 3
-        size = 26 * scale
+        size = self._icon_size * scale
         bmp = wx.Bitmap(size, size)
         dc = wx.MemoryDC(bmp)
         dc.SetBackground(wx.Brush(DARK_ALT))
@@ -166,7 +168,7 @@ class ManaIconFactory:
             dc.SelectObject(wx.NullBitmap)
         img = bmp.ConvertToImage()
         img = img.Blur(1)
-        img = img.Scale(26, 26, wx.IMAGE_QUALITY_HIGH)
+        img = img.Scale(self._icon_size, self._icon_size, wx.IMAGE_QUALITY_HIGH)
         final = wx.Bitmap(img)
         self._cache[symbol] = final
         return final
