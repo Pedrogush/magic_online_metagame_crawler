@@ -14,9 +14,7 @@ def mock_card_manager():
     """Mock CardDataManager for testing."""
     manager = SimpleNamespace()
     manager._cards = {"Lightning Bolt": {"name": "Lightning Bolt", "cmc": 1}}
-    manager.get_card = Mock(
-        return_value={"name": "Lightning Bolt", "mana_cost": "{R}", "cmc": 1}
-    )
+    manager.get_card = Mock(return_value={"name": "Lightning Bolt", "mana_cost": "{R}", "cmc": 1})
     manager.search_cards = Mock(
         return_value=[
             {"name": "Lightning Bolt"},
