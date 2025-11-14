@@ -16,8 +16,12 @@ __pycache__/
 !README.md
 !ARCHITECTURE.md
 !INSTALLATION.md
+!WORKFLOW.md
 !packaging/README.md
 !dotnet/MTGOBridge/README.md
+!sounds/README.md
+!tests/TESTING_GUIDE.md
+!docs/**/*.md
 settings.local.json
 data/
 vendor/
