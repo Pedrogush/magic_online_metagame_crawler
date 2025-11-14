@@ -225,12 +225,14 @@ class DeckSelectorHandlers:
     ) -> None:
         self.deck_repo.set_current_deck_text(deck_text)
         stats = self.deck_service.analyze_deck(deck_text)
-        self.zone_cards["main"] = [
-            {"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]
-        ]
-        self.zone_cards["side"] = [
-            {"name": name, "qty": qty} for name, qty in stats["sideboard_cards"]
-        ]
+        self.zone_cards["main"] = sorted(
+            [{"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]],
+            key=lambda card: card["name"].lower(),
+        )
+        self.zone_cards["side"] = sorted(
+            [{"name": name, "qty": qty} for name, qty in stats["sideboard_cards"]],
+            key=lambda card: card["name"].lower(),
+        )
         self.zone_cards["out"] = self._load_outboard_for_current()
         self.main_table.set_cards(self.zone_cards["main"])
         self.side_table.set_cards(self.zone_cards["side"])
