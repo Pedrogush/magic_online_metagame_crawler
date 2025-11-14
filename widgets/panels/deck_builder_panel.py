@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 import wx
+import wx.dataview as dv
 
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
@@ -9,11 +10,17 @@ from utils.stylize import (
     stylize_button,
     stylize_choice,
     stylize_label,
-    stylize_listctrl,
     stylize_textctrl,
 )
-from utils.ui_constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
+from utils.ui_constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
 from widgets.buttons.mana_button import create_mana_button
+
+
+class _SearchResultsView(dv.DataViewListCtrl):
+    """DataViewListCtrl with legacy ListCtrl helpers used by tests."""
+
+    def GetItemText(self, row: int, col: int = 0) -> str:
+        return self.GetTextValue(row, col)
 
 
 class DeckBuilderPanel(wx.Panel):
@@ -49,9 +56,10 @@ class DeckBuilderPanel(wx.Panel):
         self.format_checks: list[wx.CheckBox] = []
         self.color_checks: dict[str, wx.CheckBox] = {}
         self.color_mode_choice: wx.Choice | None = None
-        self.results_ctrl: wx.ListCtrl | None = None
+        self.results_ctrl: dv.DataViewListCtrl | None = None
         self.status_label: wx.StaticText | None = None
         self.results_cache: list[dict[str, Any]] = []
+        self._mana_icon_cache: dict[str, dv.DataViewIconText] = {}
 
         # Build the UI
         self._build_ui()
@@ -191,11 +199,12 @@ class DeckBuilderPanel(wx.Panel):
         sizer.Add(controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         # Results list
-        results = wx.ListCtrl(self, style=wx.LC_REPORT | wx.BORDER_NONE)
-        results.InsertColumn(0, "Name", width=220)
-        results.InsertColumn(1, "Mana", width=110)
-        stylize_listctrl(results)
-        results.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_result_item_selected)
+        results = _SearchResultsView(self, style=dv.DV_ROW_LINES | dv.DV_SINGLE)
+        results.AppendTextColumn("Name", width=230)
+        results.AppendIconTextColumn("Mana", width=120)
+        results.SetBackgroundColour(DARK_ALT)
+        results.SetForegroundColour(LIGHT_TEXT)
+        results.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self._on_result_item_selected)
         sizer.Add(results, 1, wx.EXPAND | wx.ALL, 6)
         self.results_ctrl = results
 
@@ -209,9 +218,16 @@ class DeckBuilderPanel(wx.Panel):
         """Handle back button click."""
         self._on_switch_to_research()
 
-    def _on_result_item_selected(self, event: wx.ListEvent) -> None:
+    def _on_result_item_selected(self, event: dv.DataViewEvent) -> None:
         """Handle result list item selection."""
-        idx = event.GetIndex()
+        if not self.results_ctrl:
+            return
+        item = event.GetItem()
+        if not item.IsOk():
+            return
+        idx = self.results_ctrl.ItemToRow(item)
+        if idx == wx.NOT_FOUND:
+            return
         self._on_result_selected(idx)
 
     def _append_mana_symbol(self, token: str) -> None:
@@ -249,6 +265,7 @@ class DeckBuilderPanel(wx.Panel):
         for ctrl in self.inputs.values():
             ctrl.ChangeValue("")
         self.results_cache = []
+        self._mana_icon_cache.clear()
 
         if self.status_label:
             self.status_label.SetLabel("Filters cleared.")
@@ -273,9 +290,9 @@ class DeckBuilderPanel(wx.Panel):
         self.results_ctrl.DeleteAllItems()
         for idx, card in enumerate(results):
             name = card.get("name", "Unknown")
-            mana = card.get("mana_cost") or "—"
-            item_index = self.results_ctrl.InsertItem(idx, name)
-            self.results_ctrl.SetItem(item_index, 1, mana)
+            mana_cost = card.get("mana_cost") or ""
+            icon_text = self._get_mana_icon_text(mana_cost)
+            self.results_ctrl.AppendItem([name, icon_text])
         if self.status_label:
             count = len(results)
             self.status_label.SetLabel(f"Showing {count} card{'s' if count != 1 else ''}.")
@@ -297,3 +314,18 @@ class DeckBuilderPanel(wx.Panel):
     def _on_result_selected(self, idx: int) -> None:
         """Handle result list item selection."""
         self._on_result_selected_callback(idx)
+
+    def _get_mana_icon_text(self, mana_cost: str) -> dv.DataViewIconText:
+        """Return cached icon text object for a mana cost."""
+        cost_key = mana_cost.strip()
+        if cost_key in self._mana_icon_cache:
+            return self._mana_icon_cache[cost_key]
+        bitmap = self.mana_icons.bitmap_for_cost(cost_key)
+        if bitmap:
+            icon = wx.Icon()
+            icon.CopyFromBitmap(bitmap)
+            value = dv.DataViewIconText("", icon)
+        else:
+            value = dv.DataViewIconText("—", wx.NullIcon)
+        self._mana_icon_cache[cost_key] = value
+        return value

@@ -32,6 +32,7 @@ class ManaIconFactory:
 
     def __init__(self) -> None:
         self._cache: dict[str, wx.Bitmap] = {}
+        self._cost_cache: dict[str, wx.Bitmap] = {}
         self._glyph_map, self._color_map = self._load_css_resources()
         self._ensure_font_loaded()
 
@@ -59,6 +60,45 @@ class ManaIconFactory:
         if token.startswith("{") and token.endswith("}"):
             token = token[1:-1]
         return self._get_bitmap(token or "")
+
+    def bitmap_for_cost(self, mana_cost: str) -> wx.Bitmap | None:
+        """
+        Render an entire mana cost into a single bitmap for compact display.
+
+        Args:
+            mana_cost: Mana cost string using curly-brace tokens (e.g., "{1}{G}{G}")
+
+        Returns:
+            wx.Bitmap with all mana symbols composed horizontally, or None if no symbols.
+        """
+        tokens = self._tokenize(mana_cost)
+        if not tokens:
+            return None
+        cache_key = "|".join(tokens)
+        if cache_key in self._cost_cache:
+            return self._cost_cache[cache_key]
+        bitmaps = [self._get_bitmap(token) for token in tokens]
+        height = max((bmp.GetHeight() for bmp in bitmaps), default=0)
+        width = sum(bmp.GetWidth() for bmp in bitmaps) + max(0, len(bitmaps) - 1) * 2
+        if width <= 0 or height <= 0:
+            return None
+        composed = wx.Bitmap(width, height)
+        dc = wx.MemoryDC(composed)
+        try:
+            dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0, 0)))
+        except TypeError:
+            dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0)))
+        dc.Clear()
+        x = 0
+        for idx, bmp in enumerate(bitmaps):
+            y = (height - bmp.GetHeight()) // 2
+            dc.DrawBitmap(bmp, x, max(0, y), True)
+            x += bmp.GetWidth()
+            if idx < len(bitmaps) - 1:
+                x += 2
+        dc.SelectObject(wx.NullBitmap)
+        self._cost_cache[cache_key] = composed
+        return composed
 
     def _tokenize(self, cost: str) -> list[str]:
         tokens: list[str] = []
