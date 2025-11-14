@@ -1,5 +1,4 @@
 from services.deck_service import DeckService
-from utils.deck import analyze_deck
 
 SAMPLE_DECK = """4 Ragavan, Nimble Pilferer
 2 Blood Moon
@@ -21,7 +20,7 @@ def test_deck_to_dictionary_parses_main_and_side():
 
 
 def test_analyze_deck_counts_cards_correctly():
-    summary = analyze_deck(SAMPLE_DECK)
+    summary = DeckService().analyze_deck(SAMPLE_DECK)
     assert summary["mainboard_count"] == 7
     assert summary["sideboard_count"] == 5
     assert summary["total_cards"] == 12
@@ -40,7 +39,7 @@ def test_analyze_deck_sums_land_counts():
 
 3 Duress
 """
-    summary = analyze_deck(deck_with_lands)
+    summary = DeckService().analyze_deck(deck_with_lands)
     # Should sum 4+3+2+1 = 10 lands, not count 4 unique land names
     assert summary["estimated_lands"] == 10
     assert summary["mainboard_count"] == 16
@@ -57,7 +56,7 @@ def test_analyze_deck_detects_land_keywords():
 1 Scalding Tarn
 2 Lightning Bolt
 """
-    summary = analyze_deck(deck_with_various_lands)
+    summary = DeckService().analyze_deck(deck_with_various_lands)
     # Only "Misty Rainforest" contains a keyword ("forest")
     # So estimated_lands = 4
     # Note: Many real MTG lands don't contain basic land type keywords
@@ -74,7 +73,7 @@ def test_analyze_deck_no_lands():
 
 3 Duress
 """
-    summary = analyze_deck(deck_without_lands)
+    summary = DeckService().analyze_deck(deck_without_lands)
     assert summary["estimated_lands"] == 0
     assert summary["mainboard_count"] == 12
 
@@ -88,7 +87,7 @@ Sideboard
 1 Abrade
 2 Abrade
 """
-    summary = analyze_deck(duplicate_entries)
+    summary = DeckService().analyze_deck(duplicate_entries)
 
     mainboard_dict = dict(summary["mainboard_cards"])
     assert mainboard_dict["Lightning Bolt"] == 3

@@ -30,7 +30,10 @@ from utils.paths import (
     DECK_SELECTOR_SETTINGS_FILE,
     DECKS_DIR,
 )
-from utils.service_config import COLLECTION_CACHE_MAX_AGE_SECONDS
+from utils.service_config import (
+    COLLECTION_CACHE_MAX_AGE_SECONDS,
+    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
+)
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_constants import (
     DARK_BG,
@@ -116,6 +119,9 @@ except OSError as exc:  # pragma: no cover - defensive logging
     logger.warning(f"Unable to create deck save directory '{DECK_SAVE_DIR}': {exc}")
 CONFIG.setdefault("deck_selector_save_path", str(DECK_SAVE_DIR))
 
+BULK_CACHE_MIN_AGE_DAYS = 1
+BULK_CACHE_MAX_AGE_DAYS = 365
+
 
 def format_deck_name(deck: dict[str, Any]) -> str:
     """Compose a compact deck line for list display."""
@@ -179,6 +185,13 @@ class MTGDeckSelectionFrame(
         self.current_format = self.settings.get("format", "Modern")
         if self.current_format not in FORMAT_OPTIONS:
             self.current_format = "Modern"
+        raw_force = self.settings.get("force_cached_bulk_data", False)
+        self._bulk_cache_force = self._coerce_bool(raw_force)
+        self._bulk_data_age_days = self._validate_bulk_cache_age(
+            self.settings.get("bulk_data_max_age_days", DEFAULT_BULK_DATA_MAX_AGE_DAYS)
+        )
+        self.settings.setdefault("force_cached_bulk_data", self._bulk_cache_force)
+        self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
 
         self.archetypes: list[dict[str, Any]] = []
         self.filtered_archetypes: list[dict[str, Any]] = []
@@ -213,6 +226,9 @@ class MTGDeckSelectionFrame(
         self.history_window: MatchHistoryFrame | None = None
         self.metagame_window: MetagameAnalysisFrame | None = None
         self.mana_keyboard_window: ManaKeyboardFrame | None = None
+        self.force_cache_checkbox: wx.CheckBox | None = None
+        self.bulk_cache_age_spin: wx.SpinCtrl | None = None
+        self._bulk_check_worker_active = False
 
         self._build_ui()
         self._apply_window_preferences()
@@ -298,6 +314,9 @@ class MTGDeckSelectionFrame(
         toolbar = self._build_toolbar(right_panel)
         right_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 6)
 
+        card_data_controls = self._build_card_data_controls(right_panel)
+        right_sizer.Add(card_data_controls, 0, wx.EXPAND | wx.BOTTOM, 10)
+
         # Upper section with summary/decklist and card inspector
         upper_split = wx.BoxSizer(wx.HORIZONTAL)
         right_sizer.Add(upper_split, 1, wx.EXPAND | wx.BOTTOM, 10)
@@ -328,6 +347,54 @@ class MTGDeckSelectionFrame(
                 self, self.image_cache, self.image_downloader, self._set_status
             ),
         )
+
+    def _build_card_data_controls(self, parent: wx.Window) -> wx.Panel:
+        """Create cached-data preference controls."""
+        panel = wx.Panel(parent)
+        panel.SetBackgroundColour(DARK_BG)
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        panel.SetSizer(sizer)
+
+        self.force_cache_checkbox = wx.CheckBox(panel, label="Use cached card data only")
+        self.force_cache_checkbox.SetValue(self._is_forcing_cached_bulk_data())
+        self.force_cache_checkbox.Bind(wx.EVT_CHECKBOX, self._on_force_cached_toggle)
+        sizer.Add(self.force_cache_checkbox, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+
+        age_label = wx.StaticText(panel, label="Max cache age (days):")
+        age_label.SetForegroundColour(LIGHT_TEXT)
+        sizer.Add(age_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        self.bulk_cache_age_spin = wx.SpinCtrl(
+            panel,
+            min=BULK_CACHE_MIN_AGE_DAYS,
+            max=BULK_CACHE_MAX_AGE_DAYS,
+        )
+        self.bulk_cache_age_spin.SetValue(self._get_bulk_cache_age_days())
+        self.bulk_cache_age_spin.Bind(wx.EVT_SPINCTRL, self._on_bulk_age_changed)
+        self.bulk_cache_age_spin.Bind(wx.EVT_TEXT, self._on_bulk_age_changed)
+        sizer.Add(self.bulk_cache_age_spin, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+        hint = wx.StaticText(panel, label="Higher values reduce download frequency.")
+        hint.SetForegroundColour(SUBDUED_TEXT)
+        sizer.Add(hint, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        sizer.AddStretchSpacer(1)
+        return panel
+
+    def _on_force_cached_toggle(self, _event: wx.CommandEvent | None) -> None:
+        """Handle cached-only checkbox toggles."""
+        enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
+        self._set_force_cached_bulk_data(enabled)
+        self._check_and_download_bulk_data()
+
+    def _on_bulk_age_changed(self, event: wx.CommandEvent | None) -> None:
+        """Handle changes to the cache age spinner."""
+        if not self.bulk_cache_age_spin:
+            return
+        self._set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
+        self._check_and_download_bulk_data()
+        if event:
+            event.Skip()
 
     def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
         """Build the summary text and deck list column."""
@@ -565,6 +632,8 @@ class MTGDeckSelectionFrame(
                 "window_size": [size.width, size.height],
                 "screen_pos": [pos.x, pos.y],
                 "left_mode": self.left_mode,
+                "force_cached_bulk_data": self._bulk_cache_force,
+                "bulk_data_max_age_days": self._bulk_data_age_days,
                 "saved_deck_text": self.deck_repo.get_current_deck_text(),
                 "saved_zone_cards": self._serialize_zone_cards(),
             }
@@ -583,6 +652,42 @@ class MTGDeckSelectionFrame(
 
     def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
         return {zone: sanitize_zone_cards(cards) for zone, cards in self.zone_cards.items()}
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    def _validate_bulk_cache_age(self, value: Any) -> int:
+        try:
+            days = int(float(value))
+        except (TypeError, ValueError):
+            days = int(DEFAULT_BULK_DATA_MAX_AGE_DAYS)
+        return max(BULK_CACHE_MIN_AGE_DAYS, min(days, BULK_CACHE_MAX_AGE_DAYS))
+
+    def _get_bulk_cache_age_days(self) -> int:
+        return self._bulk_data_age_days
+
+    def _is_forcing_cached_bulk_data(self) -> bool:
+        return self._bulk_cache_force
+
+    def _set_force_cached_bulk_data(self, enabled: bool) -> None:
+        if self._bulk_cache_force == enabled:
+            return
+        self._bulk_cache_force = enabled
+        self.settings["force_cached_bulk_data"] = enabled
+        self._schedule_settings_save()
+
+    def _set_bulk_cache_age_days(self, days: int) -> None:
+        clamped = self._validate_bulk_cache_age(days)
+        if clamped == self._bulk_data_age_days:
+            return
+        self._bulk_data_age_days = clamped
+        self.settings["bulk_data_max_age_days"] = clamped
+        self._schedule_settings_save()
 
     def _apply_window_preferences(self) -> None:
         size = self.settings.get("window_size")
@@ -761,12 +866,47 @@ class MTGDeckSelectionFrame(
         )
 
     def _check_and_download_bulk_data(self) -> None:
-        """Check if bulk data exists, and download/load in background if needed."""
-        needs_download, reason = self.image_service.check_bulk_data_freshness()
+        """Kick off a background freshness check before loading/downloading bulk data."""
+        if self._bulk_check_worker_active:
+            logger.debug("Bulk data check already running")
+            return
 
-        if not needs_download:
-            # Data is fresh, just load into memory
+        force_cached = self._is_forcing_cached_bulk_data()
+        max_age_days = self._get_bulk_cache_age_days()
+        status_msg = (
+            "Loading cached card image database…"
+            if force_cached
+            else "Checking card image database…"
+        )
+        self._set_status(status_msg)
+        self._bulk_check_worker_active = True
+
+        def worker():
+            if force_cached:
+                return False, "Cached-only mode enabled"
+            return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
+
+        def on_success(result: tuple[bool, str]):
+            self._bulk_check_worker_active = False
+            needs_download, reason = result
+            self._after_bulk_data_check(needs_download, reason, force_cached)
+
+        def on_error(exc: Exception):
+            self._bulk_check_worker_active = False
+            self._on_bulk_data_check_failed(exc)
+
+        _Worker(worker, on_success=on_success, on_error=on_error).start()
+
+    def _after_bulk_data_check(
+        self, needs_download: bool, reason: str, force_cached: bool = False
+    ) -> None:
+        """Handle the result of bulk data freshness check (UI thread)."""
+        if force_cached or not needs_download:
             self._load_bulk_data_into_memory()
+            if force_cached:
+                self._set_status("Using cached card image database")
+            else:
+                self._set_status("Card image database ready")
             return
 
         # Data is stale or missing - attempt to load cached data while we download
@@ -781,6 +921,14 @@ class MTGDeckSelectionFrame(
             on_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
             on_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
         )
+
+    def _on_bulk_data_check_failed(self, exc: Exception) -> None:
+        """Fallback when we fail to check bulk data freshness."""
+        logger.warning(f"Failed to check bulk data freshness: {exc}")
+        if not self.image_service.get_bulk_data():
+            self._load_bulk_data_into_memory()
+        else:
+            self._set_status("Ready")
 
     def _load_bulk_data_into_memory(self, force: bool = False) -> None:
         """Load the compact card printings index in the background."""

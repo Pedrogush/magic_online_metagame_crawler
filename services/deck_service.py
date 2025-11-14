@@ -171,14 +171,12 @@ class DeckService:
         mainboard_count = sum(count for _, count in mainboard)
         sideboard_count = sum(count for _, count in sideboard)
 
-        # Estimate land count by name matching
+        # Estimate land count by name matching (sum counts, not just unique cards)
         land_keywords = ["mountain", "island", "swamp", "forest", "plains", "land", "wastes"]
-        estimated_lands = len(
-            [
-                card
-                for card, _ in mainboard
-                if any(keyword in card.lower() for keyword in land_keywords)
-            ]
+        estimated_lands = sum(
+            count
+            for card, count in mainboard
+            if any(keyword in card.lower() for keyword in land_keywords)
         )
 
         return {

@@ -72,7 +72,7 @@ def sanitize_zone_cards(entries: list) -> list[dict[str, int | float | str]]:
 
 def analyze_deck(deck_content: str):
     """
-    Analyzes a deck and returns statistics.
+    Analyze a deck and return statistics.
 
     Returns:
         dict with keys:

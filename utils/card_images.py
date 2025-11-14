@@ -315,7 +315,9 @@ class BulkImageDownloader:
             return row[0], row[1]
         return None, None
 
-    def is_bulk_data_outdated(self) -> tuple[bool, dict[str, Any]]:
+    def is_bulk_data_outdated(
+        self, max_staleness_seconds: int | None = None
+    ) -> tuple[bool, dict[str, Any]]:
         """Determine whether the cached bulk data is outdated compared to the vendor."""
         metadata = self._fetch_bulk_metadata()
         download_uri = metadata.get("download_uri")
@@ -331,9 +333,10 @@ class BulkImageDownloader:
             return True, metadata
 
         # Fallback to age-based check when the vendor metadata lacks timestamps/URIs
+        threshold = max_staleness_seconds or BULK_DATA_CACHE_FRESHNESS_SECONDS
         try:
             age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-            if age_seconds < BULK_DATA_CACHE_FRESHNESS_SECONDS:
+            if age_seconds < threshold:
                 return False, metadata
         except OSError:
             pass
