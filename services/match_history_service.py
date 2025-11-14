@@ -9,9 +9,10 @@ be consumed by multiple UI widgets without re-parsing the logs.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime
 from threading import Lock
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
