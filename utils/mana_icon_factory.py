@@ -141,7 +141,7 @@ class ManaIconFactory:
         gctx.SetBrush(wx.Brush(shadow_colour))
         gctx.DrawEllipse(cx - radius + scale, cy - radius + scale, radius * 2, radius * 2)
 
-        text_font = self._build_render_font(scale)
+        text_font = self._build_render_font(13 * scale)
         text_color = wx.Colour(20, 20, 20)
         if components:
             second_color = self._draw_hybrid_circle(gctx, cx, cy, radius, components)
@@ -171,17 +171,17 @@ class ManaIconFactory:
         self._cache[symbol] = final
         return final
 
-    def _build_render_font(self, scale: int) -> wx.Font:
+    def _build_render_font(self, font_size: int) -> wx.Font:
         if self._FONT_LOADED:
             return wx.Font(
-                13 * scale,
+                font_size,
                 wx.FONTFAMILY_DEFAULT,
                 wx.FONTSTYLE_NORMAL,
                 wx.FONTWEIGHT_NORMAL,
                 False,
                 self._FONT_NAME,
             )
-        font = wx.Font(wx.FontInfo(13 * scale).Family(wx.FONTFAMILY_SWISS))
+        font = wx.Font(wx.FontInfo(font_size).Family(wx.FONTFAMILY_SWISS))
         font.MakeBold()
         return font
 
