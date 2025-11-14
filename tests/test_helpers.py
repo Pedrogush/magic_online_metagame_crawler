@@ -12,6 +12,7 @@ parent_dir = Path(__file__).parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
+
 # ruff: noqa: E402
 def _optional_reset(module_path: str, attr_name: str):
     """Dynamically import a reset function, falling back to a no-op."""
@@ -19,6 +20,7 @@ def _optional_reset(module_path: str, attr_name: str):
         module = __import__(module_path, fromlist=[attr_name])
         return getattr(module, attr_name)
     except Exception:  # pragma: no cover - used in CI without optional deps
+
         def _noop(*_args, **_kwargs):
             return None
 
@@ -33,7 +35,9 @@ reset_metagame_repository = _optional_reset(
 reset_deck_service = _optional_reset("services.deck_service", "reset_deck_service")
 reset_image_service = _optional_reset("services.image_service", "reset_image_service")
 reset_search_service = _optional_reset("services.search_service", "reset_search_service")
-reset_collection_service = _optional_reset("services.collection_service", "reset_collection_service")
+reset_collection_service = _optional_reset(
+    "services.collection_service", "reset_collection_service"
+)
 
 
 def reset_all_services() -> None:
