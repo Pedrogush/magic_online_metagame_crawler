@@ -9,7 +9,7 @@ This module handles all metagame-related data fetching including:
 
 import json
 import time
-from typing import Any
+from typing import Any, Final
 
 from loguru import logger
 
@@ -23,6 +23,8 @@ from utils.paths import (
     DECK_CACHE_FILE,
 )
 from utils.service_config import METAGAME_CACHE_TTL_SECONDS
+
+_USE_DEFAULT_MAX_AGE: Final = object()
 
 
 class MetagameRepository:
@@ -140,7 +142,7 @@ class MetagameRepository:
     # ============= Cache Management =============
 
     def _load_cached_archetypes(
-        self, mtg_format: str, max_age: int | None = None
+        self, mtg_format: str, max_age: int | None | object = _USE_DEFAULT_MAX_AGE
     ) -> list[dict[str, Any]] | None:
         """
         Load cached archetype list.
@@ -152,8 +154,7 @@ class MetagameRepository:
         Returns:
             List of archetypes or None if cache miss
         """
-        if max_age is None:
-            max_age = self.cache_ttl
+        effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
         if not ARCHETYPE_LIST_CACHE_FILE.exists():
             return None
@@ -170,9 +171,9 @@ class MetagameRepository:
             return None
 
         # Check age if max_age is specified
-        if max_age is not None:
+        if effective_max_age is not None:
             timestamp = entry.get("timestamp", 0)
-            if time.time() - timestamp > max_age:
+            if time.time() - timestamp > effective_max_age:
                 logger.debug(f"Archetype cache for {mtg_format} expired")
                 return None
 
@@ -207,7 +208,7 @@ class MetagameRepository:
             logger.warning(f"Failed to cache archetypes: {exc}")
 
     def _load_cached_decks(
-        self, archetype_url: str, max_age: int | None = None
+        self, archetype_url: str, max_age: int | None | object = _USE_DEFAULT_MAX_AGE
     ) -> list[dict[str, Any]] | None:
         """
         Load cached deck list for an archetype.
@@ -219,8 +220,7 @@ class MetagameRepository:
         Returns:
             List of decks or None if cache miss
         """
-        if max_age is None:
-            max_age = self.cache_ttl
+        effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
         if not DECK_CACHE_FILE.exists():
             return None
@@ -237,9 +237,9 @@ class MetagameRepository:
             return None
 
         # Check age if max_age is specified
-        if max_age is not None:
+        if effective_max_age is not None:
             timestamp = entry.get("timestamp", 0)
-            if time.time() - timestamp > max_age:
+            if time.time() - timestamp > effective_max_age:
                 logger.debug("Deck cache for archetype expired")
                 return None
 
