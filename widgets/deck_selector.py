@@ -2,6 +2,7 @@ import json
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from repositories.metagame_repository import get_metagame_repository
 from services.collection_service import get_collection_service
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
+from services.match_history_service import get_match_history_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
@@ -171,6 +173,7 @@ class MTGDeckSelectionFrame(
         self.collection_service = get_collection_service()
         self.image_service = get_image_service()
         self.store_service = get_store_service()
+        self.match_history_service = get_match_history_service()
         self.card_data_dialogs_disabled = False
 
         self.settings = self._load_window_settings()
@@ -197,12 +200,15 @@ class MTGDeckSelectionFrame(
         self.left_stack: wx.Simplebook | None = None
         self.research_panel: DeckResearchPanel | None = None
         self.builder_panel: DeckBuilderPanel | None = None
+        self.match_stats_text: wx.TextCtrl | None = None
+        self.match_stats_refresh_button: wx.Button | None = None
 
         # Thread-safe loading state flags
         self._loading_lock = threading.Lock()
         self.loading_archetypes = False
         self.loading_decks = False
         self.loading_daily_average = False
+        self._match_stats_loading = False
 
         self._save_timer: wx.Timer | None = None
         self.mana_icons = ManaIconFactory()
@@ -357,6 +363,28 @@ class MTGDeckSelectionFrame(
         stylize_textctrl(self.summary_text, multiline=True)
         self.summary_text.SetMinSize((-1, 110))
         summary_sizer.Add(self.summary_text, 1, wx.EXPAND | wx.ALL, 6)
+
+        # Match history stats
+        stats_box = wx.StaticBox(parent, label="Match History Stats")
+        stats_box.SetForegroundColour(LIGHT_TEXT)
+        stats_box.SetBackgroundColour(DARK_PANEL)
+        stats_sizer = wx.StaticBoxSizer(stats_box, wx.VERTICAL)
+        summary_column.Add(stats_sizer, 0, wx.EXPAND | wx.BOTTOM, 10)
+
+        self.match_stats_text = wx.TextCtrl(
+            stats_box,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.NO_BORDER,
+        )
+        stylize_textctrl(self.match_stats_text, multiline=True)
+        self.match_stats_text.SetMinSize((-1, 100))
+        self.match_stats_text.SetValue("Match stats not loaded yet.")
+        stats_sizer.Add(self.match_stats_text, 1, wx.EXPAND | wx.ALL, 6)
+
+        self.match_stats_refresh_button = wx.Button(stats_box, label="Refresh Win Rates")
+        self.match_stats_refresh_button.Bind(
+            wx.EVT_BUTTON, lambda _evt: self._refresh_match_history_stats(force=True)
+        )
+        stats_sizer.Add(self.match_stats_refresh_button, 0, wx.ALIGN_RIGHT | wx.ALL, 6)
 
         # Deck list
         deck_box = wx.StaticBox(parent, label="Deck Results")
@@ -541,6 +569,7 @@ class MTGDeckSelectionFrame(
         self.fetch_archetypes()
         self._load_collection_from_cache()  # Fast cache-only load on startup
         self._check_and_download_bulk_data()  # Download card image bulk data if needed
+        self._refresh_match_history_stats()
 
     def _set_status(self, message: str) -> None:
         if self.status_bar:
@@ -905,6 +934,73 @@ class MTGDeckSelectionFrame(
             self._set_status(f"Daily average failed: {error}")
 
         _Worker(worker, todays_decks, on_success=on_success, on_error=on_error).start()
+
+    # ------------------------------------------------------------------ Match history stats -------------------------------------------------
+    def _refresh_match_history_stats(self, force: bool = False) -> None:
+        if self._match_stats_loading or not self.match_stats_text:
+            return
+
+        self._match_stats_loading = True
+        if self.match_stats_refresh_button:
+            self.match_stats_refresh_button.Disable()
+        self.match_stats_text.SetValue("Loading match history stats...")
+
+        def worker():
+            return self.match_history_service.get_win_rate_stats(force_refresh=force)
+
+        def on_success(stats: dict[str, Any]):
+            self._match_stats_loading = False
+            if self.match_stats_refresh_button:
+                self.match_stats_refresh_button.Enable()
+            self._render_match_history_stats(stats)
+
+        def on_error(error: Exception):
+            self._match_stats_loading = False
+            if self.match_stats_refresh_button:
+                self.match_stats_refresh_button.Enable()
+            logger.error(f"Match history stats refresh failed: {error}")
+            if self.match_stats_text:
+                self.match_stats_text.SetValue(f"Unable to load stats:\n{error}")
+
+        _Worker(worker, on_success=on_success, on_error=on_error).start()
+
+    def _render_match_history_stats(self, stats: dict[str, Any]) -> None:
+        if not self.match_stats_text:
+            return
+
+        total = stats.get("total_matches", 0) or 0
+        wins = stats.get("wins", 0) or 0
+        losses = stats.get("losses", 0) or 0
+        win_rate = stats.get("win_rate", 0.0) or 0.0
+        game_win_rate = stats.get("game_win_rate", 0.0) or 0.0
+        games_won = stats.get("games_won", 0) or 0
+        games_lost = stats.get("games_lost", 0) or 0
+
+        lines = [
+            f"Overall: {wins}-{losses} ({win_rate:.1f}%) across {total} matches",
+            f"Game Win Rate: {game_win_rate:.1f}% ({games_won}-{games_lost})",
+        ]
+
+        opponents = stats.get("per_opponent") or []
+        if opponents:
+            lines.append("")
+            lines.append("Per-opponent (top 5):")
+            for entry in opponents[:5]:
+                opponent = entry.get("opponent", "Unknown")
+                opp_wins = entry.get("wins", 0)
+                opp_losses = entry.get("losses", 0)
+                opp_rate = entry.get("win_rate", 0.0) or 0.0
+                lines.append(f"• {opponent}: {opp_wins}-{opp_losses} ({opp_rate:.1f}%)")
+        else:
+            lines.append("")
+            lines.append("Per-opponent data unavailable.")
+
+        last_updated = stats.get("last_updated")
+        if isinstance(last_updated, datetime):
+            lines.append("")
+            lines.append(f"Updated: {last_updated.strftime('%Y-%m-%d %H:%M')} UTC")
+
+        self.match_stats_text.SetValue("\n".join(lines).strip())
 
     def ensure_card_data_loaded(self) -> None:
         """Ensure card data is loaded in background if not already loading/loaded."""

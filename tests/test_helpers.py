@@ -19,6 +19,7 @@ from repositories.metagame_repository import reset_metagame_repository
 from services.collection_service import reset_collection_service
 from services.deck_service import reset_deck_service
 from services.image_service import reset_image_service
+from services.match_history_service import reset_match_history_service
 from services.search_service import reset_search_service
 
 
@@ -28,6 +29,7 @@ def reset_all_services() -> None:
     reset_deck_service()
     reset_search_service()
     reset_image_service()
+    reset_match_history_service()
 
 
 def reset_all_repositories() -> None:
