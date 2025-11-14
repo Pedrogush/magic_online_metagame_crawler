@@ -32,13 +32,21 @@ def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
     # Replace invalid filesystem characters
     safe_name = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in filename)
 
-    # Remove dots to prevent path traversal (.., ., etc.)
-    safe_name = safe_name.replace(".", "_")
+    # Prevent path traversal by collapsing consecutive dots and removing leading dots
+    # This prevents "..", "..." and leading "." while allowing single dots in filenames
+    import re
 
-    # Strip leading/trailing whitespace and underscores
-    safe_name = safe_name.strip().strip("_")
+    # Replace sequences of 2+ dots with single underscore
+    safe_name = re.sub(r"\.{2,}", "_", safe_name)
+    # Remove leading dots
+    safe_name = safe_name.lstrip(".")
+
+    # Strip leading/trailing whitespace, dots, and underscores
+    safe_name = safe_name.strip().strip("._")
 
     # Check for reserved Windows filenames (case-insensitive)
+    # Split on dots to check the base name (before any extension)
+    base_name = safe_name.split(".")[0] if "." in safe_name else safe_name
     reserved = {
         "CON",
         "PRN",
@@ -63,11 +71,11 @@ def sanitize_filename(filename: str, fallback: str = "saved_deck") -> str:
         "LPT8",
         "LPT9",
     }
-    if safe_name.upper() in reserved:
+    if base_name.upper() in reserved:
         safe_name = f"_{safe_name}"
 
     # If the result is empty or only underscores/whitespace, use fallback
-    if not safe_name or not safe_name.replace("_", "").strip():
+    if not safe_name or not safe_name.replace("_", "").replace(".", "").strip():
         return fallback
 
     return safe_name

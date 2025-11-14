@@ -108,11 +108,14 @@ def test_sanitize_filename_removes_null_bytes():
 
 def test_sanitize_filename_prevents_path_traversal():
     """Verify path traversal attempts are neutralized."""
-    assert sanitize_filename("../etc/passwd") == "____etc_passwd"
-    assert sanitize_filename("..\\windows\\system32") == "____windows_system32"
-    assert sanitize_filename("test/../secret") == "test____secret"
-    # Dots are replaced to prevent any traversal
-    assert sanitize_filename("...") == "saved_deck"  # Falls back as only underscores remain
+    # ".." becomes "_", "/"becomes "_", result: "__etc_passwd"
+    assert sanitize_filename("../etc/passwd") == "__etc_passwd"
+    # ".." becomes "_", "\\"becomes "_", result: "__windows_system32"
+    assert sanitize_filename("..\\windows\\system32") == "__windows_system32"
+    # ".." becomes "_", result: "test__secret"
+    assert sanitize_filename("test/../secret") == "test__secret"
+    # "..." becomes "_", fallback triggered as only underscores remain
+    assert sanitize_filename("...") == "saved_deck"
 
 
 def test_sanitize_filename_handles_invalid_characters():
@@ -137,6 +140,9 @@ def test_sanitize_filename_handles_reserved_windows_names():
     assert sanitize_filename("com1") == "_com1"  # Case insensitive
     assert sanitize_filename("LPT1") == "_LPT1"
     assert sanitize_filename("lpt9") == "_lpt9"
+    # Reserved names with extensions should also be prefixed
+    assert sanitize_filename("CON.txt") == "_CON.txt"
+    assert sanitize_filename("aux.backup") == "_aux.backup"
 
 
 def test_sanitize_filename_strips_leading_trailing():
@@ -144,6 +150,12 @@ def test_sanitize_filename_strips_leading_trailing():
     assert sanitize_filename("  test  ") == "test"
     assert sanitize_filename("__test__") == "test"
     assert sanitize_filename("  __test__  ") == "test"
+    # Leading dots are removed (prevents hidden files)
+    assert sanitize_filename(".hidden") == "hidden"
+    assert sanitize_filename("...test") == "_test"  # Multiple dots become _ then stripped
+    # Trailing dots are removed
+    assert sanitize_filename("test.") == "test"
+    assert sanitize_filename("test..") == "test"
 
 
 def test_sanitize_filename_uses_fallback():
@@ -160,3 +172,6 @@ def test_sanitize_filename_normal_cases():
     assert sanitize_filename("my_deck") == "my_deck"
     assert sanitize_filename("Mono Red Aggro") == "Mono_Red_Aggro"
     assert sanitize_filename("UW Control v2") == "UW_Control_v2"
+    # Single dots are allowed for version numbers
+    assert sanitize_filename("UW Control v2.0") == "UW_Control_v2.0"
+    assert sanitize_filename("deck.backup") == "deck.backup"
