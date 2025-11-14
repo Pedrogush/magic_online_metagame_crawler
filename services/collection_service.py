@@ -15,9 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import wx
 from loguru import logger
 
 from repositories.card_repository import CardRepository, get_card_repository
+from utils.ui_constants import SUBDUED_TEXT
 
 
 class CollectionService:
@@ -83,6 +85,27 @@ class CollectionService:
         except Exception as exc:
             logger.error(f"Failed to load collection: {exc}")
             return False
+
+    def get_owned_status(self, name: str, required: int) -> tuple[str, wx.Colour]:
+        """
+        Return ownership status text and color for a given card requirement.
+
+        Args:
+            name: Card name
+            required: Quantity needed
+
+        Returns:
+            Tuple containing the status label and wx colour
+        """
+        collection_inventory = self.get_inventory()
+        if not collection_inventory:
+            return ("Owned —", SUBDUED_TEXT)
+        have = collection_inventory.get(name.lower(), 0)
+        if have >= required:
+            return (f"Owned {have}/{required}", wx.Colour(120, 200, 120))
+        if have > 0:
+            return (f"Owned {have}/{required}", wx.Colour(230, 200, 90))
+        return ("Owned 0", wx.Colour(230, 120, 120))
 
     def find_latest_cached_file(
         self, directory: Path, pattern: str = "collection_full_trade_*.json"

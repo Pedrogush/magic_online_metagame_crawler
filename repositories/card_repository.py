@@ -354,6 +354,25 @@ class CardRepository:
         if manager is not None:
             self._card_data_ready = True
 
+    def ensure_card_data_loaded(self, force: bool = False) -> CardDataManager:
+        """
+        Ensure that card data is available, loading it if necessary.
+
+        Args:
+            force: If True, force reload even if already loaded
+
+        Returns:
+            Initialized CardDataManager
+        """
+        if not force and self._card_data_manager is not None:
+            return self._card_data_manager
+
+        from utils.card_data import load_card_manager
+
+        manager = load_card_manager()
+        self.set_card_manager(manager)
+        return manager
+
 
 # Global instance for backward compatibility
 _default_repository = None
