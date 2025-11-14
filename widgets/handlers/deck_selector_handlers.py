@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import wx
 from loguru import logger
 
+from utils.deck_formatting import format_deck_name
 from utils.ui_helpers import widget_exists
 
 if TYPE_CHECKING:
@@ -57,8 +58,6 @@ class DeckSelectorHandlers:
         self.load_button.Enable()
         self.copy_button.Enable(self._has_deck_loaded())
         self.save_button.Enable(self._has_deck_loaded())
-        from widgets.deck_selector import format_deck_name
-
         self._set_status(f"Selected deck {format_deck_name(deck)}")
         self._show_left_panel("builder")
         self._schedule_settings_save()
@@ -97,7 +96,6 @@ class DeckSelectorHandlers:
     def on_save_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         from utils.deck import sanitize_filename
         from utils.paths import DECK_SAVE_DIR
-        from widgets.deck_selector import format_deck_name
 
         deck_content = self._build_deck_text().strip()
         if not deck_content:
@@ -220,8 +218,6 @@ class DeckSelectorHandlers:
     def _on_decks_loaded(
         self: MTGDeckSelectionFrame, archetype_name: str, decks: list[dict[str, Any]]
     ) -> None:
-        from widgets.deck_selector import format_deck_name
-
         with self._loading_lock:
             self.loading_decks = False
         self.deck_repo.set_decks_list(decks)

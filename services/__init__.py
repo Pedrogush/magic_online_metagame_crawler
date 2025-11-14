@@ -14,6 +14,7 @@ except Exception:  # pragma: no cover - collection service not available without
         raise RuntimeError("CollectionService is unavailable (wxPython not installed)")
 
 
+from services.deck_research_service import DeckResearchService
 from services.deck_service import DeckService, get_deck_service
 from services.image_service import ImageService, get_image_service
 from services.search_service import SearchService, get_search_service
@@ -21,13 +22,19 @@ from services.store_service import StoreService, get_store_service
 
 __all__ = [
     "CollectionService",
+    "DeckResearchService",
     "DeckService",
     "ImageService",
     "SearchService",
     "StoreService",
     "get_collection_service",
+    "get_deck_research_service",
     "get_deck_service",
     "get_image_service",
     "get_search_service",
     "get_store_service",
 ]
+
+
+def get_deck_research_service() -> DeckResearchService:
+    return DeckResearchService()

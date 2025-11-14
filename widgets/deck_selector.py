@@ -6,25 +6,45 @@ from typing import Any
 import wx
 from loguru import logger
 
-from services.deck_selector_config import (
-    CARD_INSPECTOR_LOG as DEFAULT_CARD_INSPECTOR_LOG,
-    DeckSelectorPaths,
-    GUIDE_STORE as DEFAULT_GUIDE_STORE,
-    LEGACY_CONFIG_FILE as DEFAULT_LEGACY_CONFIG_FILE,
-    LEGACY_CURR_DECK_CACHE,
-    LEGACY_CURR_DECK_ROOT,
-    LEGACY_GUIDE_STORE,
-    LEGACY_NOTES_STORE,
-    LEGACY_OUTBOARD_STORE,
-    NOTES_STORE as DEFAULT_NOTES_STORE,
-    OUTBOARD_STORE as DEFAULT_OUTBOARD_STORE,
-    load_deck_selector_paths,
-)
-from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
 from repositories.card_repository import get_card_repository
 from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
+from services import get_deck_research_service
 from services.collection_service import get_collection_service
+from services.deck_selector_config import (
+    CARD_INSPECTOR_LOG as DEFAULT_CARD_INSPECTOR_LOG,
+)
+from services.deck_selector_config import (
+    GUIDE_STORE as DEFAULT_GUIDE_STORE,
+)
+from services.deck_selector_config import (
+    LEGACY_CONFIG_FILE as DEFAULT_LEGACY_CONFIG_FILE,
+)
+from services.deck_selector_config import (
+    LEGACY_CURR_DECK_CACHE as DEFAULT_LEGACY_CURR_DECK_CACHE,
+)
+from services.deck_selector_config import (
+    LEGACY_CURR_DECK_ROOT as DEFAULT_LEGACY_CURR_DECK_ROOT,
+)
+from services.deck_selector_config import (
+    LEGACY_GUIDE_STORE as DEFAULT_LEGACY_GUIDE_STORE,
+)
+from services.deck_selector_config import (
+    LEGACY_NOTES_STORE as DEFAULT_LEGACY_NOTES_STORE,
+)
+from services.deck_selector_config import (
+    LEGACY_OUTBOARD_STORE as DEFAULT_LEGACY_OUTBOARD_STORE,
+)
+from services.deck_selector_config import (
+    NOTES_STORE as DEFAULT_NOTES_STORE,
+)
+from services.deck_selector_config import (
+    OUTBOARD_STORE as DEFAULT_OUTBOARD_STORE,
+)
+from services.deck_selector_config import (
+    DeckSelectorPaths,
+    load_deck_selector_paths,
+)
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
@@ -34,7 +54,6 @@ from utils.deck import (
     read_curr_deck_file,
     sanitize_zone_cards,
 )
-from utils.deck_formatting import format_deck_name
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
 from utils.paths import DECK_SELECTOR_SETTINGS_FILE
@@ -71,6 +90,11 @@ from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
 
 LEGACY_CONFIG_FILE = DEFAULT_LEGACY_CONFIG_FILE
+LEGACY_CURR_DECK_CACHE = DEFAULT_LEGACY_CURR_DECK_CACHE
+LEGACY_CURR_DECK_ROOT = DEFAULT_LEGACY_CURR_DECK_ROOT
+LEGACY_GUIDE_STORE = DEFAULT_LEGACY_GUIDE_STORE
+LEGACY_NOTES_STORE = DEFAULT_LEGACY_NOTES_STORE
+LEGACY_OUTBOARD_STORE = DEFAULT_LEGACY_OUTBOARD_STORE
 NOTES_STORE = DEFAULT_NOTES_STORE
 OUTBOARD_STORE = DEFAULT_OUTBOARD_STORE
 GUIDE_STORE = DEFAULT_GUIDE_STORE
@@ -102,6 +126,7 @@ class MTGDeckSelectionFrame(
         self.metagame_repo = get_metagame_repository()
         self.card_repo = get_card_repository()
         self.deck_service = get_deck_service()
+        self.deck_research_service = get_deck_research_service()
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
         self.image_service = get_image_service()
@@ -660,12 +685,13 @@ class MTGDeckSelectionFrame(
         self.copy_button.Disable()
         self.save_button.Disable()
 
-        def loader(fmt: str):
-            return get_archetypes(fmt.lower(), allow_stale=not force)
+        def loader(fmt: str, force_flag: bool) -> list[dict[str, Any]]:
+            return self.deck_research_service.load_archetypes(fmt, force=force_flag)
 
         BackgroundWorker(
             loader,
             self.current_format,
+            force,
             on_success=self._on_archetypes_loaded,
             on_error=self._on_archetypes_error,
         ).start()
@@ -700,30 +726,16 @@ class MTGDeckSelectionFrame(
         self.deck_list.Disable()
         self.summary_text.ChangeValue(f"{name}\n\nFetching deck results…")
 
-        def loader(identifier: str):
-            return get_archetype_decks(identifier)
-
         BackgroundWorker(
-            loader,
+            self.deck_research_service.load_decks_for_archetype,
             href,
             on_success=lambda decks: self._on_decks_loaded(name, decks),
             on_error=self._on_decks_error,
         ).start()
 
     def _present_archetype_summary(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
-        by_date: dict[str, int] = {}
-        for deck in decks:
-            date = deck.get("date", "").lower()
-            by_date[date] = by_date.get(date, 0) + 1
-        latest_dates = sorted(by_date.items(), reverse=True)[:7]
-        lines = [archetype_name, "", f"Total decks loaded: {len(decks)}", ""]
-        if latest_dates:
-            lines.append("Recent activity:")
-            for day, count in latest_dates:
-                lines.append(f"  {day}: {count} deck(s)")
-        else:
-            lines.append("No recent deck activity.")
-        self.summary_text.ChangeValue("\n".join(lines))
+        summary = self.deck_research_service.build_archetype_summary(archetype_name, decks)
+        self.summary_text.ChangeValue(summary)
 
     def _download_and_display_deck(self, deck: dict[str, Any]) -> None:
         deck_number = deck.get("number")
@@ -735,16 +747,15 @@ class MTGDeckSelectionFrame(
         self.copy_button.Disable()
         self.save_button.Disable()
 
-        def worker(number: str):
-            download_deck(number)
-            return read_curr_deck_file()
-
-        def on_success(content: str):
+        def on_success(content: str) -> None:
             self._on_deck_content_ready(content, source="mtggoldfish")
             self.load_button.Enable()
 
         BackgroundWorker(
-            worker, deck_number, on_success=on_success, on_error=self._on_deck_download_error
+            self.deck_research_service.download_deck_text,
+            deck_number,
+            on_success=on_success,
+            on_error=self._on_deck_download_error,
         ).start()
 
     def _has_deck_loaded(self) -> bool:
@@ -940,7 +951,7 @@ class MTGDeckSelectionFrame(
 
             return self.deck_repo.build_daily_average_deck(
                 rows,
-                download_deck,
+                self.deck_research_service.download_deck,
                 read_curr_deck_file,
                 self.deck_service.add_deck_to_buffer,
                 progress_callback=update_progress,
