@@ -7,7 +7,6 @@ from typing import Any
 
 import wx
 from loguru import logger
-from services.search_service import get_search_service
 
 from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
 from repositories.card_repository import get_card_repository
@@ -16,6 +15,7 @@ from repositories.metagame_repository import get_metagame_repository
 from services.collection_service import get_collection_service
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
+from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
 from utils.deck import (
