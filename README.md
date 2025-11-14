@@ -101,6 +101,14 @@ The main window provides access to all features through a tabbed interface:
   - Metagame Analysis
   - Challenge Timer Alerts
 
+### Match History Win-Rate Stats
+
+- **Data Source**: Stats are aggregated from MTGO `Match_GameLog_*.dat` files via the `MatchHistoryService`. Each log file counts as one match.
+- **Perspective Detection**: The service first asks the MTGO bridge for the logged-in username; if unavailable it assumes the local player is listed first in the GameLog. Mirrors (both players on the same archetype) are still tracked because the opponent name is preserved.
+- **Win/Loss Rules**: Winners reported by the log are authoritative. If the log omits a winner, scorelines such as `2-1` decide the outcome; matches with tied or missing scores are excluded from aggregates.
+- **Per-Opponent Breakdown**: Opponent stats accumulate wins, losses, and last-played timestamps and are sorted by matches played so the most relevant rivals appear first in the deck selector.
+- **Caching**: Parsed matches and computed aggregates are cached until you press **Refresh Win Rates**. This keeps the deck selector responsive even with large GameLog folders.
+
 ### Keyboard Shortcuts
 
 - `Ctrl+S`: Save current deck
