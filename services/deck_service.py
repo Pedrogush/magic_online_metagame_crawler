@@ -112,8 +112,10 @@ class DeckService:
         """
         lines = deck_content.strip().split("\n")
 
-        mainboard = []
-        sideboard = []
+        mainboard_totals: dict[str, float] = {}
+        sideboard_totals: dict[str, float] = {}
+        mainboard_order: list[str] = []
+        sideboard_order: list[str] = []
         is_sideboard = False
 
         for line in lines:
@@ -137,17 +139,33 @@ class DeckService:
 
                 # Preserve float quantities from average decks
                 count_float = float(parts[0])
-                # Convert to int only if it's a whole number
-                count = int(count_float) if count_float.is_integer() else count_float
                 card_name = parts[1].strip()
 
                 if is_sideboard:
-                    sideboard.append((card_name, count))
+                    target_totals = sideboard_totals
+                    target_order = sideboard_order
                 else:
-                    mainboard.append((card_name, count))
+                    target_totals = mainboard_totals
+                    target_order = mainboard_order
+
+                if card_name not in target_totals:
+                    target_order.append(card_name)
+                target_totals[card_name] = target_totals.get(card_name, 0.0) + count_float
 
             except (ValueError, IndexError):
                 continue
+
+        def _build_card_list(
+            order: list[str], totals: dict[str, float]
+        ) -> list[tuple[str, int | float]]:
+            cards: list[tuple[str, int | float]] = []
+            for card in order:
+                total = totals[card]
+                cards.append((card, int(total) if float(total).is_integer() else total))
+            return cards
+
+        mainboard = _build_card_list(mainboard_order, mainboard_totals)
+        sideboard = _build_card_list(sideboard_order, sideboard_totals)
 
         # Calculate statistics
         mainboard_count = sum(count for _, count in mainboard)

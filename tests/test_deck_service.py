@@ -58,3 +58,26 @@ def test_analyze_deck_preserves_fractional_quantities(deck_service):
     # Check total counts
     assert stats["mainboard_count"] == pytest.approx(7.83)
     assert stats["sideboard_count"] == pytest.approx(4.67)
+
+
+def test_analyze_deck_merges_duplicate_entries(deck_service):
+    deck_text = (
+        "2 Lightning Bolt\n"
+        "1 Lightning Bolt\n"
+        "3 Island\n"
+        "\n"
+        "Sideboard\n"
+        "1 Abrade\n"
+        "2 Abrade\n"
+    )
+
+    stats = deck_service.analyze_deck(deck_text)
+
+    mainboard_dict = dict(stats["mainboard_cards"])
+    assert mainboard_dict["Lightning Bolt"] == 3
+    assert mainboard_dict["Island"] == 3
+    assert stats["unique_mainboard"] == 2
+
+    sideboard_dict = dict(stats["sideboard_cards"])
+    assert sideboard_dict["Abrade"] == 3
+    assert stats["unique_sideboard"] == 1

@@ -76,3 +76,24 @@ def test_analyze_deck_no_lands():
     summary = DeckService().analyze_deck(deck_without_lands)
     assert summary["estimated_lands"] == 0
     assert summary["mainboard_count"] == 12
+
+
+def test_analyze_deck_merges_duplicate_lines():
+    duplicate_entries = """2 Lightning Bolt
+1 Lightning Bolt
+3 Island
+
+Sideboard
+1 Abrade
+2 Abrade
+"""
+    summary = DeckService().analyze_deck(duplicate_entries)
+
+    mainboard_dict = dict(summary["mainboard_cards"])
+    assert mainboard_dict["Lightning Bolt"] == 3
+    assert mainboard_dict["Island"] == 3
+    assert summary["unique_mainboard"] == 2
+
+    sideboard_dict = dict(summary["sideboard_cards"])
+    assert sideboard_dict["Abrade"] == 3
+    assert summary["unique_sideboard"] == 1
