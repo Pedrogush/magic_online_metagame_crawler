@@ -17,20 +17,20 @@ def metagame_repo():
 @pytest.fixture
 def archetype_cache_file(tmp_path, monkeypatch):
     """Create a temporary archetype cache file."""
-    from utils import paths
+    import repositories.metagame_repository as metagame_repo_module
 
     cache_file = tmp_path / "archetype_cache.json"
-    monkeypatch.setattr(paths, "ARCHETYPE_LIST_CACHE_FILE", cache_file)
+    monkeypatch.setattr(metagame_repo_module, "ARCHETYPE_LIST_CACHE_FILE", cache_file)
     return cache_file
 
 
 @pytest.fixture
 def deck_cache_file(tmp_path, monkeypatch):
     """Create a temporary deck cache file."""
-    from utils import paths
+    import repositories.metagame_repository as metagame_repo_module
 
     cache_file = tmp_path / "deck_cache.json"
-    monkeypatch.setattr(paths, "DECK_CACHE_FILE", cache_file)
+    monkeypatch.setattr(metagame_repo_module, "DECK_CACHE_FILE", cache_file)
     return cache_file
 
 
