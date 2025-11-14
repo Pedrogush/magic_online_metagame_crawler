@@ -71,6 +71,7 @@ LEGACY_NOTES_STORE = CACHE_DIR / "deck_notes_wx.json"
 LEGACY_OUTBOARD_STORE = CACHE_DIR / "deck_outboard_wx.json"
 LEGACY_GUIDE_STORE = CACHE_DIR / "deck_sbguides_wx.json"
 CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"
+DECK_SELECTOR_MANA_ICON_SIZE = int(26 * 0.7)
 
 for new_path, legacy_path in [
     (NOTES_STORE, LEGACY_NOTES_STORE),
@@ -220,7 +221,7 @@ class MTGDeckSelectionFrame(
         self.loading_daily_average = False
 
         self._save_timer: wx.Timer | None = None
-        self.mana_icons = ManaIconFactory()
+        self.mana_icons = ManaIconFactory(icon_size=DECK_SELECTOR_MANA_ICON_SIZE)
         self.tracker_window: MTGOpponentDeckSpy | None = None
         self.timer_window: TimerAlertFrame | None = None
         self.history_window: MatchHistoryFrame | None = None
