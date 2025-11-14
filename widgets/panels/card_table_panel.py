@@ -57,38 +57,8 @@ class CardTablePanel(wx.Panel):
         outer.Add(self.scroller, 1, wx.EXPAND)
 
     def set_cards(self, cards: list[dict[str, Any]]) -> None:
-        if self._try_incremental_update(cards):
-            self.cards = cards
-            return
         self.cards = cards
         self._rebuild_grid()
-
-    def _try_incremental_update(self, new_cards: list[dict[str, Any]]) -> bool:
-        """Try to update existing widgets incrementally instead of rebuilding.
-        Returns True if incremental update was possible, False if full rebuild needed."""
-        if len(new_cards) != len(self.cards):
-            return False
-
-        # Check if only quantities changed (same cards in same order)
-        for old_card, new_card in zip(self.cards, new_cards):
-            if old_card["name"].lower() != new_card["name"].lower():
-                return False
-
-        # All cards match, only quantities may have changed
-        total = 0
-        for i, new_card in enumerate(new_cards):
-            qty = new_card["qty"]
-            total += qty
-
-            # Update widget if quantity changed
-            if qty != self.cards[i]["qty"]:
-                widget = self.card_widgets[i]
-                widget.card = new_card
-                owned_text, owned_colour = self._owned_status(new_card["name"], int(qty))
-                widget.update_quantity(qty, owned_text, owned_colour)
-
-        self.count_label.SetLabel(f"{total} card{'s' if total != 1 else ''}")
-        return True
 
     def _rebuild_grid(self) -> None:
         self.grid_sizer.Clear(delete_windows=True)
