@@ -128,6 +128,7 @@ class MTGDeckSelectionFrame(
         self.state_store = get_deck_selector_state_store()
         self.search_service = get_search_service()
         self.collection_service = get_collection_service()
+        self.image_service = get_image_service()
         self.collection_manager = DeckSelectorCollectionManager(self.collection_service)
         self.card_data_loader = DeckSelectorCardDataLoader(self.card_repo)
         self.image_manager = DeckSelectorImageManager(self.image_service)
@@ -135,7 +136,6 @@ class MTGDeckSelectionFrame(
         self.daily_average_builder = DeckSelectorDailyAverageBuilder(
             self.deck_repo, self.deck_service, self.deck_research_service
         )
-        self.image_service = get_image_service()
         self.store_service = get_store_service()
         self.card_data_dialogs_disabled = False
 
