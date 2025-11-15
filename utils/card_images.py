@@ -791,7 +791,6 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
 
     if bulk_mtime is None:
         raise FileNotFoundError("Bulk data cache not found; cannot build printings index")
-
     logger.info("Building card printings index from bulk data…")
     with BULK_DATA_CACHE.open("r", encoding="utf-8") as fh:
         cards = json.load(fh)

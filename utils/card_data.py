@@ -44,15 +44,6 @@ class CardDataManager:
         self._cards_by_name: dict[str, dict[str, Any]] | None = None
 
     def ensure_latest(self, force: bool = False) -> None:
-        if requests is None:
-            if not self.index_path.exists():
-                raise RuntimeError(
-                    "curl_cffi is required to download MTGJSON data. "
-                    "Install it with: pip install curl_cffi"
-                ) from _HTTP_IMPORT_ERROR
-            logger.warning("curl_cffi missing; using cached MTGJSON data only")
-            self._load_index()
-            return
 
         remote_meta = self._fetch_remote_meta()
         local_meta = self._load_json(self.meta_path) or {}
@@ -65,28 +56,21 @@ class CardDataManager:
                     break
 
         if needs_refresh:
-            if requests is None:
+            logger.warning("curl_cffi missing; continuing with cached MTGJSON data")
+            try:
+                if remote_meta:
+                    logger.info("Refreshing MTGJSON AtomicCards dataset")
+                else:
+                    logger.info(
+                        "Fetching MTGJSON AtomicCards dataset (using headers for metadata)"
+                    )
+                self._download_and_rebuild(remote_meta)
+            except Exception as exc:
                 if missing_index:
                     raise RuntimeError(
-                        "curl_cffi is required to download MTGJSON data. "
-                        "Install it with: pip install curl_cffi"
-                    ) from _HTTP_IMPORT_ERROR
-                logger.warning("curl_cffi missing; continuing with cached MTGJSON data")
-            else:
-                try:
-                    if remote_meta:
-                        logger.info("Refreshing MTGJSON AtomicCards dataset")
-                    else:
-                        logger.info(
-                            "Fetching MTGJSON AtomicCards dataset (using headers for metadata)"
-                        )
-                    self._download_and_rebuild(remote_meta)
-                except Exception as exc:
-                    if missing_index:
-                        raise RuntimeError(
-                            "Card data download failed and no cache is available"
-                        ) from exc
-                    logger.warning(f"Failed to refresh MTGJSON data, using cache: {exc}")
+                        "Card data download failed and no cache is available"
+                    ) from exc
+                logger.warning(f"Failed to refresh MTGJSON data, using cache: {exc}")
         self._load_index()
 
     def search_cards(

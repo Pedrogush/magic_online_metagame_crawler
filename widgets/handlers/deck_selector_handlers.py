@@ -327,7 +327,7 @@ class DeckSelectorHandlers:
         """Handle successful bulk data download."""
         self._set_status("Card image database downloaded, indexing printings…")
         logger.info(f"Bulk data downloaded: {msg}")
-        self._load_bulk_data_into_memory(force=True)
+        self.card_repo.ensure_printing_cache(force=True)
 
     def _on_bulk_data_failed(self: MTGDeckSelectionFrame, error_msg: str) -> None:
         """Handle bulk data download failure."""
@@ -393,9 +393,16 @@ class DeckSelectorHandlers:
         else:
             self._set_status("Ready")
 
+    def _set_force_cached_bulk_data(self, enabled: bool) -> None:
+        if self._bulk_cache_force == enabled:
+            return
+        self._bulk_cache_force = enabled
+        self.settings["force_cached_bulk_data"] = enabled
+        self._schedule_settings_save()
+
     def _on_force_cached_toggle(self, _event: wx.CommandEvent | None) -> None:
         """Handle cached-only checkbox toggles."""
-        enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
+        enabled = bool(not (self.force_cache_checkbox and self.force_cache_checkbox.GetValue()))
         self._set_force_cached_bulk_data(enabled)
         self._check_and_download_bulk_data()
 

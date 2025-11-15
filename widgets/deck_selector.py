@@ -87,7 +87,7 @@ class MTGDeckSelectionFrame(
             min_days=BULK_CACHE_MIN_AGE_DAYS,
             max_days=BULK_CACHE_MAX_AGE_DAYS,
         )
-        self.settings.setdefault("force_cached_bulk_data", self._bulk_cache_force)
+        self.settings.setdefault("force_cached_bulk_data", False)
         self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
         self.archetypes: list[dict[str, Any]] = []
         self.filtered_archetypes: list[dict[str, Any]] = []
@@ -251,7 +251,7 @@ class MTGDeckSelectionFrame(
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         panel.SetSizer(sizer)
 
-        self.force_cache_checkbox = wx.CheckBox(panel, label="Use cached card data only")
+        self.force_cache_checkbox = wx.CheckBox(panel, label="Force refresh printings index")
         self.force_cache_checkbox.SetValue(self._is_forcing_cached_bulk_data())
         self.force_cache_checkbox.Bind(wx.EVT_CHECKBOX, self._on_force_cached_toggle)
         sizer.Add(self.force_cache_checkbox, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
@@ -513,13 +513,6 @@ class MTGDeckSelectionFrame(
 
     def _is_forcing_cached_bulk_data(self) -> bool:
         return self._bulk_cache_force
-
-    def _set_force_cached_bulk_data(self, enabled: bool) -> None:
-        if self._bulk_cache_force == enabled:
-            return
-        self._bulk_cache_force = enabled
-        self.settings["force_cached_bulk_data"] = enabled
-        self._schedule_settings_save()
 
     def _set_bulk_cache_age_days(self, days: int) -> None:
         clamped = self.state_store.clamp_bulk_cache_age(
