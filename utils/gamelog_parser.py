@@ -19,7 +19,7 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-
+from utils.constants import BRIDGE_PATH
 from loguru import logger
 
 
@@ -30,19 +30,10 @@ def get_current_username() -> str | None:
     Returns:
         Current username or None if unavailable
     """
-    try:
-        from utils.config import CONFIG
-    except ImportError:
-        logger.debug("CONFIG module not available; using defaults for MTGO username lookup")
-        CONFIG = {}
-
-    bridge_path = CONFIG.get(
-        "mtgo_bridge_path", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
-    )
 
     try:
         result = subprocess.run(
-            [bridge_path, "username"], capture_output=True, text=True, timeout=10
+            [BRIDGE_PATH, "username"], capture_output=True, text=True, timeout=10
         )
 
         if result.returncode == 0:
@@ -200,17 +191,17 @@ def locate_gamelog_directory_via_bridge() -> str | None:
     import subprocess
 
     try:
-        from utils.config import CONFIG
+        from utils.constants import CONFIG
     except ImportError:
         logger.debug("CONFIG module not available; using defaults for MTGO bridge path")
         CONFIG = {}
-    bridge_path = CONFIG.get(
-        "mtgo_bridge_path", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
+    BRIDGE_PATH = CONFIG.get(
+        "mtgo_BRIDGE_PATH", "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
     )
 
     try:
         result = subprocess.run(
-            [bridge_path, "logfiles"], capture_output=True, text=True, timeout=10
+            [BRIDGE_PATH, "logfiles"], capture_output=True, text=True, timeout=10
         )
 
         if result.returncode == 0:

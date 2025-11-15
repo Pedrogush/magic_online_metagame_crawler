@@ -1,6 +1,7 @@
 """Constants file."""
 from pathlib import Path
 
+BRIDGE_PATH = "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
 
 SUBDUED_TEXT = (185, 191, 202)
 DARK_BG = (20, 22, 27)
@@ -134,3 +135,8 @@ METAGAME_CACHE_TTL_SECONDS = ONE_HOUR_SECONDS
 # Card image bulk data refresh thresholds
 DEFAULT_BULK_DATA_MAX_AGE_DAYS = 30
 BULK_DATA_CACHE_FRESHNESS_SECONDS = DEFAULT_BULK_DATA_MAX_AGE_DAYS * ONE_DAY_SECONDS
+
+NOTES_STORE = CACHE_DIR / "deck_notes.json"
+OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
+GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
+CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"

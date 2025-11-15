@@ -9,34 +9,16 @@ from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
 from services import get_deck_research_service, get_state_service
 from services.collection_service import get_collection_service
-from services.deck_paths import (
+from utils.constants import (
     CARD_INSPECTOR_LOG as DEFAULT_CARD_INSPECTOR_LOG,
 )
-from services.deck_paths import (
+from utils.constants import (
     GUIDE_STORE as DEFAULT_GUIDE_STORE,
 )
-from services.deck_paths import (
-    LEGACY_CONFIG_FILE as DEFAULT_LEGACY_CONFIG_FILE,
-)
-from services.deck_paths import (
-    LEGACY_CURR_DECK_CACHE as DEFAULT_LEGACY_CURR_DECK_CACHE,
-)
-from services.deck_paths import (
-    LEGACY_CURR_DECK_ROOT as DEFAULT_LEGACY_CURR_DECK_ROOT,
-)
-from services.deck_paths import (
-    LEGACY_GUIDE_STORE as DEFAULT_LEGACY_GUIDE_STORE,
-)
-from services.deck_paths import (
-    LEGACY_NOTES_STORE as DEFAULT_LEGACY_NOTES_STORE,
-)
-from services.deck_paths import (
-    LEGACY_OUTBOARD_STORE as DEFAULT_LEGACY_OUTBOARD_STORE,
-)
-from services.deck_paths import (
+from utils.constants import (
     NOTES_STORE as DEFAULT_NOTES_STORE,
 )
-from services.deck_paths import (
+from utils.constants import (
     OUTBOARD_STORE as DEFAULT_OUTBOARD_STORE,
 )
 from services.deck_paths import (
@@ -84,12 +66,6 @@ from widgets.timer_alert import TimerAlertFrame
 
 DECK_SELECTOR_MANA_ICON_SIZE = int(26 * 0.7)
 
-LEGACY_CONFIG_FILE = DEFAULT_LEGACY_CONFIG_FILE
-LEGACY_CURR_DECK_CACHE = DEFAULT_LEGACY_CURR_DECK_CACHE
-LEGACY_CURR_DECK_ROOT = DEFAULT_LEGACY_CURR_DECK_ROOT
-LEGACY_GUIDE_STORE = DEFAULT_LEGACY_GUIDE_STORE
-LEGACY_NOTES_STORE = DEFAULT_LEGACY_NOTES_STORE
-LEGACY_OUTBOARD_STORE = DEFAULT_LEGACY_OUTBOARD_STORE
 NOTES_STORE = DEFAULT_NOTES_STORE
 OUTBOARD_STORE = DEFAULT_OUTBOARD_STORE
 GUIDE_STORE = DEFAULT_GUIDE_STORE
