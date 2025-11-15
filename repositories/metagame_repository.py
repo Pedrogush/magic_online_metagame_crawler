@@ -18,7 +18,7 @@ from navigators.mtggoldfish import (
     get_archetype_decks,
     get_archetypes,
 )
-from utils.paths import (
+from utils.constants import (
     ARCHETYPE_LIST_CACHE_FILE,
     DECK_CACHE_FILE,
 )

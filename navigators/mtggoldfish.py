@@ -9,7 +9,7 @@ import bs4
 from curl_cffi import requests
 from loguru import logger
 
-from utils.paths import (
+from utils.constants import (
     ARCHETYPE_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
     CURR_DECK_FILE,

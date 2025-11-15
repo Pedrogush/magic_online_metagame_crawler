@@ -4,7 +4,7 @@ from typing import Any
 import wx
 
 from utils.mana_icon_factory import ManaIconFactory
-from utils.ui_constants import DARK_ACCENT, DARK_ALT, LIGHT_TEXT
+from utils.constants import DARK_ACCENT, DARK_ALT, LIGHT_TEXT
 
 
 class CardBoxPanel(wx.Panel):

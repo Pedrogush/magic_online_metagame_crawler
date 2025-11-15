@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import wx
 
 from utils.stylize import stylize_button, stylize_textctrl
-from utils.ui_constants import DARK_PANEL
+from utils.constants import DARK_PANEL
 
 if TYPE_CHECKING:
     from repositories.deck_repository import DeckRepository

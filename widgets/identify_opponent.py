@@ -12,7 +12,7 @@ from loguru import logger
 
 from utils.find_opponent_names import find_opponent_names
 from utils.metagame import get_latest_deck
-from utils.paths import (
+from utils.constants import (
     CONFIG_DIR,
     DECK_MONITOR_CACHE_FILE,
     DECK_MONITOR_CONFIG_FILE,

@@ -1,4 +1,29 @@
+"""Constants file."""
 from pathlib import Path
+
+
+SUBDUED_TEXT = (185, 191, 202)
+DARK_BG = (20, 22, 27)
+DARK_PANEL = (34, 39, 46)
+DARK_ALT = (40, 46, 54)
+DARK_ACCENT = (59, 130, 246)
+LIGHT_TEXT = (236, 236, 236)
+
+ZONE_TITLES = {
+    "main": "Mainboard",
+    "side": "Sideboard",
+    "out": "Outboard",
+}
+
+__all__ = [
+    "SUBDUED_TEXT",
+    "DARK_BG",
+    "DARK_PANEL",
+    "DARK_ALT",
+    "DARK_ACCENT",
+    "LIGHT_TEXT",
+    "ZONE_TITLES",
+]
 
 CONFIG_DIR = Path("config")
 CACHE_DIR = Path("cache")
@@ -36,3 +61,51 @@ __all__ = [
     "DECK_CACHE_FILE",
     "CURR_DECK_FILE",
 ]
+
+"""Gameplay-related constants shared across services."""
+
+FULL_MANA_SYMBOLS: list[str] = (
+    ["W", "U", "B", "R", "G", "C", "S", "X", "Y", "Z", "∞", "½"]
+    + [str(i) for i in range(0, 21)]
+    + [
+        "W/U",
+        "W/B",
+        "U/B",
+        "U/R",
+        "B/R",
+        "B/G",
+        "R/G",
+        "R/W",
+        "G/W",
+        "G/U",
+        "C/W",
+        "C/U",
+        "C/B",
+        "C/R",
+        "C/G",
+        "2/W",
+        "2/U",
+        "2/B",
+        "2/R",
+        "2/G",
+        "W/P",
+        "U/P",
+        "B/P",
+        "R/P",
+        "G/P",
+    ]
+)
+
+FORMAT_OPTIONS = [
+    "Modern",
+    "Standard",
+    "Pioneer",
+    "Legacy",
+    "Vintage",
+    "Pauper",
+    "Commander",
+    "Brawl",
+    "Historic",
+]
+
+__all__ = ["FULL_MANA_SYMBOLS", "FORMAT_OPTIONS"]

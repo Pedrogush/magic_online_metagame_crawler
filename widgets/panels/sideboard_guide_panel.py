@@ -13,7 +13,7 @@ import wx
 import wx.dataview as dv
 
 from utils.stylize import stylize_button
-from utils.ui_constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
+from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
 
 
 class SideboardGuidePanel(wx.Panel):

@@ -4,7 +4,7 @@ from pathlib import Path
 import wx
 from loguru import logger
 
-from utils.ui_constants import DARK_ALT, SUBDUED_TEXT
+from utils.constants import DARK_ALT, SUBDUED_TEXT
 
 
 class ManaIconFactory:

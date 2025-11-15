@@ -17,7 +17,7 @@ import pymongo
 from loguru import logger
 
 from utils.deck import sanitize_filename
-from utils.paths import (
+from utils.constants import (
     CACHE_DIR,
     CURR_DECK_FILE,
     DECKS_DIR,

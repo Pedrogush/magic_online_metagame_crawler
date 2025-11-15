@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from utils.paths import CACHE_DIR, CONFIG_FILE, DECKS_DIR
+from utils.constants import CACHE_DIR, CONFIG_FILE, DECKS_DIR
 
 LEGACY_CONFIG_FILE = Path("config.json")
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"

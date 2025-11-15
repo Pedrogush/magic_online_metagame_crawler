@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import wx
 
-from utils.ui_constants import ZONE_TITLES
+from utils.constants import ZONE_TITLES
 
 if TYPE_CHECKING:
     from widgets.deck_selector import MTGDeckSelectionFrame

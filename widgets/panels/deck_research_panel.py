@@ -11,7 +11,7 @@ from utils.stylize import (
     stylize_listbox,
     stylize_textctrl,
 )
-from utils.ui_constants import DARK_PANEL
+from utils.constants import DARK_PANEL
 
 
 class DeckResearchPanel(wx.Panel):

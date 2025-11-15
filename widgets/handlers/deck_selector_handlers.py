@@ -95,7 +95,7 @@ class DeckSelectorHandlers:
 
     def on_save_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         from utils.deck import sanitize_filename
-        from utils.paths import DECK_SAVE_DIR
+        from utils.constants import DECK_SAVE_DIR
 
         deck_content = self._build_deck_text().strip()
         if not deck_content:

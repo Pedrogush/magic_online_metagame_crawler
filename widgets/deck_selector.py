@@ -48,14 +48,14 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
-from utils.game_constants import FORMAT_OPTIONS
+from utils.constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
 from utils.service_config import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
 )
 from utils.stylize import stylize_listbox, stylize_textctrl
-from utils.ui_constants import (
+from utils.constants import (
     DARK_BG,
     DARK_PANEL,
     LIGHT_TEXT,
