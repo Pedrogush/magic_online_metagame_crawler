@@ -29,6 +29,7 @@ __all__ = [
 CONFIG_DIR = Path("config")
 CACHE_DIR = Path("cache")
 DECKS_DIR = Path("decks")
+DECK_SAVE_DIR = DECKS_DIR
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DECKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -142,3 +143,7 @@ GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
 CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"
 
 ATOMIC_DATA_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"
+
+DECK_SELECTOR_MANA_ICON_SIZE = int(26 * 0.7)
+BULK_CACHE_MIN_AGE_DAYS = 1
+BULK_CACHE_MAX_AGE_DAYS = 365

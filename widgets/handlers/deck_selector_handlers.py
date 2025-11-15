@@ -377,3 +377,33 @@ class DeckSelectorHandlers:
             return
         faux_card = {"name": meta.get("name", "Unknown"), "qty": 1}
         self.card_inspector_panel.update_card(faux_card, zone=None, meta=meta)
+
+    def _on_bulk_data_check_failed(self, exc: Exception) -> None:
+        """Fallback when we fail to check bulk data freshness."""
+        logger.warning(f"Failed to check bulk data freshness: {exc}")
+        if not self.image_service.get_bulk_data():
+            self.image_service.load_bulk_data_direct(
+                force=False,
+                set_status=self._set_status,
+                on_load_success=lambda data, stats: wx.CallAfter(
+                    self._on_bulk_data_loaded, data, stats
+                ),
+                on_load_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
+            )
+        else:
+            self._set_status("Ready")
+
+    def _on_force_cached_toggle(self, _event: wx.CommandEvent | None) -> None:
+        """Handle cached-only checkbox toggles."""
+        enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
+        self._set_force_cached_bulk_data(enabled)
+        self._check_and_download_bulk_data()
+
+    def _on_bulk_age_changed(self, event: wx.CommandEvent | None) -> None:
+        """Handle changes to the cache age spinner."""
+        if not self.bulk_cache_age_spin:
+            return
+        self._set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
+        self._check_and_download_bulk_data()
+        if event:
+            event.Skip()

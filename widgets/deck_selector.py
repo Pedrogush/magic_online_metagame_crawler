@@ -10,20 +10,19 @@ from repositories.metagame_repository import get_metagame_repository
 from services import get_deck_research_service, get_state_service
 from services.collection_service import get_collection_service
 from utils.constants import (
-    CARD_INSPECTOR_LOG as DEFAULT_CARD_INSPECTOR_LOG,
-)
-from utils.constants import (
-    GUIDE_STORE as DEFAULT_GUIDE_STORE,
-)
-from utils.constants import (
-    NOTES_STORE as DEFAULT_NOTES_STORE,
-)
-from utils.constants import (
-    OUTBOARD_STORE as DEFAULT_OUTBOARD_STORE,
-)
-from services.deck_paths import (
-    DeckPaths,
-    load_deck_paths,
+    GUIDE_STORE,
+    NOTES_STORE,
+    OUTBOARD_STORE,
+    COLLECTION_CACHE_MAX_AGE_SECONDS,
+    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
+    DARK_BG,
+    DARK_PANEL,
+    LIGHT_TEXT,
+    SUBDUED_TEXT,
+    DECK_SELECTOR_MANA_ICON_SIZE,
+    BULK_CACHE_MIN_AGE_DAYS,
+    BULK_CACHE_MAX_AGE_DAYS,
+    DECK_SAVE_DIR,
 )
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
@@ -32,17 +31,7 @@ from services.store_service import get_store_service
 from utils.card_data import CardDataManager
 from utils.constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
-from utils.constants import (
-    COLLECTION_CACHE_MAX_AGE_SECONDS,
-    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
-)
 from utils.stylize import stylize_listbox, stylize_textctrl
-from utils.constants import (
-    DARK_BG,
-    DARK_PANEL,
-    LIGHT_TEXT,
-    SUBDUED_TEXT,
-)
 from utils.ui_helpers import open_child_window
 from utils.background_worker import BackgroundWorker
 from widgets.buttons.deck_action_buttons import DeckActionButtons
@@ -63,25 +52,6 @@ from widgets.panels.deck_research_panel import DeckResearchPanel
 from widgets.panels.deck_stats_panel import DeckStatsPanel
 from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
-
-DECK_SELECTOR_MANA_ICON_SIZE = int(26 * 0.7)
-
-NOTES_STORE = DEFAULT_NOTES_STORE
-OUTBOARD_STORE = DEFAULT_OUTBOARD_STORE
-GUIDE_STORE = DEFAULT_GUIDE_STORE
-CARD_INSPECTOR_LOG = DEFAULT_CARD_INSPECTOR_LOG
-
-# Load deck selector paths/configuration
-_deck_paths: DeckPaths = load_deck_paths()
-CONFIG = _deck_paths.config
-DECK_SAVE_DIR = _deck_paths.deck_save_dir
-NOTES_STORE = _deck_paths.notes_store
-OUTBOARD_STORE = _deck_paths.outboard_store
-GUIDE_STORE = _deck_paths.guide_store
-CARD_INSPECTOR_LOG = _deck_paths.card_inspector_log
-
-BULK_CACHE_MIN_AGE_DAYS = 1
-BULK_CACHE_MAX_AGE_DAYS = 365
 
 
 class MTGDeckSelectionFrame(
@@ -305,21 +275,6 @@ class MTGDeckSelectionFrame(
 
         sizer.AddStretchSpacer(1)
         return panel
-
-    def _on_force_cached_toggle(self, _event: wx.CommandEvent | None) -> None:
-        """Handle cached-only checkbox toggles."""
-        enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
-        self._set_force_cached_bulk_data(enabled)
-        self._check_and_download_bulk_data()
-
-    def _on_bulk_age_changed(self, event: wx.CommandEvent | None) -> None:
-        """Handle changes to the cache age spinner."""
-        if not self.bulk_cache_age_spin:
-            return
-        self._set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
-        self._check_and_download_bulk_data()
-        if event:
-            event.Skip()
 
     def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
         """Build the summary text and deck list column."""
@@ -754,21 +709,6 @@ class MTGDeckSelectionFrame(
             on_check_failed=self._on_bulk_data_check_failed,
         )
 
-    def _on_bulk_data_check_failed(self, exc: Exception) -> None:
-        """Fallback when we fail to check bulk data freshness."""
-        logger.warning(f"Failed to check bulk data freshness: {exc}")
-        if not self.image_service.get_bulk_data():
-            self.image_service.load_bulk_data_direct(
-                force=False,
-                set_status=self._set_status,
-                on_load_success=lambda data, stats: wx.CallAfter(
-                    self._on_bulk_data_loaded, data, stats
-                ),
-                on_load_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
-            )
-        else:
-            self._set_status("Ready")
-
     # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
     def _after_zone_change(self, zone: str) -> None:
         if zone == "main":
@@ -801,7 +741,6 @@ class MTGDeckSelectionFrame(
         """Update stats display using the DeckStatsPanel."""
         self.deck_stats_panel.update_stats(deck_text, self.zone_cards)
 
-    # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
     # ------------------------------------------------------------------ Daily average --------------------------------------------------------
     def _start_daily_average_build(self) -> None:
         todays_decks = self.deck_service.filter_today_decks(self.deck_repo.get_decks_list())
