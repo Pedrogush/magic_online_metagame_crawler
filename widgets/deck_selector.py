@@ -114,6 +114,7 @@ class MTGDeckSelectionFrame(
         self.loading_archetypes = False
         self.loading_decks = False
         self.loading_daily_average = False
+        self.daily_average_deck: str | None = None
 
         self._save_timer: wx.Timer | None = None
         self.mana_icons = ManaIconFactory(icon_size=DECK_SELECTOR_MANA_ICON_SIZE)
@@ -317,12 +318,6 @@ class MTGDeckSelectionFrame(
         )
         deck_sizer.Add(self.deck_action_buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
-        # Keep references for backward compatibility
-        self.load_button = self.deck_action_buttons.load_button
-        self.daily_average_button = self.deck_action_buttons.daily_average_button
-        self.copy_button = self.deck_action_buttons.copy_button
-        self.save_button = self.deck_action_buttons.save_button
-
         return summary_column
 
     def _build_card_inspector(self, parent: wx.Window) -> wx.StaticBoxSizer:
@@ -468,8 +463,8 @@ class MTGDeckSelectionFrame(
         if saved_text:
             self.deck_repo.set_current_deck_text(saved_text)
             self._update_stats(saved_text)
-            self.copy_button.Enable(True)
-            self.save_button.Enable(True)
+            self.deck_action_buttons.copy_button.Enable(True)
+            self.deck_action_buttons.save_button.Enable(True)
         saved_deck = self.settings.get("saved_deck_info")
         if isinstance(saved_deck, dict):
             self.deck_repo.set_current_deck(saved_deck)
@@ -578,10 +573,10 @@ class MTGDeckSelectionFrame(
         self.deck_repo.clear_decks_list()
         self.deck_list.Clear()
         self._clear_deck_display()
-        self.daily_average_button.Disable()
-        self.load_button.Disable()
-        self.copy_button.Disable()
-        self.save_button.Disable()
+        self.deck_action_buttons.daily_average_button.Disable()
+        self.deck_action_buttons.load_button.Disable()
+        self.deck_action_buttons.copy_button.Disable()
+        self.deck_action_buttons.save_button.Disable()
 
         def loader(fmt: str, force_flag: bool) -> list[dict[str, Any]]:
             return self.deck_research_service.load_archetypes(fmt, force=force_flag)
@@ -641,13 +636,13 @@ class MTGDeckSelectionFrame(
             wx.MessageBox("Deck identifier missing.", "Deck Error", wx.OK | wx.ICON_ERROR)
             return
         self._set_status("Downloading deck…")
-        self.load_button.Disable()
-        self.copy_button.Disable()
-        self.save_button.Disable()
+        self.deck_action_buttons.load_button.Disable()
+        self.deck_action_buttons.copy_button.Disable()
+        self.deck_action_buttons.save_button.Disable()
 
         def on_success(content: str) -> None:
             self._on_deck_content_ready(content, source="mtggoldfish")
-            self.load_button.Enable()
+            self.deck_action_buttons.load_button.Enable()
 
         BackgroundWorker(
             self.deck_research_service.download_deck_text,
@@ -720,8 +715,8 @@ class MTGDeckSelectionFrame(
             self._persist_outboard_for_current()
         result = self.deck_service.handle_zone_change(self.zone_cards)
         self._update_stats(result.deck_text)
-        self.copy_button.Enable(result.has_loaded_deck)
-        self.save_button.Enable(result.has_loaded_deck)
+        self.deck_action_buttons.copy_button.Enable(result.has_loaded_deck)
+        self.deck_action_buttons.save_button.Enable(result.has_loaded_deck)
         self._schedule_settings_save()
 
     # ------------------------------------------------------------------ Card inspector -----------------------------------------------------
@@ -743,66 +738,38 @@ class MTGDeckSelectionFrame(
 
     # ------------------------------------------------------------------ Daily average --------------------------------------------------------
     def _start_daily_average_build(self) -> None:
+        self.deck_action_buttons.daily_average_button.Disable()
+
         todays_decks = self.deck_service.filter_today_decks(self.deck_repo.get_decks_list())
 
         if not todays_decks:
-            wx.MessageBox(
-                "No decks from today found for this archetype.",
-                "Daily Average",
-                wx.OK | wx.ICON_INFORMATION,
-            )
             return
-
         with self._loading_lock:
             self.loading_daily_average = True
-        self.daily_average_button.Disable()
+        
         self._set_status("Building daily average deck…")
-        progress_dialog = wx.ProgressDialog(
-            "Daily Average",
-            "Downloading decks…",
-            maximum=len(todays_decks),
-            parent=self,
-            style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME,
-        )
 
         def worker(rows: list[dict[str, Any]]):
-            def update_progress(index: int, total: int) -> None:
-                wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{total} decks…")
-
             from utils.deck import read_curr_deck_file
 
             return self.deck_service.build_average_text(
                 rows,
                 self.deck_research_service.download_deck,
                 read_curr_deck_file,
-                progress_callback=update_progress,
             )
 
         def on_success(deck_text: str):
             # Process the deck data first
             with self._loading_lock:
                 self.loading_daily_average = False
-            self.daily_average_button.Enable()
-            self._on_deck_content_ready(deck_text, source="average")
-
-            # Close progress dialog AFTER everything else is done
-            # Using Close() instead of Destroy() for safer modal dialog handling
-            try:
-                progress_dialog.Update(len(todays_decks))
-                progress_dialog.Close()
-            except Exception as dialog_exc:
-                logger.error(f"Error closing progress dialog: {dialog_exc}")
+            self.deck_action_buttons.daily_average_button.Enable()
+            self.daily_average_deck = deck_text
 
         def on_error(error: Exception):
             logger.error(f"Daily average error: {error}")
-            # Close progress dialog first
-            try:
-                progress_dialog.Close()
-            except Exception:
-                pass
             with self._loading_lock:
                 self.loading_daily_average = False
-            self.daily_average_button.Enable()
+            self.deck_action_buttons.daily_average_button.Enable()
             wx.MessageBox(
                 f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR
             )

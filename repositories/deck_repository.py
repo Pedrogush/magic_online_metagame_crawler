@@ -458,7 +458,6 @@ class DeckRepository:
         download_func,
         read_func,
         add_to_buffer_func,
-        progress_callback=None,
     ) -> dict[str, float]:
         """
         Build daily average deck by downloading and averaging multiple decks.
@@ -476,13 +475,10 @@ class DeckRepository:
             Buffer dictionary with averaged card counts
         """
         buffer: dict[str, float] = {}
-        total = len(decks)
         for index, deck in enumerate(decks, start=1):
             download_func(deck["number"])
             deck_content = read_func()
             buffer = add_to_buffer_func(buffer, deck_content)
-            if progress_callback:
-                progress_callback(index, total)
         return buffer
 
     # ============= Private Helper Methods =============

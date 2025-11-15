@@ -242,7 +242,7 @@ def fetch_deck_text(deck_num: str) -> str:
     """
     Return a deck list as text, using the local cache when available.
     """
-    deck_cache, cache_path, legacy_source = _load_deck_cache()
+    deck_cache, cache_path = _load_deck_cache()
     if deck_num in deck_cache:
         return deck_cache[deck_num]
 
@@ -255,7 +255,7 @@ def fetch_deck_text(deck_num: str) -> str:
     deck_text = unquote(encoded_deck)
 
     deck_cache[deck_num] = deck_text
-    _persist_deck_cache(deck_cache, cache_path, legacy_source)
+    _persist_deck_cache(deck_cache, cache_path)
     return deck_text
 
 

@@ -61,9 +61,9 @@ class DeckSelectorHandlers:
             return
         deck = self.deck_repo.get_decks_list()[idx]
         self.deck_repo.set_current_deck(deck)
-        self.load_button.Enable()
-        self.copy_button.Enable(self._has_deck_loaded())
-        self.save_button.Enable(self._has_deck_loaded())
+        self.deck_action_buttons.load_button.Enable()
+        self.deck_action_buttons.copy_button.Enable(self._has_deck_loaded())
+        self.deck_action_buttons.save_button.Enable(self._has_deck_loaded())
         self._set_status(f"Selected deck {format_deck_name(deck)}")
         self._show_left_panel("builder")
         self._schedule_settings_save()
@@ -83,7 +83,7 @@ class DeckSelectorHandlers:
                 return
         if not self.deck_repo.get_decks_list():
             return
-        self._start_daily_average_build()
+        self._on_deck_content_ready(self.daily_average_deck, source="average")
 
     def on_copy_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         deck_content = self._build_deck_text().strip()
@@ -237,9 +237,9 @@ class DeckSelectorHandlers:
         for deck in decks:
             self.deck_list.Append(format_deck_name(deck))
         self.deck_list.Enable()
-        self.daily_average_button.Enable()
         self._present_archetype_summary(archetype_name, decks)
         self._set_status(f"Loaded {len(decks)} decks for {archetype_name}. Select one to inspect.")
+        self._start_daily_average_build()
 
     def _on_decks_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
         with self._loading_lock:
@@ -250,7 +250,7 @@ class DeckSelectorHandlers:
         wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_download_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
-        self.load_button.Enable()
+        self.deck_action_buttons.load_button.Enable()
         self._set_status(f"Deck download failed: {error}")
         wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
@@ -272,8 +272,8 @@ class DeckSelectorHandlers:
         self.side_table.set_cards(self.zone_cards["side"])
         self.out_table.set_cards(self.zone_cards["out"])
         self._update_stats(deck_text)
-        self.copy_button.Enable(True)
-        self.save_button.Enable(True)
+        self.deck_action_buttons.copy_button.Enable(True)
+        self.deck_action_buttons.save_button.Enable(True)
         self.deck_notes_panel.load_notes_for_current()
         self._load_guide_for_current()
         self._set_status(f"Deck ready ({source}).")

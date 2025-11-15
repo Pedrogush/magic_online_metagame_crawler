@@ -206,7 +206,7 @@ def analyze_deck(deck_content: str):
 
 
 def read_curr_deck_file() -> str:
-    curr_deck_file = paths.CURR_DECK_FILE
+    curr_deck_file = constants.CURR_DECK_FILE
     candidates = [curr_deck_file, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
     for candidate in candidates:
         if candidate.exists():
