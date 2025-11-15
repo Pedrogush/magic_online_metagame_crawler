@@ -34,6 +34,11 @@ requirements*.txt
 collection.json
 .codex/
 
+# Test coverage reports
+.coverage
+coverage.json
+htmlcov/
+
 # Installer build outputs
 dist/
 build/
