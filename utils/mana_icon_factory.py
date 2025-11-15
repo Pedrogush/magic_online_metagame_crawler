@@ -4,17 +4,7 @@ from pathlib import Path
 import wx
 from loguru import logger
 
-from utils.paths_constants import MANA_RENDER_LOG
 from utils.ui_constants import DARK_ALT, SUBDUED_TEXT
-
-
-def _log_mana_event(*parts: str) -> None:  # pragma: no cover - debug helper
-    try:
-        MANA_RENDER_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with MANA_RENDER_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(" | ".join(parts) + "\n")
-    except OSError:
-        pass
 
 
 class ManaIconFactory:
@@ -121,13 +111,6 @@ class ManaIconFactory:
         components = self._hybrid_components(key)
         second_color: tuple[int, int, int] | None = None
         glyph = self._glyph_map.get(key or "") if not components else ""
-        _log_mana_event(
-            "_get_bitmap",
-            f"symbol={symbol}",
-            f"key={key}",
-            f"glyph={'yes' if glyph else 'no'}",
-            f"components={components}",
-        )
         scale = 3
         size = self._icon_size * scale
         bmp = wx.Bitmap(size, size)
@@ -292,21 +275,17 @@ class ManaIconFactory:
             return ""
         glyph = self._glyph_map.get(key)
         if glyph:
-            _log_mana_event("_glyph_fallback", f"key={key}", "source=direct")
             return glyph
         compact = key.replace("/", "")
         glyph = self._glyph_map.get(compact)
         if glyph:
-            _log_mana_event("_glyph_fallback", f"key={key}", f"source=compact({compact})")
             return glyph
         if len(key) > 1:
             tail = key[-1]
             glyph = self._glyph_map.get(tail)
             if glyph:
-                _log_mana_event("_glyph_fallback", f"key={key}", f"source=tail({tail})")
                 return glyph
         fallback = key.upper()
-        _log_mana_event("_glyph_fallback", f"key={key}", f"source=default({fallback})")
         return fallback
 
     def _color_for_key(self, key: str | None) -> tuple[int, int, int]:
@@ -351,12 +330,9 @@ class ManaIconFactory:
         base = set("wubrg")
         first, second = key[0], key[1]
         if first in base.union({"c"}) and second in base:
-            _log_mana_event("_hybrid_components", f"key={key}", "match=two-color")
             return [first, second]
         if first == "2" and second in base:
-            _log_mana_event("_hybrid_components", f"key={key}", "match=two-hybrid")
             return ["c", second]
-        _log_mana_event("_hybrid_components", f"key={key}", "match=none")
         return None
 
     def _ensure_font_loaded(self) -> None:
