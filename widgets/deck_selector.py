@@ -44,7 +44,7 @@ from utils.constants import (
     SUBDUED_TEXT,
 )
 from utils.ui_helpers import open_child_window
-from widgets.background_worker import BackgroundWorker
+from utils.background_worker import BackgroundWorker
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
@@ -944,9 +944,6 @@ class MTGDeckSelectionFrame(
     def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
         setattr(self, attr, None)
         event.Skip()
-
-    # ------------------------------------------------------------------ Lifecycle ------------------------------------------------------------
-    # Lifecycle handlers are now in DeckSelectorHandlers mixin
 
 
 def launch_app() -> None:

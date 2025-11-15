@@ -140,3 +140,5 @@ NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
 GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
 CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"
+
+ATOMIC_DATA_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"

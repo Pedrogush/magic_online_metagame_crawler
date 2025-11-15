@@ -8,18 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-
-try:
-    from curl_cffi import requests
-except ImportError as exc:
-    requests = None
-    _HTTP_IMPORT_ERROR = exc
-else:
-    _HTTP_IMPORT_ERROR = None
-
-
-ATOMIC_META_URL = "https://mtgjson.com/api/v5/AtomicCards.meta.json"
-ATOMIC_DATA_URL = "https://mtgjson.com/api/v5/AtomicCards.json.zip"
+from curl_cffi import requests
+from utils.constants import ATOMIC_DATA_URL
 
 
 def load_card_manager(data_dir: Path | str = Path("data"), force: bool = False) -> CardDataManager:
