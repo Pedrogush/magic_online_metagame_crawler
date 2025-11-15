@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import json
 import time
-import bs4
 from pathlib import Path
 from typing import Any
-from curl_cffi import requests
+
+import bs4
 import wx
+from curl_cffi import requests
 from loguru import logger
 
-from utils.find_opponent_names import find_opponent_names
 from utils.constants import (
     CONFIG_DIR,
     DECK_MONITOR_CACHE_FILE,
     DECK_MONITOR_CONFIG_FILE,
     GOLDFISH,
 )
+from utils.find_opponent_names import find_opponent_names
 
 FORMAT_OPTIONS = [
     "Modern",

@@ -16,12 +16,12 @@ from typing import Any
 import pymongo
 from loguru import logger
 
-from utils.deck import sanitize_filename
 from utils.constants import (
     CACHE_DIR,
     CURR_DECK_FILE,
     DECKS_DIR,
 )
+from utils.deck import sanitize_filename
 
 # Legacy file paths for migration
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
@@ -475,7 +475,7 @@ class DeckRepository:
             Buffer dictionary with averaged card counts
         """
         buffer: dict[str, float] = {}
-        for index, deck in enumerate(decks, start=1):
+        for deck in decks:
             download_func(deck["number"])
             deck_content = read_func()
             buffer = add_to_buffer_func(buffer, deck_content)

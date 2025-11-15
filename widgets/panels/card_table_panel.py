@@ -3,8 +3,8 @@ from typing import Any
 
 import wx
 
-from utils.mana_icon_factory import ManaIconFactory
 from utils.constants import DARK_PANEL, SUBDUED_TEXT
+from utils.mana_icon_factory import ManaIconFactory
 from widgets.panels.card_box_panel import CardBoxPanel
 
 

@@ -14,8 +14,9 @@ from utils.constants import (
     ARCHETYPE_LIST_CACHE_FILE,
     CURR_DECK_FILE,
     DECK_CACHE_FILE,
+    METAGAME_CACHE_TTL_SECONDS,
+    ONE_DAY_SECONDS,
 )
-from utils.constants import METAGAME_CACHE_TTL_SECONDS, ONE_DAY_SECONDS
 
 
 def _load_cached_archetypes(mtg_format: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):
@@ -230,9 +231,7 @@ def _load_deck_cache() -> tuple[dict[str, str], Path, str | None]:
     return deck_cache, cache_path
 
 
-def _persist_deck_cache(
-    deck_cache: dict[str, str], cache_path: Path
-) -> None:
+def _persist_deck_cache(deck_cache: dict[str, str], cache_path: Path) -> None:
     DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
         json.dump(deck_cache, fh, indent=4)

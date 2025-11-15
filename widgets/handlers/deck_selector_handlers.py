@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
 import wx
 from loguru import logger
+
 from utils.ui_helpers import widget_exists
 
 if TYPE_CHECKING:
@@ -100,8 +102,8 @@ class DeckSelectorHandlers:
             wx.MessageBox("Could not access clipboard.", "Copy Deck", wx.OK | wx.ICON_WARNING)
 
     def on_save_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
-        from utils.deck import sanitize_filename
         from utils.constants import DECK_SAVE_DIR
+        from utils.deck import sanitize_filename
 
         deck_content = self._build_deck_text().strip()
         if not deck_content:

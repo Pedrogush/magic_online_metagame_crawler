@@ -2,9 +2,8 @@ from collections.abc import Callable
 
 import wx
 
-from utils.constants import FULL_MANA_SYMBOLS
+from utils.constants import DARK_BG, FULL_MANA_SYMBOLS, LIGHT_TEXT
 from utils.mana_icon_factory import ManaIconFactory, type_global_mana_symbol
-from utils.constants import DARK_BG, LIGHT_TEXT
 
 
 class ManaKeyboardFrame(wx.Frame):

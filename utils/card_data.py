@@ -7,8 +7,9 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
 from curl_cffi import requests
+from loguru import logger
+
 from utils.constants import ATOMIC_DATA_URL
 
 
@@ -61,9 +62,7 @@ class CardDataManager:
                 if remote_meta:
                     logger.info("Refreshing MTGJSON AtomicCards dataset")
                 else:
-                    logger.info(
-                        "Fetching MTGJSON AtomicCards dataset (using headers for metadata)"
-                    )
+                    logger.info("Fetching MTGJSON AtomicCards dataset (using headers for metadata)")
                 self._download_and_rebuild(remote_meta)
             except Exception as exc:
                 if missing_index:

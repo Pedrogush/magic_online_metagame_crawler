@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - collection service not available without
     def get_collection_service():
         raise RuntimeError("CollectionService is unavailable (wxPython not installed)")
 
+
 from services.deck_research_service import DeckResearchService
 from services.deck_service import DeckService, ZoneUpdateResult, get_deck_service
 from services.image_service import ImageService, get_image_service

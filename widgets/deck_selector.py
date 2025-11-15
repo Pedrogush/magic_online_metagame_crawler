@@ -9,31 +9,31 @@ from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
 from services import get_deck_research_service, get_state_service
 from services.collection_service import get_collection_service
-from utils.constants import (
-    GUIDE_STORE,
-    NOTES_STORE,
-    OUTBOARD_STORE,
-    COLLECTION_CACHE_MAX_AGE_SECONDS,
-    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
-    DARK_BG,
-    DARK_PANEL,
-    LIGHT_TEXT,
-    SUBDUED_TEXT,
-    DECK_SELECTOR_MANA_ICON_SIZE,
-    BULK_CACHE_MIN_AGE_DAYS,
-    BULK_CACHE_MAX_AGE_DAYS,
-    DECK_SAVE_DIR,
-)
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
+from utils.background_worker import BackgroundWorker
 from utils.card_data import CardDataManager
-from utils.constants import FORMAT_OPTIONS
+from utils.constants import (
+    BULK_CACHE_MAX_AGE_DAYS,
+    BULK_CACHE_MIN_AGE_DAYS,
+    COLLECTION_CACHE_MAX_AGE_SECONDS,
+    DARK_BG,
+    DARK_PANEL,
+    DECK_SAVE_DIR,
+    DECK_SELECTOR_MANA_ICON_SIZE,
+    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
+    FORMAT_OPTIONS,
+    GUIDE_STORE,
+    LIGHT_TEXT,
+    NOTES_STORE,
+    OUTBOARD_STORE,
+    SUBDUED_TEXT,
+)
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_helpers import open_child_window
-from utils.background_worker import BackgroundWorker
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
@@ -739,7 +739,7 @@ class MTGDeckSelectionFrame(
             return
         with self._loading_lock:
             self.loading_daily_average = True
-        
+
         self._set_status("Building daily average deck…")
 
         def worker(rows: list[dict[str, Any]]):

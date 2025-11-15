@@ -12,8 +12,8 @@ from collections.abc import Callable
 import wx
 import wx.dataview as dv
 
-from utils.stylize import stylize_button
 from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
+from utils.stylize import stylize_button
 
 
 class SideboardGuidePanel(wx.Panel):
