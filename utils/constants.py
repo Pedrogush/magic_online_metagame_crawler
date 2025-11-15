@@ -109,3 +109,28 @@ FORMAT_OPTIONS = [
 ]
 
 __all__ = ["FULL_MANA_SYMBOLS", "FORMAT_OPTIONS"]
+
+CHALLENGE_LOOKUP_OPTIONS = (
+    "Modern",
+    "Pioneer",
+    "Legacy",
+    "Duel Commander",
+    "Vintage",
+    "Limited",
+)
+GOLDFISH = "https://www.mtggoldfish.com/player/"
+
+"""Service-level configuration defaults shared across modules."""
+
+ONE_HOUR_SECONDS = 60 * 60
+ONE_DAY_SECONDS = 24 * 60 * 60
+
+# Collection inventory refresh settings
+COLLECTION_CACHE_MAX_AGE_SECONDS = ONE_HOUR_SECONDS
+
+# Metagame scraping cache TTL
+METAGAME_CACHE_TTL_SECONDS = ONE_HOUR_SECONDS
+
+# Card image bulk data refresh thresholds
+DEFAULT_BULK_DATA_MAX_AGE_DAYS = 30
+BULK_DATA_CACHE_FRESHNESS_SECONDS = DEFAULT_BULK_DATA_MAX_AGE_DAYS * ONE_DAY_SECONDS

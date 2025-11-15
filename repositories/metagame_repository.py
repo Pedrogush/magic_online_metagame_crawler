@@ -22,7 +22,7 @@ from utils.constants import (
     ARCHETYPE_LIST_CACHE_FILE,
     DECK_CACHE_FILE,
 )
-from utils.service_config import METAGAME_CACHE_TTL_SECONDS
+from utils.constants import METAGAME_CACHE_TTL_SECONDS
 
 _USE_DEFAULT_MAX_AGE: Final = object()
 

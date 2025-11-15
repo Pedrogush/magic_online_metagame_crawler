@@ -33,7 +33,7 @@ import requests
 from loguru import logger
 
 from utils.constants import CACHE_DIR
-from utils.service_config import BULK_DATA_CACHE_FRESHNESS_SECONDS
+from utils.constants import BULK_DATA_CACHE_FRESHNESS_SECONDS
 
 # Image cache configuration
 IMAGE_CACHE_DIR = CACHE_DIR / "card_images"

@@ -6,7 +6,7 @@ from typing import Any
 
 from loguru import logger
 
-from utils import paths
+from utils import constants
 from utils.deck import sanitize_zone_cards
 
 
@@ -14,7 +14,7 @@ class StateService:
     """Load and persist application window state/settings."""
 
     def __init__(self, settings_path: Path | None = None) -> None:
-        self.settings_path = settings_path or paths.DECK_SELECTOR_SETTINGS_FILE
+        self.settings_path = settings_path or constants.DECK_SELECTOR_SETTINGS_FILE
 
     def load(self) -> dict[str, Any]:
         if not self.settings_path.exists():

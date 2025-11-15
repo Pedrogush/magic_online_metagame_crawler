@@ -50,7 +50,7 @@ from services.store_service import get_store_service
 from utils.card_data import CardDataManager
 from utils.constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
-from utils.service_config import (
+from utils.constants import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
 )

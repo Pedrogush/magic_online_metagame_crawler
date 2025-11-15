@@ -19,7 +19,7 @@ from typing import Any
 from loguru import logger
 
 from repositories.card_repository import CardRepository, get_card_repository
-from utils.service_config import (
+from utils.constants import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     ONE_HOUR_SECONDS,
 )

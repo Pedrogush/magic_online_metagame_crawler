@@ -15,7 +15,7 @@ from utils.constants import (
     CURR_DECK_FILE,
     DECK_CACHE_FILE,
 )
-from utils.service_config import METAGAME_CACHE_TTL_SECONDS, ONE_DAY_SECONDS
+from utils.constants import METAGAME_CACHE_TTL_SECONDS, ONE_DAY_SECONDS
 
 
 def _load_cached_archetypes(mtg_format: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):

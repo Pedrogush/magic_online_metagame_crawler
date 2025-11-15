@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
 import wx
 from loguru import logger
-
-from utils.deck_formatting import format_deck_name
 from utils.ui_helpers import widget_exists
 
 if TYPE_CHECKING:
     from widgets.deck_selector import MTGDeckSelectionFrame
+
+
+def format_deck_name(deck: dict[str, Any]) -> str:
+    """Compose a compact deck line for list display."""
+    date = deck.get("date", "")
+    player = deck.get("player", "")
+    event = deck.get("event", "")
+    result = deck.get("result", "")
+    return f"{date} | {player} — {event} [{result}]".strip()
 
 
 class DeckSelectorHandlers:
