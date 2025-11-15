@@ -8,11 +8,19 @@ from typing import TYPE_CHECKING, Any
 import wx
 from loguru import logger
 
-from utils.deck_formatting import format_deck_name
 from utils.ui_helpers import widget_exists
 
 if TYPE_CHECKING:
     from widgets.deck_selector import MTGDeckSelectionFrame
+
+
+def format_deck_name(deck: dict[str, Any]) -> str:
+    """Compose a compact deck line for list display."""
+    date = deck.get("date", "")
+    player = deck.get("player", "")
+    event = deck.get("event", "")
+    result = deck.get("result", "")
+    return f"{date} | {player} — {event} [{result}]".strip()
 
 
 class DeckSelectorHandlers:
@@ -55,9 +63,9 @@ class DeckSelectorHandlers:
             return
         deck = self.deck_repo.get_decks_list()[idx]
         self.deck_repo.set_current_deck(deck)
-        self.load_button.Enable()
-        self.copy_button.Enable(self._has_deck_loaded())
-        self.save_button.Enable(self._has_deck_loaded())
+        self.deck_action_buttons.load_button.Enable()
+        self.deck_action_buttons.copy_button.Enable(self._has_deck_loaded())
+        self.deck_action_buttons.save_button.Enable(self._has_deck_loaded())
         self._set_status(f"Selected deck {format_deck_name(deck)}")
         self._show_left_panel("builder")
         self._schedule_settings_save()
@@ -77,7 +85,7 @@ class DeckSelectorHandlers:
                 return
         if not self.deck_repo.get_decks_list():
             return
-        self._start_daily_average_build()
+        self._on_deck_content_ready(self.daily_average_deck, source="average")
 
     def on_copy_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         deck_content = self._build_deck_text().strip()
@@ -94,8 +102,8 @@ class DeckSelectorHandlers:
             wx.MessageBox("Could not access clipboard.", "Copy Deck", wx.OK | wx.ICON_WARNING)
 
     def on_save_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
+        from utils.constants import DECK_SAVE_DIR
         from utils.deck import sanitize_filename
-        from utils.paths import DECK_SAVE_DIR
 
         deck_content = self._build_deck_text().strip()
         if not deck_content:
@@ -231,9 +239,9 @@ class DeckSelectorHandlers:
         for deck in decks:
             self.deck_list.Append(format_deck_name(deck))
         self.deck_list.Enable()
-        self.daily_average_button.Enable()
         self._present_archetype_summary(archetype_name, decks)
         self._set_status(f"Loaded {len(decks)} decks for {archetype_name}. Select one to inspect.")
+        self._start_daily_average_build()
 
     def _on_decks_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
         with self._loading_lock:
@@ -244,7 +252,7 @@ class DeckSelectorHandlers:
         wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_download_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
-        self.load_button.Enable()
+        self.deck_action_buttons.load_button.Enable()
         self._set_status(f"Deck download failed: {error}")
         wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
@@ -266,8 +274,8 @@ class DeckSelectorHandlers:
         self.side_table.set_cards(self.zone_cards["side"])
         self.out_table.set_cards(self.zone_cards["out"])
         self._update_stats(deck_text)
-        self.copy_button.Enable(True)
-        self.save_button.Enable(True)
+        self.deck_action_buttons.copy_button.Enable(True)
+        self.deck_action_buttons.save_button.Enable(True)
         self.deck_notes_panel.load_notes_for_current()
         self._load_guide_for_current()
         self._set_status(f"Deck ready ({source}).")
@@ -321,7 +329,7 @@ class DeckSelectorHandlers:
         """Handle successful bulk data download."""
         self._set_status("Card image database downloaded, indexing printings…")
         logger.info(f"Bulk data downloaded: {msg}")
-        self._load_bulk_data_into_memory(force=True)
+        self.card_repo.ensure_printing_cache(force=True)
 
     def _on_bulk_data_failed(self: MTGDeckSelectionFrame, error_msg: str) -> None:
         """Handle bulk data download failure."""
@@ -371,3 +379,40 @@ class DeckSelectorHandlers:
             return
         faux_card = {"name": meta.get("name", "Unknown"), "qty": 1}
         self.card_inspector_panel.update_card(faux_card, zone=None, meta=meta)
+
+    def _on_bulk_data_check_failed(self, exc: Exception) -> None:
+        """Fallback when we fail to check bulk data freshness."""
+        logger.warning(f"Failed to check bulk data freshness: {exc}")
+        if not self.image_service.get_bulk_data():
+            self.image_service.load_bulk_data_direct(
+                force=False,
+                set_status=self._set_status,
+                on_load_success=lambda data, stats: wx.CallAfter(
+                    self._on_bulk_data_loaded, data, stats
+                ),
+                on_load_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
+            )
+        else:
+            self._set_status("Ready")
+
+    def _set_force_cached_bulk_data(self, enabled: bool) -> None:
+        if self._bulk_cache_force == enabled:
+            return
+        self._bulk_cache_force = enabled
+        self.settings["force_cached_bulk_data"] = enabled
+        self._schedule_settings_save()
+
+    def _on_force_cached_toggle(self, _event: wx.CommandEvent | None) -> None:
+        """Handle cached-only checkbox toggles."""
+        enabled = bool(not (self.force_cache_checkbox and self.force_cache_checkbox.GetValue()))
+        self._set_force_cached_bulk_data(enabled)
+        self._check_and_download_bulk_data()
+
+    def _on_bulk_age_changed(self, event: wx.CommandEvent | None) -> None:
+        """Handle changes to the cache age spinner."""
+        if not self.bulk_cache_age_spin:
+            return
+        self._set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
+        self._check_and_download_bulk_data()
+        if event:
+            event.Skip()

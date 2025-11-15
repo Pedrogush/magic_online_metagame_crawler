@@ -13,12 +13,7 @@ from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from navigators.mtggoldfish import get_archetype_stats
-
-DARK_BG = wx.Colour(20, 22, 27)
-DARK_PANEL = wx.Colour(34, 39, 46)
-DARK_ALT = wx.Colour(40, 46, 54)
-LIGHT_TEXT = wx.Colour(236, 236, 236)
-SUBDUED_TEXT = wx.Colour(185, 191, 202)
+from utils.constants import DARK_ALT, DARK_BG, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
 
 
 class MetagameAnalysisFrame(wx.Frame):

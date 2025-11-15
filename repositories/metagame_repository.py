@@ -18,11 +18,11 @@ from navigators.mtggoldfish import (
     get_archetype_decks,
     get_archetypes,
 )
-from utils.paths import (
+from utils.constants import (
     ARCHETYPE_LIST_CACHE_FILE,
     DECK_CACHE_FILE,
+    METAGAME_CACHE_TTL_SECONDS,
 )
-from utils.service_config import METAGAME_CACHE_TTL_SECONDS
 
 _USE_DEFAULT_MAX_AGE: Final = object()
 

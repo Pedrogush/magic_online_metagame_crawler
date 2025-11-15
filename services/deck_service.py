@@ -476,7 +476,6 @@ class DeckService:
         todays_decks: list[dict[str, Any]],
         download_deck: Callable[[str], None],
         read_deck_file: Callable[[], str],
-        progress_callback: Callable[[int, int], None] | None = None,
     ) -> str:
         """
         Build average deck text from a list of decks.
@@ -495,7 +494,6 @@ class DeckService:
             download_deck,
             read_deck_file,
             self.add_deck_to_buffer,
-            progress_callback=progress_callback,
         )
         return self.render_average_deck(buffer, len(todays_decks))
 

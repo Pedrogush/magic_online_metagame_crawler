@@ -7,16 +7,18 @@ import time
 from pathlib import Path
 from typing import Any
 
+import bs4
 import wx
+from curl_cffi import requests
 from loguru import logger
 
-from utils.find_opponent_names import find_opponent_names
-from utils.metagame import get_latest_deck
-from utils.paths import (
+from utils.constants import (
     CONFIG_DIR,
     DECK_MONITOR_CACHE_FILE,
     DECK_MONITOR_CONFIG_FILE,
+    GOLDFISH,
 )
+from utils.find_opponent_names import find_opponent_names
 
 FORMAT_OPTIONS = [
     "Modern",
@@ -40,6 +42,54 @@ DARK_ALT = wx.Colour(40, 46, 54)
 DARK_ACCENT = wx.Colour(59, 130, 246)
 LIGHT_TEXT = wx.Colour(236, 236, 236)
 SUBDUED_TEXT = wx.Colour(185, 191, 202)
+
+
+def get_latest_deck(player: str, option: str):
+    """
+    Web scraping function: queries MTGGoldfish for a player's recent tournament results.
+    Returns the most recent deck archetype the player used in the specified format.
+    This is read-only web scraping and does not interact with MTGO client.
+    """
+    if not player:
+        return "No player name"
+    logger.debug(player)
+    player = player.strip()
+    try:
+        res = requests.get(GOLDFISH + player, impersonate="chrome", timeout=30)
+        res.raise_for_status()
+    except Exception as exc:
+        logger.error(f"Failed to fetch player page for {player}: {exc}")
+        return "Unknown"
+    soup = bs4.BeautifulSoup(res.text, "lxml")
+    table = soup.find("table")
+    if not table and player[0] == "0":
+        logger.debug("ocr possibly mistook the letter O for a zero")
+        player = "O" + player[1:]
+        logger.debug(player)
+        try:
+            res = requests.get(GOLDFISH + player, impersonate="chrome", timeout=30)
+            res.raise_for_status()
+        except Exception as exc:
+            logger.error(f"Failed retry fetch for player {player}: {exc}")
+            return "Unknown"
+        soup = bs4.BeautifulSoup(res.text, "lxml")
+        table = soup.find("table")
+    if not table:
+        logger.debug(f"No results table found for player {player}")
+        return "Unknown"
+    entries = table.find_all("tr")
+    for entry in entries:
+        tds = entry.find_all("td")
+        if not tds:
+            continue
+        if len(tds) != 8:
+            continue
+        entry_format: str = tds[2].text
+        if entry_format.lower().strip() == option.lower():
+            logger.debug(f"{player} last 5-0 seen playing {tds[3].text}, in {tds[0].text}")
+            return tds[3].text
+
+    return "Unknown"
 
 
 class MTGOpponentDeckSpy(wx.Frame):

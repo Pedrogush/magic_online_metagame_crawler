@@ -32,8 +32,7 @@ from typing import Any
 import requests
 from loguru import logger
 
-from utils.paths import CACHE_DIR
-from utils.service_config import BULK_DATA_CACHE_FRESHNESS_SECONDS
+from utils.constants import BULK_DATA_CACHE_FRESHNESS_SECONDS, CACHE_DIR
 
 # Image cache configuration
 IMAGE_CACHE_DIR = CACHE_DIR / "card_images"
@@ -791,7 +790,6 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
 
     if bulk_mtime is None:
         raise FileNotFoundError("Bulk data cache not found; cannot build printings index")
-
     logger.info("Building card printings index from bulk data…")
     with BULK_DATA_CACHE.open("r", encoding="utf-8") as fh:
         cards = json.load(fh)

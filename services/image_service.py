@@ -21,7 +21,7 @@ from utils.card_images import (
     ensure_printing_index_cache,
     get_cache,
 )
-from utils.service_config import (
+from utils.constants import (
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
     ONE_DAY_SECONDS,
 )

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from utils import paths
+from utils import constants
 
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
 LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
@@ -206,7 +206,7 @@ def analyze_deck(deck_content: str):
 
 
 def read_curr_deck_file() -> str:
-    curr_deck_file = paths.CURR_DECK_FILE
+    curr_deck_file = constants.CURR_DECK_FILE
     candidates = [curr_deck_file, LEGACY_CURR_DECK_CACHE, LEGACY_CURR_DECK_ROOT]
     for candidate in candidates:
         if candidate.exists():

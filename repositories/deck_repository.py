@@ -16,12 +16,12 @@ from typing import Any
 import pymongo
 from loguru import logger
 
-from utils.deck import sanitize_filename
-from utils.paths import (
+from utils.constants import (
     CACHE_DIR,
     CURR_DECK_FILE,
     DECKS_DIR,
 )
+from utils.deck import sanitize_filename
 
 # Legacy file paths for migration
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
@@ -458,7 +458,6 @@ class DeckRepository:
         download_func,
         read_func,
         add_to_buffer_func,
-        progress_callback=None,
     ) -> dict[str, float]:
         """
         Build daily average deck by downloading and averaging multiple decks.
@@ -476,13 +475,10 @@ class DeckRepository:
             Buffer dictionary with averaged card counts
         """
         buffer: dict[str, float] = {}
-        total = len(decks)
-        for index, deck in enumerate(decks, start=1):
+        for deck in decks:
             download_func(deck["number"])
             deck_content = read_func()
             buffer = add_to_buffer_func(buffer, deck_content)
-            if progress_callback:
-                progress_callback(index, total)
         return buffer
 
     # ============= Private Helper Methods =============

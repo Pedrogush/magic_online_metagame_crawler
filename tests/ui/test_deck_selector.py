@@ -27,7 +27,7 @@ def test_deck_selector_loads_archetypes_and_mainboard_stats(
 
         assert "8 card" in frame.main_table.count_label.GetLabel()
         assert "Mainboard: 8 cards" in frame.stats_summary.GetLabel()
-        assert frame.copy_button.IsEnabled()
+        assert frame.deck_action_buttons.copy_button.IsEnabled()
     finally:
         frame.Destroy()
 

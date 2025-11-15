@@ -4,7 +4,7 @@ from typing import Any
 import wx
 import wx.dataview as dv
 
-from utils.game_constants import FORMAT_OPTIONS
+from utils.constants import DARK_ALT, DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import (
     stylize_button,
@@ -12,7 +12,6 @@ from utils.stylize import (
     stylize_label,
     stylize_textctrl,
 )
-from utils.ui_constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
 from widgets.buttons.mana_button import create_mana_button
 
 

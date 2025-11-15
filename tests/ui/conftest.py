@@ -12,12 +12,12 @@ if sys.platform != "win32":
 
 import navigators.mtggoldfish as mtggoldfish
 import utils.card_images as card_images
-import utils.paths as paths
+import utils.constants as paths
 import widgets.deck_selector as deck_selector
 import widgets.identify_opponent as identify_opponent
 from services import deck_research_service
 from utils.card_data import CardDataManager
-from utils.service_config import METAGAME_CACHE_TTL_SECONDS
+from utils.constants import METAGAME_CACHE_TTL_SECONDS
 from widgets.deck_selector import MTGDeckSelectionFrame
 
 wx = pytest.importorskip("wx")

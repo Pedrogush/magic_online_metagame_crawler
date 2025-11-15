@@ -322,7 +322,7 @@ class CardRepository:
         Returns:
             Path to collection cache
         """
-        from utils.paths import CACHE_DIR
+        from utils.constants import CACHE_DIR
 
         return CACHE_DIR / "collection.json"
 
