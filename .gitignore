@@ -15,6 +15,7 @@ __pycache__/
 *.md
 !README.md
 !ARCHITECTURE.md
+!CODEBASE_REVIEW.md
 !INSTALLATION.md
 !WORKFLOW.md
 !packaging/README.md
