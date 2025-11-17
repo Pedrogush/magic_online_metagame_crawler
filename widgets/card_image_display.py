@@ -73,6 +73,8 @@ class CardImageDisplay(wx.Panel):
         self.flip_button.SetToolTip("Flip card face")
         self.flip_button.Bind(wx.EVT_BUTTON, self._on_flip_clicked)
         self.flip_button.Hide()
+        self.flip_button.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.flip_button.SetBackgroundColour(wx.Colour(0, 0, 0, 0))
         self._position_flip_button()
 
         self.SetSizer(main_sizer)
@@ -331,29 +333,28 @@ class CardImageDisplay(wx.Panel):
         gc = wx.GraphicsContext.Create(dc)
         if gc:
             gc.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
-            gc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, 180)))
-            gc.SetPen(wx.Pen(wx.Colour(235, 235, 235), 2))
+            gc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, 170)))
+            gc.SetPen(wx.Pen(wx.Colour(0, 0, 0, 0), 1))
             gc.DrawEllipse(1, 1, size - 2, size - 2)
 
-            radius = (size - 12) / 2
+            radius = (size - 14) / 2
             center = size / 2
-            start_angle = -0.6
-            end_angle = start_angle + 4.4
+            start_angle = math.radians(135)
+            end_angle = math.radians(-30)
 
-            path = gc.CreatePath()
-            path.AddArc(center, center, radius, start_angle, end_angle, False)
+            circle_path = gc.CreatePath()
+            circle_path.AddArc(center, center, radius, start_angle, end_angle, False)
             gc.SetPen(wx.Pen(wx.Colour(255, 255, 255), 2))
-            gc.StrokePath(path)
+            gc.StrokePath(circle_path)
 
-            # Arrow head
             head_length = 6
             angle = end_angle
             tip_x = center + radius * math.cos(angle)
             tip_y = center + radius * math.sin(angle)
-            left_x = tip_x - head_length * math.cos(angle - 0.7)
-            left_y = tip_y - head_length * math.sin(angle - 0.7)
-            right_x = tip_x - head_length * math.cos(angle + 0.7)
-            right_y = tip_y - head_length * math.sin(angle + 0.7)
+            left_x = tip_x - head_length * math.cos(angle + math.radians(40))
+            left_y = tip_y - head_length * math.sin(angle + math.radians(40))
+            right_x = tip_x - head_length * math.cos(angle - math.radians(40))
+            right_y = tip_y - head_length * math.sin(angle - math.radians(40))
             gc.SetBrush(wx.Brush(wx.Colour(255, 255, 255)))
             arrow_path = gc.CreatePath()
             arrow_path.MoveToPoint(tip_x, tip_y)
@@ -362,7 +363,6 @@ class CardImageDisplay(wx.Panel):
             arrow_path.CloseSubpath()
             gc.FillPath(arrow_path)
         else:
-            # Fallback: simple text-based icon
             dc.SetTextForeground(wx.Colour(255, 255, 255))
             font = dc.GetFont()
             font.SetPointSize(font.GetPointSize() + 4)
