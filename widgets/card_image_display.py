@@ -342,7 +342,7 @@ class CardImageDisplay(wx.Panel):
 
             path = gc.CreatePath()
             path.AddArc(center, center, radius, start_angle, end_angle, False)
-            gc.SetPen(wx.Pen(wx.Colour(255, 255, 255), 2.5))
+            gc.SetPen(wx.Pen(wx.Colour(255, 255, 255), 2))
             gc.StrokePath(path)
 
             # Arrow head
