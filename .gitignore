@@ -34,7 +34,7 @@ requirements*.txt
 !requirements-dev.txt
 collection.json
 .codex/
-
+.coverage
 # Installer build outputs
 dist/
 build/
