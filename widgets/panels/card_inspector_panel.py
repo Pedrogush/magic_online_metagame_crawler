@@ -83,8 +83,7 @@ class CardInspectorPanel(wx.Panel):
             nav_btn_size = wx.Size(38, 30)
 
         # Keep the navigation rail aligned with the card image width so buttons don't jump
-        min_size = self.card_image_display.GetMinSize()
-        image_width = min_size.GetWidth() or getattr(self.card_image_display, "image_width", 260)
+        image_width = getattr(self.card_image_display, "image_width", 260)
         self.nav_panel.SetMinSize((image_width, nav_btn_size.GetHeight() + 4))
         self.nav_panel.SetMaxSize((image_width, -1))
 
