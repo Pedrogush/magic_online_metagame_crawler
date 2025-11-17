@@ -355,7 +355,12 @@ class CardImageDisplay(wx.Panel):
             right_x = tip_x - head_length * math.cos(angle + 0.7)
             right_y = tip_y - head_length * math.sin(angle + 0.7)
             gc.SetBrush(wx.Brush(wx.Colour(255, 255, 255)))
-            gc.DrawPolygon([(tip_x, tip_y), (left_x, left_y), (right_x, right_y)])
+            arrow_path = gc.CreatePath()
+            arrow_path.MoveToPoint(tip_x, tip_y)
+            arrow_path.AddLineToPoint(left_x, left_y)
+            arrow_path.AddLineToPoint(right_x, right_y)
+            arrow_path.CloseSubpath()
+            gc.FillPath(arrow_path)
         else:
             # Fallback: simple text-based icon
             dc.SetTextForeground(wx.Colour(255, 255, 255))
