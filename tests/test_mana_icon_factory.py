@@ -1,8 +1,8 @@
 import pytest
 
-wx = pytest.importorskip("wx")
-
 from utils.mana_icon_factory import ManaIconFactory, normalize_mana_query, tokenize_mana_symbols
+
+wx = pytest.importorskip("wx")
 
 
 @pytest.fixture
