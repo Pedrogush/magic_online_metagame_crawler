@@ -164,7 +164,9 @@ class TestCacheLoading:
 
     def test_load_cached_archetypes_missing_format(self, temp_archetype_list_file):
         """Test loading archetypes when format is not in cache."""
-        temp_archetype_list_file.write_text(json.dumps({"pioneer": {"timestamp": time.time(), "items": []}}))
+        temp_archetype_list_file.write_text(
+            json.dumps({"pioneer": {"timestamp": time.time(), "items": []}})
+        )
         with patch("navigators.mtggoldfish.ARCHETYPE_LIST_CACHE_FILE", temp_archetype_list_file):
             result = _load_cached_archetypes("modern", max_age=3600)
             assert result is None
@@ -206,7 +208,12 @@ class TestCacheSaving:
     def test_save_cached_archetypes_existing_file(self, temp_archetype_list_file):
         """Test saving archetypes to an existing cache file."""
         # Create initial cache with pioneer data
-        initial_data = {"pioneer": {"timestamp": time.time(), "items": [{"name": "Pioneer Deck", "href": "pioneer-deck"}]}}
+        initial_data = {
+            "pioneer": {
+                "timestamp": time.time(),
+                "items": [{"name": "Pioneer Deck", "href": "pioneer-deck"}],
+            }
+        }
         temp_archetype_list_file.write_text(json.dumps(initial_data))
 
         # Save modern data
@@ -265,7 +272,9 @@ class TestGetArchetypes:
         assert temp_archetype_list_file.exists()
 
     @patch("navigators.mtggoldfish.requests.get")
-    def test_get_archetypes_request_failure_with_stale_cache(self, mock_get, temp_archetype_list_file):
+    def test_get_archetypes_request_failure_with_stale_cache(
+        self, mock_get, temp_archetype_list_file
+    ):
         """Test fallback to stale cache when request fails."""
         # Create stale cache (2 hours old)
         old_timestamp = time.time() - 7200
@@ -282,7 +291,9 @@ class TestGetArchetypes:
         assert result == items
 
     @patch("navigators.mtggoldfish.requests.get")
-    def test_get_archetypes_request_failure_no_stale_cache(self, mock_get, temp_archetype_list_file):
+    def test_get_archetypes_request_failure_no_stale_cache(
+        self, mock_get, temp_archetype_list_file
+    ):
         """Test that exception is raised when request fails and no stale cache exists."""
         mock_get.side_effect = Exception("Network error")
 
@@ -291,7 +302,9 @@ class TestGetArchetypes:
                 get_archetypes("modern", cache_ttl=0, allow_stale=True)
 
     @patch("navigators.mtggoldfish.requests.get")
-    def test_get_archetypes_request_failure_stale_not_allowed(self, mock_get, temp_archetype_list_file):
+    def test_get_archetypes_request_failure_stale_not_allowed(
+        self, mock_get, temp_archetype_list_file
+    ):
         """Test that exception is raised when allow_stale is False."""
         # Create stale cache
         old_timestamp = time.time() - 7200
