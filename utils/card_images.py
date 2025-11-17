@@ -27,7 +27,7 @@ try:  # Python 3.10 fallback for datetime.UTC
 except ImportError:  # pragma: no cover - compatibility shim
     from datetime import timezone as _timezone
 
-    UTC = _timezone.utc
+    UTC = _timezone.utc  # noqa: UP017
 from pathlib import Path, PureWindowsPath
 from typing import Any
 

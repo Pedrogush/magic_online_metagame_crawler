@@ -58,9 +58,7 @@ def test_card_image_cache_migrates_face_index_column(tmp_path):
     with sqlite3.connect(db_path) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(card_images)")}
         assert "face_index" in columns
-        migrated_row = conn.execute(
-            "SELECT uuid, face_index, name FROM card_images"
-        ).fetchone()
+        migrated_row = conn.execute("SELECT uuid, face_index, name FROM card_images").fetchone()
 
     assert migrated_row == ("uuid-old", 0, "Legacy Entry")
 
