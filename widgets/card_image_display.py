@@ -14,11 +14,11 @@ import wx
 from loguru import logger
 
 
-class TransparentIconOverlay(wx.Window):
+class TransparentIconOverlay(wx.Panel):
     """A transparent overlay that displays an icon with semi-transparent background.
 
     This class provides a reusable way to overlay icons on images with proper transparency
-    support using GraphicsContext.
+    support using a custom paint handler that composites with the background.
     """
 
     def __init__(self, parent: wx.Window, size: tuple[int, int] = (40, 40)):
@@ -28,9 +28,10 @@ class TransparentIconOverlay(wx.Window):
             parent: Parent window
             size: Size of the overlay (width, height)
         """
-        super().__init__(parent, size=size)
+        super().__init__(parent, size=size, style=wx.BORDER_NONE | wx.TRANSPARENT_WINDOW)
         self.icon_size = size[0]
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+
         self.Bind(wx.EVT_PAINT, self._on_paint)
 
         # Icon properties (can be overridden)
@@ -47,12 +48,44 @@ class TransparentIconOverlay(wx.Window):
 
     def _on_paint(self, event: wx.PaintEvent) -> None:
         """Paint the transparent icon."""
-        dc = wx.AutoBufferedPaintDC(self)
-        dc.Clear()
+        dc = wx.PaintDC(self)
 
+        # Create the icon bitmap with alpha channel
+        bitmap = self._create_icon_bitmap()
+
+        # Draw it
+        dc.DrawBitmap(bitmap, 0, 0, True)
+
+    def _create_icon_bitmap(self) -> wx.Bitmap:
+        """Create a bitmap with the icon rendered with proper alpha channel.
+
+        Returns:
+            A wx.Bitmap with transparency
+        """
+        # Create an image with alpha channel
+        img = wx.Image(self.icon_size, self.icon_size)
+        img.InitAlpha()
+
+        # Fill with fully transparent pixels
+        rgb_data = bytearray([255, 255, 255] * (self.icon_size * self.icon_size))
+        alpha_data = bytearray([0] * (self.icon_size * self.icon_size))
+        img.SetData(bytes(rgb_data))
+        img.SetAlpha(bytes(alpha_data))
+
+        # Convert to bitmap to draw on
+        bitmap = wx.Bitmap(img)
+        dc = wx.MemoryDC(bitmap)
+
+        # Use GraphicsContext for transparency support
         gc = wx.GraphicsContext.Create(dc)
         if gc:
             self._draw_icon(gc)
+
+        dc.SelectObject(wx.NullBitmap)
+
+        # Convert back to image to preserve alpha
+        img = bitmap.ConvertToImage()
+        return wx.Bitmap(img)
 
     def _draw_icon(self, gc: wx.GraphicsContext) -> None:
         """Draw the icon using GraphicsContext for transparency support.
@@ -60,18 +93,30 @@ class TransparentIconOverlay(wx.Window):
         Args:
             gc: Graphics context to draw on
         """
-        # Draw semi-transparent background circle
+        # Draw semi-transparent white background circle with shadow effect
+        # Outer shadow
+        gc.SetBrush(gc.CreateRadialGradientBrush(
+            self.icon_size / 2, self.icon_size / 2 + 2,  # offset for shadow
+            self.icon_size / 2, self.icon_size / 2 + 2,
+            self.icon_size / 2 + 2,
+            wx.Colour(0, 0, 0, 80),  # semi-transparent black shadow
+            wx.Colour(0, 0, 0, 0)    # fully transparent
+        ))
+        gc.SetPen(wx.TRANSPARENT_PEN)
+        gc.DrawEllipse(-2, 0, self.icon_size + 4, self.icon_size + 4)
+
+        # Main background circle
         gc.SetBrush(gc.CreateRadialGradientBrush(
             self.icon_size / 2, self.icon_size / 2,  # center
             self.icon_size / 2, self.icon_size / 2,  # focal point
             self.icon_size / 2,  # radius
-            self.bg_center_color,
-            self.bg_edge_color
+            self.bg_center_color,  # center color (white, semi-transparent)
+            self.bg_edge_color     # edge color (light gray, semi-transparent)
         ))
         gc.SetPen(wx.Pen(self.border_color, 2))
         gc.DrawEllipse(0, 0, self.icon_size, self.icon_size)
 
-        # Draw icon text
+        # Draw icon text with bold font
         font = wx.Font(wx.FontInfo(self.icon_font_size).Bold())
         gc.SetFont(font, self.text_color)
 
