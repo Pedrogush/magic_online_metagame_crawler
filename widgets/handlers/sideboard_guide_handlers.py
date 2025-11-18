@@ -133,12 +133,27 @@ class SideboardGuideHandlers:
         sideboard = self.zone_cards.get("side", [])
 
         dlg = GuideEntryDialog(self, names, mainboard, sideboard)
-        if dlg.ShowModal() == wx.ID_OK:
+
+        # Keep dialog open for "Save & Continue" workflow
+        while True:
+            result = dlg.ShowModal()
+
+            if result == wx.ID_CANCEL:
+                break
+
+            # Get data (for both OK and Save & Continue)
             data = dlg.get_data()
             if data.get("archetype"):
                 self.sideboard_guide_entries.append(data)
                 self._persist_guide_for_current()
                 self._refresh_guide_view()
+
+            if result == wx.ID_OK:
+                # User clicked OK - close dialog
+                break
+
+            # result == wx.ID_APPLY (Save & Continue) - loop continues with dialog open
+
         dlg.Destroy()
 
     def _on_edit_guide_entry(self: MTGDeckSelectionFrame) -> None:
@@ -193,3 +208,107 @@ class SideboardGuideHandlers:
             self._persist_guide_for_current()
             self._refresh_guide_view()
         dlg.Destroy()
+
+    def _on_export_guide_csv(self: MTGDeckSelectionFrame) -> None:
+        """Export sideboard guide to CSV format."""
+        if not self.sideboard_guide_entries:
+            wx.MessageBox(
+                "No sideboard guide entries to export.", "Export CSV", wx.OK | wx.ICON_INFORMATION
+            )
+            return
+
+        # Ask user for save location
+        dlg = wx.FileDialog(
+            self,
+            "Export Sideboard Guide",
+            wildcard="CSV files (*.csv)|*.csv",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        )
+
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+
+        file_path = dlg.GetPath()
+        dlg.Destroy()
+
+        try:
+            self._export_guide_to_csv(file_path)
+            wx.MessageBox(
+                f"Sideboard guide exported successfully to:\n{file_path}",
+                "Export CSV",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+        except Exception as e:
+            wx.MessageBox(f"Error exporting CSV:\n{e}", "Export CSV", wx.OK | wx.ICON_ERROR)
+
+    def _export_guide_to_csv(self: MTGDeckSelectionFrame, file_path: str) -> None:
+        """
+        Export sideboard guide to CSV with smart filtering.
+
+        Creates a table where:
+        - Rows are cards
+        - Columns are matchups (archetypes)
+        - Cells show "Out" for cards taken out, "In" for cards brought in
+        - Cards that never appear are filtered out
+        """
+        import csv
+
+        # Collect all cards and their actions per archetype
+        card_actions: dict[str, dict[str, set[str]]] = {}  # card_name -> archetype -> {actions}
+
+        for entry in self.sideboard_guide_entries:
+            if entry.get("archetype") in self.sideboard_exclusions:
+                continue
+
+            archetype = entry.get("archetype", "Unknown")
+
+            # Process play/draw scenarios
+            for scenario, out_key, in_key in [
+                ("Play", "play_out", "play_in"),
+                ("Draw", "draw_out", "draw_in"),
+            ]:
+                out_cards = entry.get(out_key, {})
+                in_cards = entry.get(in_key, {})
+
+                if isinstance(out_cards, dict):
+                    for card_name, qty in out_cards.items():
+                        if qty > 0:
+                            card_actions.setdefault(card_name, {}).setdefault(
+                                f"{archetype} ({scenario})", set()
+                            ).add(f"Out {qty}")
+
+                if isinstance(in_cards, dict):
+                    for card_name, qty in in_cards.items():
+                        if qty > 0:
+                            card_actions.setdefault(card_name, {}).setdefault(
+                                f"{archetype} ({scenario})", set()
+                            ).add(f"In {qty}")
+
+        # Filter out cards that never appear
+        filtered_cards = {card: actions for card, actions in card_actions.items() if actions}
+
+        if not filtered_cards:
+            raise ValueError("No cards to export after filtering")
+
+        # Get all unique matchups (columns)
+        all_matchups = sorted(
+            {matchup for actions in filtered_cards.values() for matchup in actions.keys()}
+        )
+
+        # Write CSV
+        with open(file_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+
+            # Header row
+            writer.writerow(["Card"] + all_matchups)
+
+            # Data rows
+            for card_name in sorted(filtered_cards.keys()):
+                row = [card_name]
+                for matchup in all_matchups:
+                    actions = filtered_cards[card_name].get(matchup, set())
+                    # Join multiple actions with " & " if both in and out
+                    cell_value = " & ".join(sorted(actions)) if actions else ""
+                    row.append(cell_value)
+                writer.writerow(row)

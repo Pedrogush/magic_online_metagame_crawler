@@ -372,6 +372,7 @@ class MTGDeckSelectionFrame(
             on_edit_entry=self._on_edit_guide_entry,
             on_remove_entry=self._on_remove_guide_entry,
             on_edit_exclusions=self._on_edit_exclusions,
+            on_export_csv=self._on_export_guide_csv,
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
@@ -448,7 +449,6 @@ class MTGDeckSelectionFrame(
 
     def _open_radar_dialog(self):
         """Open the Radar dialog for archetype card frequency analysis."""
-        from services.radar_service import RadarData
 
         dialog = RadarDialog(
             parent=self,

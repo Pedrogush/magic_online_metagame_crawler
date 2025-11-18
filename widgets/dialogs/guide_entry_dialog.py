@@ -111,13 +111,37 @@ class GuideEntryDialog(wx.Dialog):
         self.notes_ctrl.SetHint("Strategy notes for this matchup")
         panel_sizer.Add(self.notes_ctrl, 0, wx.EXPAND | wx.ALL, 4)
 
-        button_sizer = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
-        if button_sizer:
-            main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
+        # Custom button sizer with Save & Continue
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        # Save & Continue button (custom ID)
+        self.save_continue_btn = wx.Button(panel, label="Save & Continue", id=wx.ID_APPLY)
+        self.save_continue_btn.Bind(wx.EVT_BUTTON, self._on_save_continue)
+        button_sizer.Add(self.save_continue_btn, 0, wx.RIGHT, 8)
+
+        button_sizer.AddStretchSpacer()
+
+        # OK button
+        ok_btn = wx.Button(panel, label="OK", id=wx.ID_OK)
+        ok_btn.SetDefault()
+        ok_btn.Bind(wx.EVT_BUTTON, lambda evt: self.EndModal(wx.ID_OK))
+        button_sizer.Add(ok_btn, 0, wx.RIGHT, 8)
+
+        # Cancel button
+        cancel_btn = wx.Button(panel, label="Cancel", id=wx.ID_CANCEL)
+        cancel_btn.Bind(wx.EVT_BUTTON, lambda evt: self.EndModal(wx.ID_CANCEL))
+        button_sizer.Add(cancel_btn, 0)
+
+        main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
 
         # Load existing data if provided
         if data:
             self._load_data(data)
+
+    def _on_save_continue(self, event: wx.Event) -> None:
+        """Handle Save & Continue button click."""
+        # Return wx.ID_APPLY to signal save without closing
+        self.EndModal(wx.ID_APPLY)
 
     def _load_data(self, data: dict[str, Any]) -> None:
         """Load existing data into the selectors."""

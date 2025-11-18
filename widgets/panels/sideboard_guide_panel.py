@@ -26,6 +26,7 @@ class SideboardGuidePanel(wx.Panel):
         on_edit_entry: Callable[[], None],
         on_remove_entry: Callable[[], None],
         on_edit_exclusions: Callable[[], None],
+        on_export_csv: Callable[[], None],
     ):
         """
         Initialize the sideboard guide panel.
@@ -36,6 +37,7 @@ class SideboardGuidePanel(wx.Panel):
             on_edit_entry: Callback for editing selected entry
             on_remove_entry: Callback for removing selected entry
             on_edit_exclusions: Callback for editing archetype exclusions
+            on_export_csv: Callback for exporting guide to CSV
         """
         super().__init__(parent)
         self.SetBackgroundColour(DARK_PANEL)
@@ -44,6 +46,7 @@ class SideboardGuidePanel(wx.Panel):
         self.on_edit_entry = on_edit_entry
         self.on_remove_entry = on_remove_entry
         self.on_edit_exclusions = on_edit_exclusions
+        self.on_export_csv = on_export_csv
 
         self.entries: list[dict[str, str]] = []
         self.exclusions: list[str] = []
@@ -89,7 +92,12 @@ class SideboardGuidePanel(wx.Panel):
         self.exclusions_btn = wx.Button(self, label="Exclude Archetypes")
         stylize_button(self.exclusions_btn)
         self.exclusions_btn.Bind(wx.EVT_BUTTON, self._on_exclusions_clicked)
-        buttons.Add(self.exclusions_btn, 0)
+        buttons.Add(self.exclusions_btn, 0, wx.RIGHT, 6)
+
+        self.export_btn = wx.Button(self, label="Export CSV")
+        stylize_button(self.export_btn)
+        self.export_btn.Bind(wx.EVT_BUTTON, self._on_export_clicked)
+        buttons.Add(self.export_btn, 0)
 
         buttons.AddStretchSpacer(1)
 
@@ -206,3 +214,7 @@ class SideboardGuidePanel(wx.Panel):
     def _on_exclusions_clicked(self, _event: wx.Event) -> None:
         """Handle Exclude Archetypes button click."""
         self.on_edit_exclusions()
+
+    def _on_export_clicked(self, _event: wx.Event) -> None:
+        """Handle Export CSV button click."""
+        self.on_export_csv()

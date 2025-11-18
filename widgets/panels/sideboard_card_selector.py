@@ -61,7 +61,7 @@ class SideboardCardSelector(wx.Panel):
     def _build_card_list(self) -> None:
         """Build the list of cards with quantity controls."""
         self.card_sizer.Clear(delete_windows=True)
-        self.card_widgets: dict[str, tuple[wx.SpinCtrl, wx.Panel]] = {}
+        self.card_widgets: dict[str, tuple[wx.StaticText, wx.Panel]] = {}
 
         for card in self.available_cards:
             card_name = card["name"]
@@ -73,20 +73,45 @@ class SideboardCardSelector(wx.Panel):
             row_sizer = wx.BoxSizer(wx.HORIZONTAL)
             row_panel.SetSizer(row_sizer)
 
-            # Quantity spinner
-            spinner = wx.SpinCtrl(
-                row_panel,
-                value="0",
-                min=0,
-                max=max_qty,
-                size=(50, -1),
-                style=wx.SP_ARROW_KEYS | wx.ALIGN_RIGHT,
+            # Quantity display (3 digits wide)
+            qty_label = wx.StaticText(row_panel, label="  0", size=(30, -1), style=wx.ALIGN_RIGHT)
+            qty_label.SetForegroundColour(LIGHT_TEXT)
+            row_sizer.Add(qty_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+            # Buttons panel
+            btn_panel = wx.Panel(row_panel)
+            btn_panel.SetBackgroundColour(DARK_ALT)
+            btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            btn_panel.SetSizer(btn_sizer)
+
+            # Button: +1
+            inc_btn = wx.Button(btn_panel, label="+", size=(28, 28))
+            inc_btn.Bind(
+                wx.EVT_BUTTON,
+                lambda evt, name=card_name, max_q=max_qty: self._increment(name, max_q),
             )
-            spinner.SetBackgroundColour(DARK_PANEL)
-            spinner.SetForegroundColour(LIGHT_TEXT)
-            spinner.Bind(wx.EVT_SPINCTRL, lambda evt, name=card_name: self._on_qty_change(name))
-            spinner.Bind(wx.EVT_TEXT, lambda evt, name=card_name: self._on_qty_change(name))
-            row_sizer.Add(spinner, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+            btn_sizer.Add(inc_btn, 0)
+
+            # Button: -1
+            dec_btn = wx.Button(btn_panel, label="−", size=(28, 28))
+            dec_btn.Bind(wx.EVT_BUTTON, lambda evt, name=card_name: self._decrement(name))
+            btn_sizer.Add(dec_btn, 0, wx.LEFT, 2)
+
+            # Button: Set to 0 (↑ up arrow)
+            zero_btn = wx.Button(btn_panel, label="↑", size=(28, 28))
+            zero_btn.SetToolTip("Set to 0")
+            zero_btn.Bind(wx.EVT_BUTTON, lambda evt, name=card_name: self._set_zero(name))
+            btn_sizer.Add(zero_btn, 0, wx.LEFT, 2)
+
+            # Button: Set to max (↓ down arrow)
+            max_btn = wx.Button(btn_panel, label="↓", size=(28, 28))
+            max_btn.SetToolTip(f"Set to max ({max_qty})")
+            max_btn.Bind(
+                wx.EVT_BUTTON, lambda evt, name=card_name, max_q=max_qty: self._set_max(name, max_q)
+            )
+            btn_sizer.Add(max_btn, 0, wx.LEFT, 2)
+
+            row_sizer.Add(btn_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
 
             # Card name
             name_label = wx.StaticText(row_panel, label=f"{card_name} (max {max_qty})")
@@ -94,23 +119,49 @@ class SideboardCardSelector(wx.Panel):
             row_sizer.Add(name_label, 1, wx.ALIGN_CENTER_VERTICAL)
 
             self.card_sizer.Add(row_panel, 0, wx.EXPAND | wx.BOTTOM, 2)
-            self.card_widgets[card_name] = (spinner, row_panel)
+            self.card_widgets[card_name] = (qty_label, row_panel)
 
         self.scroll_panel.Layout()
         self.scroll_panel.SetupScrolling(scroll_x=False, scroll_y=True)
         self._update_count()
 
-    def _on_qty_change(self, card_name: str) -> None:
-        """Handle quantity change for a card."""
-        spinner, _ = self.card_widgets[card_name]
-        qty = spinner.GetValue()
+    def _increment(self, card_name: str, max_qty: int) -> None:
+        """Increment quantity for a card."""
+        current = self.selected_cards.get(card_name, 0)
+        if current < max_qty:
+            self.selected_cards[card_name] = current + 1
+            self._update_display(card_name)
+            self._update_count()
 
-        if qty > 0:
-            self.selected_cards[card_name] = qty
-        else:
-            self.selected_cards.pop(card_name, None)
+    def _decrement(self, card_name: str) -> None:
+        """Decrement quantity for a card."""
+        current = self.selected_cards.get(card_name, 0)
+        if current > 0:
+            new_qty = current - 1
+            if new_qty == 0:
+                self.selected_cards.pop(card_name, None)
+            else:
+                self.selected_cards[card_name] = new_qty
+            self._update_display(card_name)
+            self._update_count()
 
+    def _set_zero(self, card_name: str) -> None:
+        """Set quantity to 0 for a card."""
+        self.selected_cards.pop(card_name, None)
+        self._update_display(card_name)
         self._update_count()
+
+    def _set_max(self, card_name: str, max_qty: int) -> None:
+        """Set quantity to max for a card."""
+        self.selected_cards[card_name] = max_qty
+        self._update_display(card_name)
+        self._update_count()
+
+    def _update_display(self, card_name: str) -> None:
+        """Update the quantity display for a card."""
+        qty = self.selected_cards.get(card_name, 0)
+        qty_label, _ = self.card_widgets[card_name]
+        qty_label.SetLabel(f"{qty:3d}")
 
     def _update_count(self) -> None:
         """Update the card count label."""
@@ -126,10 +177,9 @@ class SideboardCardSelector(wx.Panel):
         """
         self.selected_cards = cards.copy()
 
-        # Update spinners
-        for card_name, (spinner, _) in self.card_widgets.items():
-            qty = self.selected_cards.get(card_name, 0)
-            spinner.SetValue(qty)
+        # Update displays
+        for card_name in self.card_widgets:
+            self._update_display(card_name)
 
         self._update_count()
 
