@@ -33,8 +33,8 @@ class CardImageDisplay(wx.Panel):
 
         # Flip icon state
         self.show_flip_icon_overlay = False
-        self.flip_icon_size = 40
-        self.flip_icon_margin = 2  # Small margin to align with card border
+        self.flip_icon_size = 32
+        self.flip_icon_margin = 10  # Small margin to align with card border
 
         # Image navigation state
         self.image_paths: list[Path] = []
