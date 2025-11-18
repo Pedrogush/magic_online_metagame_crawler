@@ -32,9 +32,15 @@ def fetch_with_streaming(url: str) -> tuple[str, dict]:
     total_bytes = 0
     chunks_read = 0
 
-    for chunk in response.iter_content(chunk_size=chunk_size, decode_unicode=True):
+    for chunk in response.iter_content(chunk_size=chunk_size):
         if chunk:
-            accumulated += chunk
+            # Decode chunk manually to handle encoding issues
+            try:
+                chunk_text = chunk.decode('utf-8', errors='replace')
+            except (UnicodeDecodeError, AttributeError):
+                chunk_text = str(chunk)
+
+            accumulated += chunk_text
             total_bytes += len(chunk)
             chunks_read += 1
 

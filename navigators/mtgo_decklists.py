@@ -54,6 +54,8 @@ def _load_cache() -> dict[str, Any]:
 
 def _save_cache(cache: dict[str, Any]) -> None:
     """Save cache with atomic write to prevent corruption."""
+    import platform
+
     MTGO_DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     # Use unique temp filename to support concurrent writes from parallel workers
     unique_suffix = f".tmp.{uuid.uuid4().hex}"
@@ -61,7 +63,16 @@ def _save_cache(cache: dict[str, Any]) -> None:
     try:
         with temp_file.open("w", encoding="utf-8") as fh:
             json.dump(cache, fh, indent=2)
-        # Atomic rename
+
+        # On Windows, we need to delete the target file first before renaming
+        if platform.system() == 'Windows' and MTGO_DECK_CACHE_FILE.exists():
+            try:
+                MTGO_DECK_CACHE_FILE.unlink()
+            except OSError as exc:
+                logger.warning(f"Could not delete existing cache file: {exc}")
+                # Try to continue anyway
+
+        # Atomic rename (on Unix) or regular rename (on Windows after deletion)
         temp_file.replace(MTGO_DECK_CACHE_FILE)
     except Exception as exc:
         logger.error(f"Failed to save MTGO cache: {exc}")
@@ -107,9 +118,16 @@ def _fetch_html(url: str, stream_optimize: bool = True) -> str:
     total_bytes = 0
 
     try:
-        for chunk in response.iter_content(chunk_size=chunk_size, decode_unicode=True):
+        for chunk in response.iter_content(chunk_size=chunk_size):
             if chunk:
-                accumulated += chunk
+                # Decode chunk manually to handle encoding issues
+                try:
+                    chunk_text = chunk.decode('utf-8', errors='replace')
+                except (UnicodeDecodeError, AttributeError):
+                    # If chunk is already a string or decode fails
+                    chunk_text = str(chunk)
+
+                accumulated += chunk_text
                 total_bytes += len(chunk)
 
                 # Check if we have the complete JSON payload
@@ -137,8 +155,11 @@ def _fetch_html(url: str, stream_optimize: bool = True) -> str:
         return accumulated
 
     except Exception as exc:
-        logger.warning(f"Stream optimization failed: {exc}, falling back to full fetch")
-        response.close()
+        logger.warning(f"Stream optimization failed: {type(exc).__name__}: {str(exc) or repr(exc)}, falling back to full fetch")
+        try:
+            response.close()
+        except Exception:
+            pass
         # Fallback to non-streaming
         response = requests.get(url, impersonate="chrome", timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
