@@ -459,6 +459,27 @@ def fetch_recent_events_parallel(
     cache = _load_cache()
     deck_cache = cache.setdefault("events", {})
 
+    # Early exit optimization: if first and last entries are cached, check if entire span is cached
+    if len(entries) >= 2:
+        first_url = entries[0].get("url")
+        last_url = entries[-1].get("url")
+
+        if first_url in deck_cache and last_url in deck_cache:
+            # Check if ALL entries are cached
+            all_cached = all(entry.get("url") in deck_cache for entry in entries)
+
+            if all_cached:
+                logger.info(
+                    f"All {len(entries)} events already cached (span {first_url[:50]}... to {last_url[:50]}...), "
+                    f"skipping fetch"
+                )
+                # Return cached data without fetching
+                for entry in entries:
+                    url = entry.get("url")
+                    if url and url in deck_cache:
+                        results.append((entry, deck_cache[url]))
+                return results
+
     # Track newly fetched events to save at the end (avoid concurrent writes)
     newly_fetched: dict[str, dict[str, Any]] = {}
 
