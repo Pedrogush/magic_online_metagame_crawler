@@ -5,6 +5,7 @@ Features:
 - Navigate between multiple printings with arrow buttons
 - Smooth fade transition animations between images
 - Printing counter display (e.g., "1 of 3")
+- Transparent icon overlay support for double-faced cards
 """
 
 from __future__ import annotations
@@ -13,6 +14,78 @@ from pathlib import Path
 
 import wx
 from loguru import logger
+
+
+class TransparentIconOverlay(wx.Window):
+    """A transparent overlay that displays an icon with semi-transparent background.
+
+    This class provides a reusable way to overlay icons on images with proper transparency
+    support using GraphicsContext.
+    """
+
+    def __init__(self, parent: wx.Window, size: tuple[int, int] = (40, 40)):
+        """Initialize the transparent icon overlay.
+
+        Args:
+            parent: Parent window
+            size: Size of the overlay (width, height)
+        """
+        super().__init__(parent, size=size)
+        self.icon_size = size[0]
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+
+        # Icon properties (can be overridden)
+        self.icon_text = "⟳"
+        self.icon_font_size = int(self.icon_size * 0.6)
+        self.bg_center_color = wx.Colour(255, 255, 255, 200)
+        self.bg_edge_color = wx.Colour(220, 220, 220, 150)
+        self.border_color = wx.Colour(100, 100, 100, 180)
+        self.text_color = wx.Colour(0, 0, 0, 255)
+
+        # Make it clickable
+        self.Bind(wx.EVT_LEFT_UP, self._on_click)
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+
+    def _on_paint(self, event: wx.PaintEvent) -> None:
+        """Paint the transparent icon."""
+        dc = wx.AutoBufferedPaintDC(self)
+        dc.Clear()
+
+        gc = wx.GraphicsContext.Create(dc)
+        if gc:
+            self._draw_icon(gc)
+
+    def _draw_icon(self, gc: wx.GraphicsContext) -> None:
+        """Draw the icon using GraphicsContext for transparency support.
+
+        Args:
+            gc: Graphics context to draw on
+        """
+        # Draw semi-transparent background circle
+        gc.SetBrush(gc.CreateRadialGradientBrush(
+            self.icon_size / 2, self.icon_size / 2,  # center
+            self.icon_size / 2, self.icon_size / 2,  # focal point
+            self.icon_size / 2,  # radius
+            self.bg_center_color,
+            self.bg_edge_color
+        ))
+        gc.SetPen(wx.Pen(self.border_color, 2))
+        gc.DrawEllipse(0, 0, self.icon_size, self.icon_size)
+
+        # Draw icon text
+        font = wx.Font(wx.FontInfo(self.icon_font_size).Bold())
+        gc.SetFont(font, self.text_color)
+
+        text_width, text_height = gc.GetTextExtent(self.icon_text)
+        x = (self.icon_size - text_width) / 2
+        y = (self.icon_size - text_height) / 2
+        gc.DrawText(self.icon_text, x, y)
+
+    def _on_click(self, event: wx.MouseEvent) -> None:
+        """Handle click - post button event to parent."""
+        click_event = wx.CommandEvent(wx.wxEVT_BUTTON)
+        wx.PostEvent(self.GetParent(), click_event)
 
 
 class CardImageDisplay(wx.Panel):
@@ -56,10 +129,23 @@ class CardImageDisplay(wx.Panel):
         # Main vertical sizer
         main_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        # Image display area
-        self.bitmap_ctrl = wx.StaticBitmap(self, size=(self.image_width, self.image_height))
+        # Image display area with overlay support
+        self.image_panel = wx.Panel(self, size=(self.image_width, self.image_height))
+
+        # Card image bitmap
+        self.bitmap_ctrl = wx.StaticBitmap(
+            self.image_panel,
+            size=(self.image_width, self.image_height),
+            pos=(0, 0)
+        )
         self.bitmap_ctrl.Bind(wx.EVT_LEFT_UP, self._on_bitmap_left_click)
-        main_sizer.Add(self.bitmap_ctrl, 1, wx.EXPAND | wx.ALL, 0)
+
+        # Transparent flip icon overlay (initially hidden)
+        self.flip_icon_overlay = TransparentIconOverlay(self.image_panel, size=(40, 40))
+        self.flip_icon_overlay.SetPosition((self.image_width - 50, 10))  # Top-right corner
+        self.flip_icon_overlay.Hide()
+
+        main_sizer.Add(self.image_panel, 1, wx.EXPAND | wx.ALL, 0)
 
         # Navigation panel
         nav_panel = wx.Panel(self)
@@ -489,6 +575,17 @@ class CardImageDisplay(wx.Panel):
 
         dc.SelectObject(wx.NullBitmap)
         return bitmap
+
+    def show_flip_icon(self) -> None:
+        """Show the flip icon overlay (e.g., for double-faced cards)."""
+        if hasattr(self, 'flip_icon_overlay'):
+            self.flip_icon_overlay.Show()
+            self.flip_icon_overlay.Refresh()
+
+    def hide_flip_icon(self) -> None:
+        """Hide the flip icon overlay."""
+        if hasattr(self, 'flip_icon_overlay'):
+            self.flip_icon_overlay.Hide()
 
     def __del__(self):
         """Cleanup when widget is destroyed."""
