@@ -65,9 +65,7 @@ class CardImageDisplay(wx.Panel):
 
         # Card image bitmap
         self.bitmap_ctrl = wx.StaticBitmap(
-            self.image_panel,
-            size=(self.image_width, self.image_height),
-            pos=(0, 0)
+            self.image_panel, size=(self.image_width, self.image_height), pos=(0, 0)
         )
         self.bitmap_ctrl.Bind(wx.EVT_LEFT_UP, self._on_bitmap_left_click)
 
@@ -384,24 +382,32 @@ class CardImageDisplay(wx.Panel):
 
         # Draw semi-transparent shadow effect
         # Outer shadow
-        gc.SetBrush(gc.CreateRadialGradientBrush(
-            icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2 + 2,
-            icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2 + 2,
-            self.flip_icon_size / 2 + 2,
-            wx.Colour(0, 0, 0, 100),  # semi-transparent black shadow
-            wx.Colour(0, 0, 0, 0)     # fully transparent
-        ))
+        gc.SetBrush(
+            gc.CreateRadialGradientBrush(
+                icon_x + self.flip_icon_size / 2,
+                icon_y + self.flip_icon_size / 2 + 2,
+                icon_x + self.flip_icon_size / 2,
+                icon_y + self.flip_icon_size / 2 + 2,
+                self.flip_icon_size / 2 + 2,
+                wx.Colour(0, 0, 0, 100),  # semi-transparent black shadow
+                wx.Colour(0, 0, 0, 0),  # fully transparent
+            )
+        )
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.DrawEllipse(icon_x - 2, icon_y, self.flip_icon_size + 4, self.flip_icon_size + 4)
 
         # Main background circle (black with semi-transparency)
-        gc.SetBrush(gc.CreateRadialGradientBrush(
-            icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2,
-            icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2,
-            self.flip_icon_size / 2,
-            wx.Colour(40, 40, 40, 220),   # center: dark gray, semi-transparent
-            wx.Colour(20, 20, 20, 200)    # edge: darker gray, semi-transparent
-        ))
+        gc.SetBrush(
+            gc.CreateRadialGradientBrush(
+                icon_x + self.flip_icon_size / 2,
+                icon_y + self.flip_icon_size / 2,
+                icon_x + self.flip_icon_size / 2,
+                icon_y + self.flip_icon_size / 2,
+                self.flip_icon_size / 2,
+                wx.Colour(40, 40, 40, 220),  # center: dark gray, semi-transparent
+                wx.Colour(20, 20, 20, 200),  # edge: darker gray, semi-transparent
+            )
+        )
         gc.SetPen(wx.Pen(wx.Colour(80, 80, 80, 200), 2))
         gc.DrawEllipse(icon_x, icon_y, self.flip_icon_size, self.flip_icon_size)
 
