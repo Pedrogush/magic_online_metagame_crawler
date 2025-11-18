@@ -44,27 +44,73 @@ class SideboardGuideHandlers:
         # Migrate old format entries to new format
         migrated_entries = []
         for entry in entries:
-            # Check if entry is in old format (has cards_in/cards_out instead of play_*/draw_*)
+            # Check if entry is in old format (has cards_in/cards_out as strings)
             if "cards_in" in entry or "cards_out" in entry:
-                # Migrate to new format: copy cards_in/out to both play and draw scenarios
+                # Convert text format to dict format
+                play_out = self._parse_card_text(entry.get("cards_out", ""))
+                play_in = self._parse_card_text(entry.get("cards_in", ""))
                 migrated_entry = {
                     "archetype": entry.get("archetype", ""),
-                    "play_out": entry.get("cards_out", ""),
-                    "play_in": entry.get("cards_in", ""),
-                    "draw_out": entry.get("cards_out", ""),
-                    "draw_in": entry.get("cards_in", ""),
+                    "play_out": play_out,
+                    "play_in": play_in,
+                    "draw_out": play_out.copy(),  # Duplicate for draw
+                    "draw_in": play_in.copy(),  # Duplicate for draw
                     "notes": entry.get("notes", ""),
                 }
                 migrated_entries.append(migrated_entry)
             else:
-                # Already in new format
-                migrated_entries.append(entry)
+                # Check if new format has string values (needs parsing)
+                migrated_entry = entry.copy()
+                for field in ["play_out", "play_in", "draw_out", "draw_in"]:
+                    if field in migrated_entry and isinstance(migrated_entry[field], str):
+                        migrated_entry[field] = self._parse_card_text(migrated_entry[field])
+                migrated_entries.append(migrated_entry)
 
         self.sideboard_guide_entries = migrated_entries
         self.sideboard_exclusions = payload.get("exclusions", [])
         self.sideboard_guide_panel.set_entries(
             self.sideboard_guide_entries, self.sideboard_exclusions
         )
+
+    def _parse_card_text(self: MTGDeckSelectionFrame, text: str) -> dict[str, int]:
+        """
+        Parse card text like "2x Lightning Bolt, 1x Mountain" into a dict.
+
+        Args:
+            text: Card list in text format
+
+        Returns:
+            Dict mapping card name to quantity
+        """
+        if not text or not isinstance(text, str):
+            return {}
+
+        result = {}
+        lines = text.replace(",", "\n").split("\n")
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Try to parse "2x Card Name" or "2 Card Name" format
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                qty_str, name = parts
+                # Remove 'x' suffix if present
+                qty_str = qty_str.rstrip("x")
+                try:
+                    qty = int(qty_str)
+                    result[name.strip()] = qty
+                    continue
+                except ValueError:
+                    pass
+
+            # Fallback: treat whole line as card name with qty 1
+            if line:
+                result[line] = 1
+
+        return result
 
     def _persist_guide_for_current(self: MTGDeckSelectionFrame) -> None:
         key = self.deck_repo.get_current_deck_key()
@@ -81,7 +127,10 @@ class SideboardGuideHandlers:
 
     def _on_add_guide_entry(self: MTGDeckSelectionFrame) -> None:
         names = [item.get("name", "") for item in self.archetypes]
-        dlg = GuideEntryDialog(self, names)
+        mainboard = self.zone_cards.get("main", [])
+        sideboard = self.zone_cards.get("side", [])
+
+        dlg = GuideEntryDialog(self, names, mainboard, sideboard)
         if dlg.ShowModal() == wx.ID_OK:
             data = dlg.get_data()
             if data.get("archetype"):
@@ -99,7 +148,10 @@ class SideboardGuideHandlers:
             return
         data = self.sideboard_guide_entries[index]
         names = [item.get("name", "") for item in self.archetypes]
-        dlg = GuideEntryDialog(self, names, data=data)
+        mainboard = self.zone_cards.get("main", [])
+        sideboard = self.zone_cards.get("side", [])
+
+        dlg = GuideEntryDialog(self, names, mainboard, sideboard, data=data)
         if dlg.ShowModal() == wx.ID_OK:
             updated = dlg.get_data()
             if updated.get("archetype"):

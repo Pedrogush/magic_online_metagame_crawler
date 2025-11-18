@@ -153,10 +153,10 @@ class SideboardGuidePanel(wx.Panel):
             self.guide_view.AppendItem(
                 [
                     entry.get("archetype", ""),
-                    entry.get("play_out", ""),
-                    entry.get("play_in", ""),
-                    entry.get("draw_out", ""),
-                    entry.get("draw_in", ""),
+                    self._format_card_list(entry.get("play_out", {})),
+                    self._format_card_list(entry.get("play_in", {})),
+                    self._format_card_list(entry.get("draw_out", {})),
+                    self._format_card_list(entry.get("draw_in", {})),
                     entry.get("notes", ""),
                 ]
             )
@@ -167,6 +167,29 @@ class SideboardGuidePanel(wx.Panel):
         else:
             text = "—"
         self.exclusions_label.SetLabel(f"Exclusions: {text}")
+
+    def _format_card_list(self, cards: dict[str, int] | str) -> str:
+        """
+        Format a card list for display.
+
+        Args:
+            cards: Either a dict mapping card name to quantity, or a string (for old format)
+
+        Returns:
+            Formatted string like "2x Lightning Bolt, 1x Mountain"
+        """
+        if isinstance(cards, str):
+            # Old format - just return the string
+            return cards
+
+        if not cards:
+            return ""
+
+        # New format - dict of card name to quantity
+        formatted = []
+        for name, qty in sorted(cards.items()):
+            formatted.append(f"{qty}x {name}")
+        return ", ".join(formatted)
 
     def _on_add_clicked(self, _event: wx.Event) -> None:
         """Handle Add Entry button click."""
