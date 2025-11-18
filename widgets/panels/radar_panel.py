@@ -267,7 +267,7 @@ class RadarDialog(wx.Dialog):
 
         # Close button
         close_btn = wx.Button(self, wx.ID_CLOSE, "Close")
-        close_btn.Bind(wx.EVT_BUTTON, lambda e: self.Close())
+        close_btn.Bind(wx.EVT_BUTTON, self._on_close)
         sizer.Add(close_btn, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
 
     def _load_archetypes(self) -> None:
@@ -407,19 +407,29 @@ class RadarDialog(wx.Dialog):
 
     def _use_radar_for_search(self, radar: RadarData) -> None:
         """
-        Use radar for deck builder search (to be implemented in integration).
+        Use radar for deck builder search.
 
         Args:
             radar: RadarData to use
         """
-        # This will be connected to the main window's deck builder
+        # Close the dialog - the radar will be picked up by the main window
         wx.MessageBox(
             "Radar search filter applied!",
             "Search Filter",
             wx.OK | wx.ICON_INFORMATION,
         )
-        self.Close()
+        if self.IsModal():
+            self.EndModal(wx.ID_OK)
+        else:
+            self.Close()
 
     def get_current_radar(self) -> RadarData | None:
         """Get the currently displayed radar."""
         return self.current_radar
+
+    def _on_close(self, event: wx.Event) -> None:
+        """Handle close button click."""
+        if self.IsModal():
+            self.EndModal(wx.ID_OK)
+        else:
+            self.Close()
