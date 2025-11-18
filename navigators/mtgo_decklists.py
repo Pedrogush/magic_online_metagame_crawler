@@ -151,7 +151,8 @@ def _fetch_html(url: str, stream_optimize: bool = True) -> str:
                         return accumulated
 
         # If we got here, we read the entire response without finding JSON
-        logger.warning("Stream optimization: read entire response without finding JSON pattern")
+        # This is expected for invalid/404 pages, so log at debug level
+        logger.debug("Stream optimization: read entire response without finding JSON pattern")
         return accumulated
 
     except Exception as exc:
@@ -326,11 +327,30 @@ def _transform_event_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_deck_event(html: str) -> dict[str, Any]:
+    """
+    Parse MTGO deck event JSON from HTML.
+
+    Args:
+        html: HTML content
+
+    Returns:
+        Parsed JSON payload
+
+    Raises:
+        ValueError: If JSON payload not found (page may be invalid/404)
+    """
     match = DETAIL_RE.search(html)
     if not match:
-        raise ValueError("Could not locate deck JSON payload")
-    payload = json.loads(match.group(1))
-    return payload
+        # Check if this looks like a 404 or error page
+        if len(html) < 1000 or "404" in html or "not found" in html.lower():
+            raise ValueError("Page appears to be invalid or not found")
+        raise ValueError("Could not locate deck JSON payload in page")
+
+    try:
+        payload = json.loads(match.group(1))
+        return payload
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in deck payload: {exc}") from exc
 
 
 def fetch_deck_event(url: str, cache: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -436,7 +456,12 @@ def fetch_recent_events_parallel(
                 if entry["url"] not in deck_cache:
                     newly_fetched[entry["url"]] = payload
             except Exception as exc:
-                logger.error(f"Failed to fetch deck event {entry['url']}: {exc}")
+                # Reduce log level for expected failures (404s, invalid pages)
+                error_msg = str(exc).lower()
+                if "invalid" in error_msg or "not found" in error_msg or "could not locate" in error_msg:
+                    logger.debug(f"Skipping invalid/missing deck event {entry['url']}: {exc}")
+                else:
+                    logger.error(f"Failed to fetch deck event {entry['url']}: {exc}")
                 continue
 
     # Save all newly fetched events at once to avoid concurrent write issues
