@@ -151,12 +151,8 @@ class RadarService:
                 )
 
             # Calculate frequency statistics
-            mainboard_frequencies = self._calculate_frequencies(
-                mainboard_stats, successful_decks
-            )
-            sideboard_frequencies = self._calculate_frequencies(
-                sideboard_stats, successful_decks
-            )
+            mainboard_frequencies = self._calculate_frequencies(mainboard_stats, successful_decks)
+            sideboard_frequencies = self._calculate_frequencies(sideboard_stats, successful_decks)
 
             # Sort by saturation rate (descending)
             mainboard_frequencies.sort(key=lambda x: x.saturation_rate, reverse=True)
@@ -249,9 +245,7 @@ class RadarService:
 
         # Filter and format mainboard
         mainboard = [
-            card
-            for card in radar.mainboard_cards
-            if card.saturation_rate >= min_saturation
+            card for card in radar.mainboard_cards if card.saturation_rate >= min_saturation
         ]
         if max_cards is not None:
             mainboard = mainboard[:max_cards]
@@ -263,9 +257,7 @@ class RadarService:
 
         # Add sideboard section
         sideboard = [
-            card
-            for card in radar.sideboard_cards
-            if card.saturation_rate >= min_saturation
+            card for card in radar.sideboard_cards if card.saturation_rate >= min_saturation
         ]
         if max_cards is not None:
             sideboard = sideboard[:max_cards]

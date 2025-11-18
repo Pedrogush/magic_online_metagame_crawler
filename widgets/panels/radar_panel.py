@@ -128,9 +128,7 @@ class RadarPanel(wx.Panel):
         self.current_radar = radar
 
         # Update header
-        self.archetype_label.SetLabel(
-            f"{radar.archetype_name} - {radar.format_name} Radar"
-        )
+        self.archetype_label.SetLabel(f"{radar.archetype_name} - {radar.format_name} Radar")
 
         # Update summary
         summary = (
@@ -173,13 +171,15 @@ class RadarPanel(wx.Panel):
         list_ctrl.DeleteAllItems()
 
         for card in cards:
-            list_ctrl.AppendItem([
-                card.card_name,
-                f"{card.inclusion_rate:.1f}%",
-                f"{card.saturation_rate:.1f}%",
-                f"{card.avg_copies:.2f}",
-                str(card.max_copies),
-            ])
+            list_ctrl.AppendItem(
+                [
+                    card.card_name,
+                    f"{card.inclusion_rate:.1f}%",
+                    f"{card.saturation_rate:.1f}%",
+                    f"{card.avg_copies:.2f}",
+                    str(card.max_copies),
+                ]
+            )
 
     def _on_export_clicked(self, event: wx.Event) -> None:
         """Handle export button click."""
@@ -281,9 +281,7 @@ class RadarDialog(wx.Dialog):
     def _load_archetypes(self) -> None:
         """Load archetypes for the current format."""
         try:
-            self.archetypes = self.metagame_repo.get_archetypes_for_format(
-                self.format_name
-            )
+            self.archetypes = self.metagame_repo.get_archetypes_for_format(self.format_name)
             archetype_names = [arch.get("name", "Unknown") for arch in self.archetypes]
             self.archetype_choice.Set(archetype_names)
 
@@ -401,8 +399,7 @@ class RadarDialog(wx.Dialog):
         # Ask for minimum saturation threshold
         dlg = wx.TextEntryDialog(
             self,
-            "Enter minimum saturation % (0-100):\n"
-            "(100% = always-a-four-of)",
+            "Enter minimum saturation % (0-100):\n" "(100% = always-a-four-of)",
             "Export Radar as Decklist",
             "0",
         )
@@ -414,9 +411,7 @@ class RadarDialog(wx.Dialog):
                     raise ValueError("Must be between 0 and 100")
 
                 # Generate deck list
-                decklist = self.radar_service.export_radar_as_decklist(
-                    radar, min_saturation
-                )
+                decklist = self.radar_service.export_radar_as_decklist(radar, min_saturation)
 
                 # Save to file
                 with wx.FileDialog(

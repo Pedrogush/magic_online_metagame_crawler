@@ -41,7 +41,8 @@ class DeckTextCache:
             cursor = conn.cursor()
 
             # Create main cache table
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS deck_cache (
                     deck_number TEXT PRIMARY KEY,
                     deck_text TEXT NOT NULL,
@@ -49,19 +50,24 @@ class DeckTextCache:
                     access_count INTEGER DEFAULT 0,
                     last_accessed REAL NOT NULL
                 )
-            """)
+            """
+            )
 
             # Create index on last_accessed for efficient LRU operations
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_last_accessed
                 ON deck_cache(last_accessed DESC)
-            """)
+            """
+            )
 
             # Create index on cached_at for cleanup operations
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_cached_at
                 ON deck_cache(cached_at)
-            """)
+            """
+            )
 
             conn.commit()
             logger.debug(f"Deck cache schema initialized at {self.db_path}")

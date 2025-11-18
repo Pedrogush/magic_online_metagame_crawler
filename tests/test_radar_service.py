@@ -25,9 +25,7 @@ def mock_deck_service():
 @pytest.fixture
 def radar_service(mock_metagame_repo, mock_deck_service):
     """RadarService with mocked dependencies."""
-    return RadarService(
-        metagame_repository=mock_metagame_repo, deck_service=mock_deck_service
-    )
+    return RadarService(metagame_repository=mock_metagame_repo, deck_service=mock_deck_service)
 
 
 @pytest.fixture
