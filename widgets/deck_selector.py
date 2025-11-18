@@ -50,6 +50,7 @@ from widgets.panels.deck_builder_panel import DeckBuilderPanel
 from widgets.panels.deck_notes_panel import DeckNotesPanel
 from widgets.panels.deck_research_panel import DeckResearchPanel
 from widgets.panels.deck_stats_panel import DeckStatsPanel
+from widgets.panels.radar_panel import RadarDialog
 from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
 
@@ -193,6 +194,7 @@ class MTGDeckSelectionFrame(
             on_search=self._on_builder_search,
             on_clear=self._on_builder_clear,
             on_result_selected=self._on_builder_result_selected,
+            on_open_radar_dialog=self._open_radar_dialog,
         )
         self.left_stack.AddPage(self.builder_panel, "Builder")
         self._show_left_panel(self.left_mode, force=True)
@@ -445,6 +447,25 @@ class MTGDeckSelectionFrame(
         self.mana_keyboard_window = open_mana_keyboard(
             self, self.mana_icons, self.mana_keyboard_window, self._on_mana_keyboard_closed
         )
+
+    def _open_radar_dialog(self):
+        """Open the Radar dialog for archetype card frequency analysis."""
+        from services.radar_service import RadarData
+
+        dialog = RadarDialog(
+            parent=self,
+            metagame_repo=self.metagame_repo,
+            format_name=self.current_format,
+        )
+
+        if dialog.ShowModal() == wx.ID_OK:
+            # Dialog was closed, check if a radar was generated
+            radar = dialog.get_current_radar()
+            dialog.Destroy()
+            return radar
+        else:
+            dialog.Destroy()
+            return None
 
     def _restore_session_state(self) -> None:
         saved_mode = self.settings.get("left_mode")
