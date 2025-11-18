@@ -37,7 +37,8 @@ class SideboardGuideHandlers:
         return cleaned
 
     def _load_guide_for_current(self: MTGDeckSelectionFrame) -> None:
-        key = self.deck_repo.get_current_deck_key()
+        # Use decklist hash to ensure each unique 75 gets its own guide
+        key = self.deck_repo.get_current_decklist_hash()
         payload = self.guide_store.get(key) or {}
         entries = payload.get("entries", [])
 
@@ -113,7 +114,8 @@ class SideboardGuideHandlers:
         return result
 
     def _persist_guide_for_current(self: MTGDeckSelectionFrame) -> None:
-        key = self.deck_repo.get_current_deck_key()
+        # Use decklist hash to ensure each unique 75 gets its own guide
+        key = self.deck_repo.get_current_decklist_hash()
         self.guide_store[key] = {
             "entries": self.sideboard_guide_entries,
             "exclusions": self.sideboard_exclusions,
