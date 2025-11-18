@@ -40,33 +40,7 @@ class CardTablePanelHandler:
         self._after_zone_change(zone)
 
     def _handle_zone_add(self: MTGDeckSelectionFrame, zone: str) -> None:
-        if zone == "out":
-            main_cards = [entry["name"] for entry in self.zone_cards.get("main", [])]
-            existing = {entry["name"].lower() for entry in self.zone_cards.get("out", [])}
-            candidates = [name for name in main_cards if name.lower() not in existing]
-            if not candidates:
-                wx.MessageBox(
-                    "All mainboard cards are already in the outboard list.",
-                    "Outboard",
-                    wx.OK | wx.ICON_INFORMATION,
-                )
-                return
-            dlg = wx.SingleChoiceDialog(
-                self, "Select a mainboard card eligible for sideboarding.", "Outboard", candidates
-            )
-            if dlg.ShowModal() != wx.ID_OK:
-                dlg.Destroy()
-                return
-            selection = dlg.GetStringSelection()
-            dlg.Destroy()
-            qty = next(
-                (entry["qty"] for entry in self.zone_cards["main"] if entry["name"] == selection), 1
-            )
-            self.zone_cards.setdefault("out", []).append({"name": selection, "qty": qty})
-            self.zone_cards["out"].sort(key=lambda item: item["name"].lower())
-            self._after_zone_change("out")
-            return
-
+        # Outboard zone removed - standard add dialog for all zones
         dlg = wx.TextEntryDialog(
             self, f"Add card to {ZONE_TITLES.get(zone, zone)} (format: 'Qty Card Name')", "Add Card"
         )

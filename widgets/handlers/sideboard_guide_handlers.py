@@ -39,7 +39,28 @@ class SideboardGuideHandlers:
     def _load_guide_for_current(self: MTGDeckSelectionFrame) -> None:
         key = self.deck_repo.get_current_deck_key()
         payload = self.guide_store.get(key) or {}
-        self.sideboard_guide_entries = payload.get("entries", [])
+        entries = payload.get("entries", [])
+
+        # Migrate old format entries to new format
+        migrated_entries = []
+        for entry in entries:
+            # Check if entry is in old format (has cards_in/cards_out instead of play_*/draw_*)
+            if "cards_in" in entry or "cards_out" in entry:
+                # Migrate to new format: copy cards_in/out to both play and draw scenarios
+                migrated_entry = {
+                    "archetype": entry.get("archetype", ""),
+                    "play_out": entry.get("cards_out", ""),
+                    "play_in": entry.get("cards_in", ""),
+                    "draw_out": entry.get("cards_out", ""),
+                    "draw_in": entry.get("cards_in", ""),
+                    "notes": entry.get("notes", ""),
+                }
+                migrated_entries.append(migrated_entry)
+            else:
+                # Already in new format
+                migrated_entries.append(entry)
+
+        self.sideboard_guide_entries = migrated_entries
         self.sideboard_exclusions = payload.get("exclusions", [])
         self.sideboard_guide_panel.set_entries(
             self.sideboard_guide_entries, self.sideboard_exclusions

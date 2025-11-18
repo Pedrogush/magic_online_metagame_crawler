@@ -57,10 +57,12 @@ class SideboardGuidePanel(wx.Panel):
 
         # Guide entries list
         self.guide_view = dv.DataViewListCtrl(self, style=dv.DV_ROW_LINES)
-        self.guide_view.AppendTextColumn("Archetype", width=200)
-        self.guide_view.AppendTextColumn("Cards In", width=200)
-        self.guide_view.AppendTextColumn("Cards Out", width=200)
-        self.guide_view.AppendTextColumn("Notes", width=220)
+        self.guide_view.AppendTextColumn("Archetype", width=150)
+        self.guide_view.AppendTextColumn("Play: Out", width=150)
+        self.guide_view.AppendTextColumn("Play: In", width=150)
+        self.guide_view.AppendTextColumn("Draw: Out", width=150)
+        self.guide_view.AppendTextColumn("Draw: In", width=150)
+        self.guide_view.AppendTextColumn("Notes", width=180)
         self.guide_view.SetBackgroundColour(DARK_ALT)
         self.guide_view.SetForegroundColour(LIGHT_TEXT)
         sizer.Add(self.guide_view, 1, wx.EXPAND | wx.ALL, 6)
@@ -151,8 +153,10 @@ class SideboardGuidePanel(wx.Panel):
             self.guide_view.AppendItem(
                 [
                     entry.get("archetype", ""),
-                    entry.get("cards_in", ""),
-                    entry.get("cards_out", ""),
+                    entry.get("play_out", ""),
+                    entry.get("play_in", ""),
+                    entry.get("draw_out", ""),
+                    entry.get("draw_in", ""),
                     entry.get("notes", ""),
                 ]
             )

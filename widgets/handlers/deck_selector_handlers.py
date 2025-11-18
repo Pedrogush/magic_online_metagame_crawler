@@ -269,10 +269,9 @@ class DeckSelectorHandlers:
             [{"name": name, "qty": qty} for name, qty in stats["sideboard_cards"]],
             key=lambda card: card["name"].lower(),
         )
-        self.zone_cards["out"] = self._load_outboard_for_current()
+        # Outboard zone removed
         self.main_table.set_cards(self.zone_cards["main"])
         self.side_table.set_cards(self.zone_cards["side"])
-        self.out_table.set_cards(self.zone_cards["out"])
         self._update_stats(deck_text)
         self.deck_action_buttons.copy_button.Enable(True)
         self.deck_action_buttons.save_button.Enable(True)
