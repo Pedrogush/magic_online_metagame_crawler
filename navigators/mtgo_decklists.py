@@ -31,13 +31,42 @@ def _load_cache() -> dict[str, Any]:
             return json.load(fh)
     except json.JSONDecodeError as exc:
         logger.warning(f"Invalid MTGO deck cache JSON ({MTGO_DECK_CACHE_FILE}): {exc}")
+        # Backup corrupted cache and start fresh
+        backup_path = MTGO_DECK_CACHE_FILE.with_suffix(".json.corrupt")
+        try:
+            MTGO_DECK_CACHE_FILE.rename(backup_path)
+            logger.info(f"Backed up corrupted cache to {backup_path}")
+        except OSError:
+            logger.warning(f"Could not backup corrupted cache, deleting it")
+            try:
+                MTGO_DECK_CACHE_FILE.unlink()
+            except OSError:
+                pass
+        return {}
+    except Exception as exc:
+        logger.error(f"Unexpected error loading MTGO cache: {exc}")
         return {}
 
 
 def _save_cache(cache: dict[str, Any]) -> None:
+    """Save cache with atomic write to prevent corruption."""
     MTGO_DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with MTGO_DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
-        json.dump(cache, fh, indent=2)
+    # Write to temporary file first, then rename (atomic operation)
+    temp_file = MTGO_DECK_CACHE_FILE.with_suffix(".json.tmp")
+    try:
+        with temp_file.open("w", encoding="utf-8") as fh:
+            json.dump(cache, fh, indent=2)
+        # Atomic rename
+        temp_file.replace(MTGO_DECK_CACHE_FILE)
+    except Exception as exc:
+        logger.error(f"Failed to save MTGO cache: {exc}")
+        # Clean up temp file if it exists
+        if temp_file.exists():
+            try:
+                temp_file.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def _fetch_html(url: str) -> str:
@@ -249,10 +278,36 @@ def iter_deck_events(entries: Iterable[dict[str, Any]]) -> Iterable[dict[str, An
 
 
 def fetch_recent_events_parallel(
-    year: int, month: int, max_events: int | None = None
+    year: int,
+    month: int,
+    max_events: int | None = None,
+    mtg_format: str | None = None
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    """Fetch recent MTGO events with parallel processing for better performance."""
-    entries = fetch_decklist_index(year, month)
+    """
+    Fetch recent MTGO events with parallel processing for better performance.
+
+    Args:
+        year: Year to fetch
+        month: Month to fetch
+        max_events: Maximum number of events to fetch
+        mtg_format: Optional format filter (e.g., "Modern", "Standard") - filters BEFORE fetching
+
+    Returns:
+        List of (entry, payload) tuples for matching events
+    """
+    all_entries = fetch_decklist_index(year, month)
+
+    # Filter by format BEFORE fetching event details (huge performance improvement)
+    if mtg_format:
+        format_normalized = mtg_format.lower()
+        entries = [
+            entry for entry in all_entries
+            if (entry.get("format") or "").lower() == format_normalized
+        ]
+        logger.debug(f"Filtered {len(all_entries)} entries to {len(entries)} for format {mtg_format}")
+    else:
+        entries = all_entries
+
     if max_events:
         entries = entries[:max_events]
 
@@ -306,16 +361,15 @@ def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
 
     for year, month in sorted(months_to_fetch):
         try:
-            events = fetch_recent_events_parallel(year, month, max_events=50)
+            # Pass format to filter BEFORE fetching event details
+            events = fetch_recent_events_parallel(year, month, max_events=50, mtg_format=mtg_format)
         except Exception as exc:
             logger.warning(f"Failed to fetch events for {year}-{month:02d}: {exc}")
             continue
 
         for entry, payload in events:
-            # Filter by format
-            entry_format = (entry.get("format") or "").lower()
-            if entry_format != mtg_format_lower:
-                continue
+            # Format already filtered in fetch_recent_events_parallel
+            # No need to filter again here
 
             # Check publish date
             publish_str = entry.get("publish_date")
@@ -385,7 +439,8 @@ def get_archetype_decks(
             break
 
         try:
-            events = fetch_recent_events_parallel(year, month, max_events=50)
+            # Pass format to filter BEFORE fetching event details
+            events = fetch_recent_events_parallel(year, month, max_events=50, mtg_format=mtg_format)
         except Exception as exc:
             logger.warning(f"Failed to fetch events for {year}-{month:02d}: {exc}")
             continue
@@ -394,11 +449,8 @@ def get_archetype_decks(
             if len(decks) >= max_decks:
                 break
 
-            # Filter by format if specified
-            if format_normalized:
-                entry_format = (entry.get("format") or "").lower()
-                if entry_format != format_normalized:
-                    continue
+            # Format already filtered in fetch_recent_events_parallel
+            # No need to filter again here
 
             # Check publish date
             publish_str = entry.get("publish_date")
