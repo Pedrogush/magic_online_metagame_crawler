@@ -123,7 +123,7 @@ class MetagameRepository:
         Download the actual deck list content.
 
         Args:
-            deck: Deck dictionary with 'url' key
+            deck: Deck dictionary with 'number' key (deck ID)
 
         Returns:
             Deck list as text string
@@ -132,10 +132,18 @@ class MetagameRepository:
             Exception: If download fails
         """
         deck_name = deck.get("name", "Unknown")
+        deck_number = deck.get("number", "")
+
+        if not deck_number:
+            raise ValueError(f"Deck {deck_name} has no 'number' field")
 
         logger.info(f"Downloading deck: {deck_name}")
         try:
-            deck_content = download_deck(deck)
+            # download_deck expects the deck number string and writes to file
+            download_deck(deck_number)
+            # Read the downloaded content from the file
+            from utils.deck import read_curr_deck_file
+            deck_content = read_curr_deck_file()
             return deck_content
         except Exception as exc:
             logger.error(f"Failed to download deck {deck_name}: {exc}")
