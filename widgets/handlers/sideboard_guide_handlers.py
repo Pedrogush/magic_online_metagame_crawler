@@ -242,6 +242,55 @@ class SideboardGuideHandlers:
         except Exception as e:
             wx.MessageBox(f"Error exporting CSV:\n{e}", "Export CSV", wx.OK | wx.ICON_ERROR)
 
+    def _on_import_guide_csv(self: MTGDeckSelectionFrame) -> None:
+        """Import sideboard guide from CSV format."""
+        # Clear any existing warnings
+        self.sideboard_guide_panel.set_warning("")
+
+        # Ask user for file to import
+        dlg = wx.FileDialog(
+            self,
+            "Import Sideboard Guide",
+            wildcard="CSV files (*.csv)|*.csv",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+
+        file_path = dlg.GetPath()
+        dlg.Destroy()
+
+        try:
+            imported_entries, warnings = self._import_guide_from_csv(file_path)
+
+            if not imported_entries:
+                wx.MessageBox(
+                    "No valid guide entries found in CSV.", "Import CSV", wx.OK | wx.ICON_INFORMATION
+                )
+                return
+
+            # Add imported entries to existing guide
+            self.sideboard_guide_entries.extend(imported_entries)
+            self._persist_guide_for_current()
+            self._refresh_guide_view()
+
+            # Display warnings if any
+            if warnings:
+                warning_msg = f"Imported {len(imported_entries)} entries with warnings: {'; '.join(warnings)}"
+                self.sideboard_guide_panel.set_warning(warning_msg)
+            else:
+                # Show success message briefly then clear
+                wx.MessageBox(
+                    f"Successfully imported {len(imported_entries)} guide entries.",
+                    "Import CSV",
+                    wx.OK | wx.ICON_INFORMATION,
+                )
+
+        except Exception as e:
+            wx.MessageBox(f"Error importing CSV:\n{e}", "Import CSV", wx.OK | wx.ICON_ERROR)
+
     def _export_guide_to_csv(self: MTGDeckSelectionFrame, file_path: str) -> None:
         """
         Export sideboard guide to CSV with smart filtering.
@@ -251,6 +300,7 @@ class SideboardGuideHandlers:
         - Columns are matchups (archetypes)
         - Cells show "Out" for cards taken out, "In" for cards brought in
         - Cards that never appear are filtered out
+        - Decklist is included beneath the guide table
         """
         import csv
 
@@ -312,3 +362,152 @@ class SideboardGuideHandlers:
                     cell_value = " & ".join(sorted(actions)) if actions else ""
                     row.append(cell_value)
                 writer.writerow(row)
+
+            # Add blank rows as separator
+            writer.writerow([])
+            writer.writerow([])
+
+            # Add decklist section
+            writer.writerow(["DECKLIST"])
+            writer.writerow([])
+
+            # Write mainboard
+            writer.writerow(["Mainboard"])
+            mainboard_cards = self.zone_cards.get("main", [])
+            for card in sorted(mainboard_cards, key=lambda c: c.get("name", "")):
+                qty = card.get("qty", 0)
+                name = card.get("name", "")
+                writer.writerow([f"{qty} {name}"])
+
+            # Write sideboard
+            writer.writerow([])
+            writer.writerow(["Sideboard"])
+            sideboard_cards = self.zone_cards.get("side", [])
+            for card in sorted(sideboard_cards, key=lambda c: c.get("name", "")):
+                qty = card.get("qty", 0)
+                name = card.get("name", "")
+                writer.writerow([f"{qty} {name}"])
+
+    def _import_guide_from_csv(
+        self: MTGDeckSelectionFrame, file_path: str
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """
+        Import sideboard guide from CSV format with sanitization.
+
+        Args:
+            file_path: Path to CSV file to import
+
+        Returns:
+            Tuple of (imported entries, list of warning messages)
+        """
+        import csv
+        import re
+
+        # Build sets of available card names for validation
+        mainboard_names = {card["name"] for card in self.zone_cards.get("main", [])}
+        sideboard_names = {card["name"] for card in self.zone_cards.get("side", [])}
+
+        entries_by_archetype: dict[str, dict[str, dict[str, int]]] = {}
+        warnings: list[str] = []
+        missing_cards: set[str] = set()
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+
+            # Read header
+            header = next(reader, None)
+            if not header or header[0] != "Card":
+                raise ValueError("Invalid CSV format: expected 'Card' as first column header")
+
+            # Extract matchup columns (skip first "Card" column)
+            matchup_columns = header[1:]
+
+            # Parse matchup columns to extract archetype and scenario
+            # Format: "Archetype Name (Play)" or "Archetype Name (Draw)"
+            archetype_scenario_map: list[tuple[str, str]] = []
+            for col in matchup_columns:
+                match = re.match(r"^(.+?)\s*\((Play|Draw)\)$", col)
+                if match:
+                    archetype_name = match.group(1).strip()
+                    scenario = match.group(2).lower()  # "play" or "draw"
+                    archetype_scenario_map.append((archetype_name, scenario))
+                else:
+                    # Skip columns that don't match expected format
+                    archetype_scenario_map.append((None, None))
+
+            # Read data rows until we hit the DECKLIST section
+            for row in reader:
+                if not row:
+                    continue
+
+                # Stop when we hit the decklist section
+                if row[0] in ["DECKLIST", "Mainboard", "Sideboard"]:
+                    break
+
+                card_name = row[0].strip()
+                if not card_name:
+                    continue
+
+                # Process each matchup column
+                for idx, cell_value in enumerate(row[1:], start=0):
+                    if idx >= len(archetype_scenario_map):
+                        continue
+
+                    archetype_name, scenario = archetype_scenario_map[idx]
+                    if not archetype_name or not scenario:
+                        continue
+
+                    if not cell_value or not cell_value.strip():
+                        continue
+
+                    # Initialize archetype entry if needed
+                    if archetype_name not in entries_by_archetype:
+                        entries_by_archetype[archetype_name] = {
+                            "play_out": {},
+                            "play_in": {},
+                            "draw_out": {},
+                            "draw_in": {},
+                        }
+
+                    # Parse cell value like "Out 2" or "In 3" or "Out 2 & In 1"
+                    actions = cell_value.split("&")
+                    for action in actions:
+                        action = action.strip()
+                        # Match "Out X" or "In X"
+                        match = re.match(r"^(Out|In)\s+(\d+)$", action)
+                        if match:
+                            direction = match.group(1).lower()  # "out" or "in"
+                            qty = int(match.group(2))
+
+                            # Determine the key for this action
+                            key = f"{scenario}_{direction}"  # e.g., "play_out", "draw_in"
+
+                            # Validate card exists in appropriate zone
+                            if direction == "out" and card_name not in mainboard_names:
+                                missing_cards.add(f"{card_name} (not in mainboard)")
+                                continue
+                            elif direction == "in" and card_name not in sideboard_names:
+                                missing_cards.add(f"{card_name} (not in sideboard)")
+                                continue
+
+                            # Add to entry
+                            entries_by_archetype[archetype_name][key][card_name] = qty
+
+        # Convert to list of entries
+        imported_entries = []
+        for archetype_name, data in entries_by_archetype.items():
+            entry = {
+                "archetype": archetype_name,
+                "play_out": data["play_out"],
+                "play_in": data["play_in"],
+                "draw_out": data["draw_out"],
+                "draw_in": data["draw_in"],
+                "notes": "",
+            }
+            imported_entries.append(entry)
+
+        # Build warning messages
+        if missing_cards:
+            warnings.append(f"Cards not in deck: {', '.join(sorted(missing_cards))}")
+
+        return imported_entries, warnings

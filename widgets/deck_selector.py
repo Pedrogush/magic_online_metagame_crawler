@@ -373,6 +373,7 @@ class MTGDeckSelectionFrame(
             on_remove_entry=self._on_remove_guide_entry,
             on_edit_exclusions=self._on_edit_exclusions,
             on_export_csv=self._on_export_guide_csv,
+            on_import_csv=self._on_import_guide_csv,
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 

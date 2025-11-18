@@ -27,6 +27,7 @@ class SideboardGuidePanel(wx.Panel):
         on_remove_entry: Callable[[], None],
         on_edit_exclusions: Callable[[], None],
         on_export_csv: Callable[[], None],
+        on_import_csv: Callable[[], None],
     ):
         """
         Initialize the sideboard guide panel.
@@ -38,6 +39,7 @@ class SideboardGuidePanel(wx.Panel):
             on_remove_entry: Callback for removing selected entry
             on_edit_exclusions: Callback for editing archetype exclusions
             on_export_csv: Callback for exporting guide to CSV
+            on_import_csv: Callback for importing guide from CSV
         """
         super().__init__(parent)
         self.SetBackgroundColour(DARK_PANEL)
@@ -47,6 +49,7 @@ class SideboardGuidePanel(wx.Panel):
         self.on_remove_entry = on_remove_entry
         self.on_edit_exclusions = on_edit_exclusions
         self.on_export_csv = on_export_csv
+        self.on_import_csv = on_import_csv
 
         self.entries: list[dict[str, str]] = []
         self.exclusions: list[str] = []
@@ -97,7 +100,12 @@ class SideboardGuidePanel(wx.Panel):
         self.export_btn = wx.Button(self, label="Export CSV")
         stylize_button(self.export_btn)
         self.export_btn.Bind(wx.EVT_BUTTON, self._on_export_clicked)
-        buttons.Add(self.export_btn, 0)
+        buttons.Add(self.export_btn, 0, wx.RIGHT, 6)
+
+        self.import_btn = wx.Button(self, label="Import CSV")
+        stylize_button(self.import_btn)
+        self.import_btn.Bind(wx.EVT_BUTTON, self._on_import_clicked)
+        buttons.Add(self.import_btn, 0)
 
         buttons.AddStretchSpacer(1)
 
@@ -105,6 +113,12 @@ class SideboardGuidePanel(wx.Panel):
         self.exclusions_label = wx.StaticText(self, label="Exclusions: —")
         self.exclusions_label.SetForegroundColour(SUBDUED_TEXT)
         sizer.Add(self.exclusions_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        # Warning label (hidden by default)
+        self.warning_label = wx.StaticText(self, label="")
+        self.warning_label.SetForegroundColour(wx.Colour(255, 165, 0))  # Orange
+        self.warning_label.Hide()
+        sizer.Add(self.warning_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
     # ============= Public API =============
 
@@ -147,6 +161,20 @@ class SideboardGuidePanel(wx.Panel):
         self.entries = []
         self.exclusions = []
         self._refresh_view()
+
+    def set_warning(self, message: str) -> None:
+        """
+        Display a warning message.
+
+        Args:
+            message: Warning text to display (empty string to hide)
+        """
+        if message:
+            self.warning_label.SetLabel(message)
+            self.warning_label.Show()
+        else:
+            self.warning_label.Hide()
+        self.Layout()
 
     # ============= Private Methods =============
 
@@ -218,3 +246,7 @@ class SideboardGuidePanel(wx.Panel):
     def _on_export_clicked(self, _event: wx.Event) -> None:
         """Handle Export CSV button click."""
         self.on_export_csv()
+
+    def _on_import_clicked(self, _event: wx.Event) -> None:
+        """Handle Import CSV button click."""
+        self.on_import_csv()
