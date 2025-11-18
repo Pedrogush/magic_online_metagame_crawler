@@ -11,12 +11,14 @@ from loguru import logger
 
 from utils.constants import (
     ARCHETYPE_CACHE_FILE,
+    ARCHETYPE_DECKS_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
     CURR_DECK_FILE,
-    DECK_CACHE_FILE,
+    DECK_TEXT_CACHE_FILE,
     METAGAME_CACHE_TTL_SECONDS,
     ONE_DAY_SECONDS,
 )
+from utils.deck_text_cache import get_deck_cache
 
 
 def _load_cached_archetypes(mtg_format: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):
@@ -94,7 +96,48 @@ def get_archetypes(
     return items
 
 
+def _load_cached_archetype_decks(archetype: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):
+    """Load cached deck list for an archetype."""
+    if not ARCHETYPE_DECKS_CACHE_FILE.exists():
+        return None
+    try:
+        with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Cached archetype decks invalid: {exc}")
+        return None
+    entry = data.get(archetype)
+    if not entry:
+        return None
+    if time.time() - entry.get("timestamp", 0) > max_age:
+        return None
+    return entry.get("items")
+
+
+def _save_cached_archetype_decks(archetype: str, items: list[dict]):
+    """Save archetype deck list to cache."""
+    try:
+        if ARCHETYPE_DECKS_CACHE_FILE.exists():
+            with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        else:
+            data = {}
+    except json.JSONDecodeError:
+        data = {}
+    data[archetype] = {"timestamp": time.time(), "items": items}
+    ARCHETYPE_DECKS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHETYPE_DECKS_CACHE_FILE.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
+
 def get_archetype_decks(archetype: str):
+    # Check cache first
+    cached = _load_cached_archetype_decks(archetype)
+    if cached is not None:
+        logger.debug(f"Using cached decks for archetype {archetype}")
+        return cached
+
+    logger.debug(f"Fetching decks for archetype {archetype} from MTGGoldfish")
     try:
         page = requests.get(
             f"https://www.mtggoldfish.com/archetype/{archetype}/decks",
@@ -126,6 +169,8 @@ def get_archetype_decks(archetype: str):
                 "name": archetype,
             }
         )
+    # Save to cache
+    _save_cached_archetype_decks(archetype, decks)
     return decks
 
 
@@ -218,43 +263,75 @@ def get_daily_decks(mtg_format: str):
     return decks
 
 
-def _load_deck_cache() -> tuple[dict[str, str], Path, str | None]:
-    cache_path = DECK_CACHE_FILE
-    deck_cache: dict[str, str] = {}
-    if cache_path.exists():
-        try:
-            with cache_path.open("r", encoding="utf-8") as fh:
-                deck_cache = json.load(fh)
-        except json.JSONDecodeError as exc:
-            logger.warning(f"Unable to parse deck cache {cache_path}: {exc}")
-            deck_cache = {}
-    return deck_cache, cache_path
+# Flag to track if migration has been attempted
+_migration_attempted = False
 
 
-def _persist_deck_cache(deck_cache: dict[str, str], cache_path: Path) -> None:
-    DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
-        json.dump(deck_cache, fh, indent=4)
+def _ensure_cache_migration():
+    """Migrate old JSON cache to SQLite on first use."""
+    global _migration_attempted
+    if _migration_attempted:
+        return
+
+    _migration_attempted = True
+    cache = get_deck_cache()
+
+    # Try to migrate from old JSON cache
+    if DECK_TEXT_CACHE_FILE.exists():
+        logger.info("Found existing JSON deck cache, migrating to SQLite...")
+        migrated = cache.migrate_from_json(DECK_TEXT_CACHE_FILE)
+
+        if migrated > 0:
+            # Backup old JSON cache and remove it
+            backup_path = DECK_TEXT_CACHE_FILE.with_suffix(".json.backup")
+            try:
+                DECK_TEXT_CACHE_FILE.rename(backup_path)
+                logger.info(f"Migrated {migrated} decks, backed up JSON cache to {backup_path}")
+            except OSError as exc:
+                logger.warning(f"Could not backup old JSON cache: {exc}")
 
 
 def fetch_deck_text(deck_num: str) -> str:
     """
-    Return a deck list as text, using the local cache when available.
-    """
-    deck_cache, cache_path = _load_deck_cache()
-    if deck_num in deck_cache:
-        return deck_cache[deck_num]
+    Return a deck list as text, using the SQLite cache when available.
 
+    This function now uses a high-performance SQLite backend that scales
+    to millions of cached decks without performance degradation.
+
+    Args:
+        deck_num: MTGGoldfish deck number
+
+    Returns:
+        Deck text content
+
+    Raises:
+        ValueError: If deck cannot be parsed from MTGGoldfish
+    """
+    # Ensure migration on first use
+    _ensure_cache_migration()
+
+    # Get SQLite cache instance
+    cache = get_deck_cache()
+
+    # Check cache first
+    cached_text = cache.get(deck_num)
+    if cached_text is not None:
+        return cached_text
+
+    # Cache miss - download from MTGGoldfish
+    logger.info(f"Downloading deck {deck_num} from MTGGoldfish")
     page = requests.get(f"https://www.mtggoldfish.com/deck/{deck_num}", impersonate="chrome")
     match = re.search(r'initializeDeckComponents\([^,]+,\s*[^,]+,\s*"([^"]+)"', page.text)
     if not match:
         logger.error(f"Could not find deck data for deck {deck_num}")
         raise ValueError(f"Could not parse deck data for deck {deck_num}")
+
     encoded_deck = match.group(1)
     deck_text = unquote(encoded_deck)
 
-    deck_cache[deck_num] = deck_text
-    _persist_deck_cache(deck_cache, cache_path)
+    # Store in cache
+    cache.set(deck_num, deck_text)
+
     return deck_text
 
 

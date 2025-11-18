@@ -45,7 +45,11 @@ ARCHETYPE_CACHE_FILE = CACHE_DIR / "archetype_cache.json"
 ARCHETYPE_LIST_CACHE_FILE = CACHE_DIR / "archetype_list.json"
 MTGO_ARTICLES_CACHE_FILE = CACHE_DIR / "mtgo_articles.json"
 MTGO_DECK_CACHE_FILE = CACHE_DIR / "mtgo_decks.json"
-DECK_CACHE_FILE = CACHE_DIR / "deck_cache.json"
+# Separate cache files to avoid collision between different data structures
+DECK_TEXT_CACHE_FILE = CACHE_DIR / "deck_text_cache.json"  # Individual deck content
+ARCHETYPE_DECKS_CACHE_FILE = CACHE_DIR / "archetype_decks_cache.json"  # Deck lists per archetype
+# Legacy name for backward compatibility (points to deck text cache)
+DECK_CACHE_FILE = DECK_TEXT_CACHE_FILE
 CURR_DECK_FILE = DECKS_DIR / "curr_deck.txt"
 
 __all__ = [
@@ -61,6 +65,8 @@ __all__ = [
     "ARCHETYPE_LIST_CACHE_FILE",
     "MTGO_ARTICLES_CACHE_FILE",
     "MTGO_DECK_CACHE_FILE",
+    "DECK_TEXT_CACHE_FILE",
+    "ARCHETYPE_DECKS_CACHE_FILE",
     "DECK_CACHE_FILE",
     "CURR_DECK_FILE",
 ]
