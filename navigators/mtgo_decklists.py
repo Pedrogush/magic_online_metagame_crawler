@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -51,8 +52,9 @@ def _load_cache() -> dict[str, Any]:
 def _save_cache(cache: dict[str, Any]) -> None:
     """Save cache with atomic write to prevent corruption."""
     MTGO_DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    # Write to temporary file first, then rename (atomic operation)
-    temp_file = MTGO_DECK_CACHE_FILE.with_suffix(".json.tmp")
+    # Use unique temp filename to support concurrent writes from parallel workers
+    unique_suffix = f".tmp.{uuid.uuid4().hex}"
+    temp_file = MTGO_DECK_CACHE_FILE.with_suffix(unique_suffix)
     try:
         with temp_file.open("w", encoding="utf-8") as fh:
             json.dump(cache, fh, indent=2)
