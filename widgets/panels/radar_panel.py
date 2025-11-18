@@ -7,7 +7,8 @@ Shows mainboard and sideboard card frequencies with inclusion rates and saturati
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import wx
 import wx.dataview as dv

@@ -10,7 +10,6 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -72,7 +71,7 @@ class DeckTextCache:
             conn.commit()
             logger.debug(f"Deck cache schema initialized at {self.db_path}")
 
-    def get(self, deck_number: str) -> Optional[str]:
+    def get(self, deck_number: str) -> str | None:
         """
         Get deck text from cache.
 
@@ -363,7 +362,7 @@ class DeckTextCache:
 
 
 # Global cache instance
-_cache_instance: Optional[DeckTextCache] = None
+_cache_instance: DeckTextCache | None = None
 
 
 def get_deck_cache() -> DeckTextCache:

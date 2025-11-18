@@ -92,7 +92,7 @@ class MTGDeckSelectionFrame(
         self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
         self.archetypes: list[dict[str, Any]] = []
         self.filtered_archetypes: list[dict[str, Any]] = []
-        self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": [], "out": []}
+        self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": []}
 
         # Load deck metadata stores via store service
         self.notes_store_path = NOTES_STORE
@@ -372,6 +372,8 @@ class MTGDeckSelectionFrame(
             on_edit_entry=self._on_edit_guide_entry,
             on_remove_entry=self._on_remove_guide_entry,
             on_edit_exclusions=self._on_edit_exclusions,
+            on_export_csv=self._on_export_guide_csv,
+            on_import_csv=self._on_import_guide_csv,
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
@@ -398,9 +400,7 @@ class MTGDeckSelectionFrame(
         # Create zone tables
         self.main_table = self._create_zone_table("main", "Mainboard")
         self.side_table = self._create_zone_table("side", "Sideboard")
-        self.out_table = self._create_zone_table(
-            "out", "Outboard", owned_status_func=lambda name, qty: ("Out", wx.Colour(255, 255, 255))
-        )
+        # Outboard zone removed - use Sideboard Guide tab for sideboarding plans
 
         # Collection status
         self.collection_status_label = wx.StaticText(
@@ -450,7 +450,6 @@ class MTGDeckSelectionFrame(
 
     def _open_radar_dialog(self):
         """Open the Radar dialog for archetype card frequency analysis."""
-        from services.radar_service import RadarData
 
         dialog = RadarDialog(
             parent=self,
@@ -479,7 +478,7 @@ class MTGDeckSelectionFrame(
             self.zone_cards.update(restored_zones)
             self.main_table.set_cards(self.zone_cards["main"])
             self.side_table.set_cards(self.zone_cards["side"])
-            self.out_table.set_cards(self.zone_cards["out"])
+            # Outboard zone removed
         saved_text = self.settings.get("saved_deck_text", "")
         if saved_text:
             self.deck_repo.set_current_deck_text(saved_text)
@@ -606,10 +605,10 @@ class MTGDeckSelectionFrame(
     def _clear_deck_display(self) -> None:
         self.deck_repo.set_current_deck(None)
         self.summary_text.ChangeValue("Select an archetype to view decks.")
-        self.zone_cards = {"main": [], "side": [], "out": []}
+        self.zone_cards = {"main": [], "side": []}
         self.main_table.set_cards([])
         self.side_table.set_cards([])
-        self.out_table.set_cards(self.zone_cards["out"])
+        # Outboard zone removed
         self.deck_repo.set_current_deck_text("")
         self._update_stats("")
         self.deck_notes_panel.clear()
@@ -724,9 +723,7 @@ class MTGDeckSelectionFrame(
             self.main_table.set_cards(self.zone_cards["main"])
         elif zone == "side":
             self.side_table.set_cards(self.zone_cards["side"])
-        else:
-            self.out_table.set_cards(self.zone_cards["out"])
-            self._persist_outboard_for_current()
+        # Outboard zone removed
         result = self.deck_service.handle_zone_change(self.zone_cards)
         self._update_stats(result.deck_text)
         self.deck_action_buttons.copy_button.Enable(result.has_loaded_deck)
@@ -738,7 +735,6 @@ class MTGDeckSelectionFrame(
         tables = {
             "main": self.main_table,
             "side": self.side_table,
-            "out": self.out_table,
         }
         for zone, table in tables.items():
             if zone == active_zone:

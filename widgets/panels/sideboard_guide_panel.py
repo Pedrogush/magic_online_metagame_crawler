@@ -26,6 +26,8 @@ class SideboardGuidePanel(wx.Panel):
         on_edit_entry: Callable[[], None],
         on_remove_entry: Callable[[], None],
         on_edit_exclusions: Callable[[], None],
+        on_export_csv: Callable[[], None],
+        on_import_csv: Callable[[], None],
     ):
         """
         Initialize the sideboard guide panel.
@@ -36,6 +38,8 @@ class SideboardGuidePanel(wx.Panel):
             on_edit_entry: Callback for editing selected entry
             on_remove_entry: Callback for removing selected entry
             on_edit_exclusions: Callback for editing archetype exclusions
+            on_export_csv: Callback for exporting guide to CSV
+            on_import_csv: Callback for importing guide from CSV
         """
         super().__init__(parent)
         self.SetBackgroundColour(DARK_PANEL)
@@ -44,6 +48,8 @@ class SideboardGuidePanel(wx.Panel):
         self.on_edit_entry = on_edit_entry
         self.on_remove_entry = on_remove_entry
         self.on_edit_exclusions = on_edit_exclusions
+        self.on_export_csv = on_export_csv
+        self.on_import_csv = on_import_csv
 
         self.entries: list[dict[str, str]] = []
         self.exclusions: list[str] = []
@@ -57,10 +63,12 @@ class SideboardGuidePanel(wx.Panel):
 
         # Guide entries list
         self.guide_view = dv.DataViewListCtrl(self, style=dv.DV_ROW_LINES)
-        self.guide_view.AppendTextColumn("Archetype", width=200)
-        self.guide_view.AppendTextColumn("Cards In", width=200)
-        self.guide_view.AppendTextColumn("Cards Out", width=200)
-        self.guide_view.AppendTextColumn("Notes", width=220)
+        self.guide_view.AppendTextColumn("Archetype", width=150)
+        self.guide_view.AppendTextColumn("Play: Out", width=150)
+        self.guide_view.AppendTextColumn("Play: In", width=150)
+        self.guide_view.AppendTextColumn("Draw: Out", width=150)
+        self.guide_view.AppendTextColumn("Draw: In", width=150)
+        self.guide_view.AppendTextColumn("Notes", width=180)
         self.guide_view.SetBackgroundColour(DARK_ALT)
         self.guide_view.SetForegroundColour(LIGHT_TEXT)
         sizer.Add(self.guide_view, 1, wx.EXPAND | wx.ALL, 6)
@@ -87,7 +95,17 @@ class SideboardGuidePanel(wx.Panel):
         self.exclusions_btn = wx.Button(self, label="Exclude Archetypes")
         stylize_button(self.exclusions_btn)
         self.exclusions_btn.Bind(wx.EVT_BUTTON, self._on_exclusions_clicked)
-        buttons.Add(self.exclusions_btn, 0)
+        buttons.Add(self.exclusions_btn, 0, wx.RIGHT, 6)
+
+        self.export_btn = wx.Button(self, label="Export CSV")
+        stylize_button(self.export_btn)
+        self.export_btn.Bind(wx.EVT_BUTTON, self._on_export_clicked)
+        buttons.Add(self.export_btn, 0, wx.RIGHT, 6)
+
+        self.import_btn = wx.Button(self, label="Import CSV")
+        stylize_button(self.import_btn)
+        self.import_btn.Bind(wx.EVT_BUTTON, self._on_import_clicked)
+        buttons.Add(self.import_btn, 0)
 
         buttons.AddStretchSpacer(1)
 
@@ -95,6 +113,12 @@ class SideboardGuidePanel(wx.Panel):
         self.exclusions_label = wx.StaticText(self, label="Exclusions: —")
         self.exclusions_label.SetForegroundColour(SUBDUED_TEXT)
         sizer.Add(self.exclusions_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        # Warning label (hidden by default)
+        self.warning_label = wx.StaticText(self, label="")
+        self.warning_label.SetForegroundColour(wx.Colour(255, 165, 0))  # Orange
+        self.warning_label.Hide()
+        sizer.Add(self.warning_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
     # ============= Public API =============
 
@@ -138,6 +162,20 @@ class SideboardGuidePanel(wx.Panel):
         self.exclusions = []
         self._refresh_view()
 
+    def set_warning(self, message: str) -> None:
+        """
+        Display a warning message.
+
+        Args:
+            message: Warning text to display (empty string to hide)
+        """
+        if message:
+            self.warning_label.SetLabel(message)
+            self.warning_label.Show()
+        else:
+            self.warning_label.Hide()
+        self.Layout()
+
     # ============= Private Methods =============
 
     def _refresh_view(self) -> None:
@@ -151,8 +189,10 @@ class SideboardGuidePanel(wx.Panel):
             self.guide_view.AppendItem(
                 [
                     entry.get("archetype", ""),
-                    entry.get("cards_in", ""),
-                    entry.get("cards_out", ""),
+                    self._format_card_list(entry.get("play_out", {})),
+                    self._format_card_list(entry.get("play_in", {})),
+                    self._format_card_list(entry.get("draw_out", {})),
+                    self._format_card_list(entry.get("draw_in", {})),
                     entry.get("notes", ""),
                 ]
             )
@@ -163,6 +203,29 @@ class SideboardGuidePanel(wx.Panel):
         else:
             text = "—"
         self.exclusions_label.SetLabel(f"Exclusions: {text}")
+
+    def _format_card_list(self, cards: dict[str, int] | str) -> str:
+        """
+        Format a card list for display.
+
+        Args:
+            cards: Either a dict mapping card name to quantity, or a string (for old format)
+
+        Returns:
+            Formatted string like "2x Lightning Bolt, 1x Mountain"
+        """
+        if isinstance(cards, str):
+            # Old format - just return the string
+            return cards
+
+        if not cards:
+            return ""
+
+        # New format - dict of card name to quantity
+        formatted = []
+        for name, qty in sorted(cards.items()):
+            formatted.append(f"{qty}x {name}")
+        return ", ".join(formatted)
 
     def _on_add_clicked(self, _event: wx.Event) -> None:
         """Handle Add Entry button click."""
@@ -179,3 +242,11 @@ class SideboardGuidePanel(wx.Panel):
     def _on_exclusions_clicked(self, _event: wx.Event) -> None:
         """Handle Exclude Archetypes button click."""
         self.on_edit_exclusions()
+
+    def _on_export_clicked(self, _event: wx.Event) -> None:
+        """Handle Export CSV button click."""
+        self.on_export_csv()
+
+    def _on_import_clicked(self, _event: wx.Event) -> None:
+        """Handle Import CSV button click."""
+        self.on_import_csv()

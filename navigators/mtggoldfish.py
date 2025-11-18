@@ -2,7 +2,6 @@ import json
 import re
 import time
 from datetime import datetime, timedelta
-from pathlib import Path
 from urllib.parse import unquote
 
 import bs4

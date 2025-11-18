@@ -1,13 +1,37 @@
+"""Dialog for creating/editing sideboard guide entries with interactive card selection."""
+
+from __future__ import annotations
+
+from typing import Any
+
 import wx
 
 from utils.constants import DARK_ALT, DARK_BG, LIGHT_TEXT
+from widgets.panels.sideboard_card_selector import SideboardCardSelector
 
 
 class GuideEntryDialog(wx.Dialog):
+    """Dialog for editing a sideboard guide entry with card selection from mainboard/sideboard."""
+
     def __init__(
-        self, parent: wx.Window, archetype_names: list[str], data: dict[str, str] | None = None
+        self,
+        parent: wx.Window,
+        archetype_names: list[str],
+        mainboard_cards: list[dict[str, Any]],
+        sideboard_cards: list[dict[str, Any]],
+        data: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(parent, title="Sideboard Guide Entry", size=(420, 360))
+        """
+        Initialize the guide entry dialog.
+
+        Args:
+            parent: Parent window
+            archetype_names: List of archetype names for dropdown
+            mainboard_cards: List of mainboard cards available to take out
+            sideboard_cards: List of sideboard cards available to bring in
+            data: Existing entry data to edit (optional)
+        """
+        super().__init__(parent, title="Sideboard Guide Entry", size=(1100, 750))
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         self.SetSizer(main_sizer)
@@ -18,7 +42,8 @@ class GuideEntryDialog(wx.Dialog):
         panel.SetSizer(panel_sizer)
         main_sizer.Add(panel, 1, wx.EXPAND | wx.ALL, 8)
 
-        archetype_label = wx.StaticText(panel, label="Archetype")
+        # Archetype
+        archetype_label = wx.StaticText(panel, label="Archetype/Matchup")
         archetype_label.SetForegroundColour(LIGHT_TEXT)
         panel_sizer.Add(archetype_label, 0, wx.TOP | wx.LEFT, 4)
 
@@ -35,38 +60,120 @@ class GuideEntryDialog(wx.Dialog):
             self.archetype_ctrl.SetValue(data["archetype"])
         panel_sizer.Add(self.archetype_ctrl, 0, wx.EXPAND | wx.ALL, 4)
 
-        self.cards_in_ctrl = wx.TextCtrl(
-            panel, value=(data or {}).get("cards_in", ""), style=wx.TE_MULTILINE
-        )
-        self.cards_in_ctrl.SetBackgroundColour(DARK_ALT)
-        self.cards_in_ctrl.SetForegroundColour(LIGHT_TEXT)
-        self.cards_in_ctrl.SetHint("Cards to bring in")
-        panel_sizer.Add(self.cards_in_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+        # Play scenario section
+        play_label = wx.StaticText(panel, label="ON THE PLAY")
+        play_label.SetForegroundColour(LIGHT_TEXT)
+        play_label.SetFont(play_label.GetFont().Bold())
+        panel_sizer.Add(play_label, 0, wx.TOP | wx.LEFT, 8)
 
-        self.cards_out_ctrl = wx.TextCtrl(
-            panel, value=(data or {}).get("cards_out", ""), style=wx.TE_MULTILINE
+        play_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        panel_sizer.Add(play_sizer, 1, wx.EXPAND | wx.ALL, 4)
+
+        # Play: Out (from mainboard)
+        self.play_out_selector = SideboardCardSelector(
+            panel, "Out (from Mainboard)", mainboard_cards
         )
-        self.cards_out_ctrl.SetBackgroundColour(DARK_ALT)
-        self.cards_out_ctrl.SetForegroundColour(LIGHT_TEXT)
-        self.cards_out_ctrl.SetHint("Cards to take out")
-        panel_sizer.Add(self.cards_out_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+        play_sizer.Add(self.play_out_selector, 1, wx.EXPAND | wx.RIGHT, 4)
+
+        # Play: In (from sideboard)
+        self.play_in_selector = SideboardCardSelector(panel, "In (from Sideboard)", sideboard_cards)
+        play_sizer.Add(self.play_in_selector, 1, wx.EXPAND)
+
+        # Draw scenario section
+        draw_label = wx.StaticText(panel, label="ON THE DRAW")
+        draw_label.SetForegroundColour(LIGHT_TEXT)
+        draw_label.SetFont(draw_label.GetFont().Bold())
+        panel_sizer.Add(draw_label, 0, wx.TOP | wx.LEFT, 8)
+
+        draw_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        panel_sizer.Add(draw_sizer, 1, wx.EXPAND | wx.ALL, 4)
+
+        # Draw: Out (from mainboard)
+        self.draw_out_selector = SideboardCardSelector(
+            panel, "Out (from Mainboard)", mainboard_cards
+        )
+        draw_sizer.Add(self.draw_out_selector, 1, wx.EXPAND | wx.RIGHT, 4)
+
+        # Draw: In (from sideboard)
+        self.draw_in_selector = SideboardCardSelector(panel, "In (from Sideboard)", sideboard_cards)
+        draw_sizer.Add(self.draw_in_selector, 1, wx.EXPAND)
+
+        # Notes section
+        notes_label = wx.StaticText(panel, label="Notes (Optional)")
+        notes_label.SetForegroundColour(LIGHT_TEXT)
+        panel_sizer.Add(notes_label, 0, wx.TOP | wx.LEFT, 8)
 
         self.notes_ctrl = wx.TextCtrl(
-            panel, value=(data or {}).get("notes", ""), style=wx.TE_MULTILINE
+            panel, value=(data or {}).get("notes", ""), style=wx.TE_MULTILINE, size=(-1, 80)
         )
         self.notes_ctrl.SetBackgroundColour(DARK_ALT)
         self.notes_ctrl.SetForegroundColour(LIGHT_TEXT)
-        self.notes_ctrl.SetHint("Notes")
-        panel_sizer.Add(self.notes_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+        self.notes_ctrl.SetHint("Strategy notes for this matchup")
+        panel_sizer.Add(self.notes_ctrl, 0, wx.EXPAND | wx.ALL, 4)
 
-        button_sizer = self.CreateSeparatedButtonSizer(wx.OK | wx.CANCEL)
-        if button_sizer:
-            main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
+        # Enable double entries checkbox
+        self.enable_double_checkbox = wx.CheckBox(panel, label="Enable double entries")
+        self.enable_double_checkbox.SetForegroundColour(LIGHT_TEXT)
+        self.enable_double_checkbox.SetToolTip(
+            "If unchecked, will overwrite existing entries for this archetype. "
+            "If checked, will add new entry even if archetype already exists."
+        )
+        panel_sizer.Add(self.enable_double_checkbox, 0, wx.ALL, 8)
 
-    def get_data(self) -> dict[str, str]:
+        # Custom button sizer with Save & Continue
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        # Save & Continue button (custom ID)
+        self.save_continue_btn = wx.Button(panel, label="Save & Continue", id=wx.ID_APPLY)
+        self.save_continue_btn.Bind(wx.EVT_BUTTON, self._on_save_continue)
+        button_sizer.Add(self.save_continue_btn, 0, wx.RIGHT, 8)
+
+        button_sizer.AddStretchSpacer()
+
+        # OK button
+        ok_btn = wx.Button(panel, label="OK", id=wx.ID_OK)
+        ok_btn.SetDefault()
+        ok_btn.Bind(wx.EVT_BUTTON, lambda evt: self.EndModal(wx.ID_OK))
+        button_sizer.Add(ok_btn, 0, wx.RIGHT, 8)
+
+        # Cancel button
+        cancel_btn = wx.Button(panel, label="Cancel", id=wx.ID_CANCEL)
+        cancel_btn.Bind(wx.EVT_BUTTON, lambda evt: self.EndModal(wx.ID_CANCEL))
+        button_sizer.Add(cancel_btn, 0)
+
+        panel_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
+
+        # Load existing data if provided
+        if data:
+            self._load_data(data)
+
+    def _on_save_continue(self, event: wx.Event) -> None:
+        """Handle Save & Continue button click."""
+        # Return wx.ID_APPLY to signal save without closing
+        self.EndModal(wx.ID_APPLY)
+
+    def _load_data(self, data: dict[str, Any]) -> None:
+        """Load existing data into the selectors."""
+        # Load play out/in
+        if "play_out" in data:
+            self.play_out_selector.set_selected_cards(data["play_out"])
+        if "play_in" in data:
+            self.play_in_selector.set_selected_cards(data["play_in"])
+
+        # Load draw out/in
+        if "draw_out" in data:
+            self.draw_out_selector.set_selected_cards(data["draw_out"])
+        if "draw_in" in data:
+            self.draw_in_selector.set_selected_cards(data["draw_in"])
+
+    def get_data(self) -> dict[str, Any]:
+        """Get the guide entry data."""
         return {
             "archetype": self.archetype_ctrl.GetValue().strip(),
-            "cards_in": self.cards_in_ctrl.GetValue().strip(),
-            "cards_out": self.cards_out_ctrl.GetValue().strip(),
+            "play_out": self.play_out_selector.get_selected_cards(),
+            "play_in": self.play_in_selector.get_selected_cards(),
+            "draw_out": self.draw_out_selector.get_selected_cards(),
+            "draw_in": self.draw_in_selector.get_selected_cards(),
             "notes": self.notes_ctrl.GetValue().strip(),
+            "enable_double_entries": self.enable_double_checkbox.GetValue(),
         }

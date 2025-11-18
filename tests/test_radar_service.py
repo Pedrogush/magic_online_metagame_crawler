@@ -1,6 +1,5 @@
 """Tests for the Radar Service."""
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -213,7 +212,7 @@ def test_export_radar_as_decklist():
     decklist = service.export_radar_as_decklist(radar, min_saturation=20.0)
 
     # Parse the decklist
-    lines = decklist.split("\n")
+    decklist.split("\n")
 
     # Should include Lightning Bolt (100%), Counterspell (25%), Abrade (40%)
     # Should exclude Consider (7.5%) and Negate (5%)

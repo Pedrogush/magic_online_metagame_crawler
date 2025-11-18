@@ -419,6 +419,32 @@ class DeckRepository:
             return current_deck.get("href") or current_deck.get("name", "manual").lower()
         return "manual"
 
+    def get_current_decklist_hash(self) -> str:
+        """
+        Return a hash of the current decklist (75 cards) for sideboard guide storage.
+
+        This ensures each unique 75-card configuration gets its own guide,
+        while the same exact deck loaded multiple times retains its guide.
+
+        Returns:
+            Hash string based on sorted mainboard + sideboard card names and quantities
+        """
+        import hashlib
+
+        deck_text = self.get_current_deck_text()
+        if not deck_text:
+            return "empty"
+
+        # Create a stable hash from the deck text (sorted to ensure consistency)
+        # Normalize the text by sorting lines and removing whitespace variations
+        lines = [line.strip() for line in deck_text.strip().split("\n") if line.strip()]
+        lines.sort()
+        normalized_text = "\n".join(lines)
+
+        # Generate SHA256 hash and take first 16 characters for readability
+        hash_obj = hashlib.sha256(normalized_text.encode("utf-8"))
+        return hash_obj.hexdigest()[:16]
+
     def set_current_deck(self, deck: dict[str, Any] | None) -> None:
         """Set the currently selected deck."""
         self._current_deck = deck
