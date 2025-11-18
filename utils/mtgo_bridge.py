@@ -28,6 +28,38 @@ def runtime_status(bridge_path: str | None = None) -> tuple[bool, str | None]:
     return ready, None if ready else message
 
 
+def check_mtgo_connection(bridge_path: str | None = None, timeout: float = 3.0) -> bool:
+    """
+    Check if MTGO is running and logged in by attempting a quick bridge command.
+
+    Args:
+        bridge_path: Optional path to MTGOBridge.exe
+        timeout: Command timeout in seconds (default: 3.0)
+
+    Returns:
+        True if MTGO is running and logged in, False otherwise
+    """
+    # First check if bridge executable exists
+    ready, _ = _bridge_available(bridge_path)
+    if not ready:
+        return False
+
+    try:
+        # Try to get username - this requires MTGO to be logged in
+        result = mtgo_bridge_client.run_bridge_command(
+            "username",
+            bridge_path=bridge_path,
+            timeout=timeout,
+        )
+        # If we get a valid response with a username, MTGO is connected
+        if isinstance(result, dict) and result.get("username"):
+            return True
+        return False
+    except Exception:  # noqa: BLE001
+        # Any error means MTGO is not available
+        return False
+
+
 def get_collection_snapshot(
     bridge_path: str | None = None,
     timeout: float | None = None,

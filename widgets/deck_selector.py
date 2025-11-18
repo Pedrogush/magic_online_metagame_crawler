@@ -125,6 +125,9 @@ class MTGDeckSelectionFrame(
         self.mana_keyboard_window: ManaKeyboardFrame | None = None
         self.force_cache_checkbox: wx.CheckBox | None = None
         self.bulk_cache_age_spin: wx.SpinCtrl | None = None
+        self.toolbar: ToolbarButtons | None = None
+        self._mtgo_status_timer: wx.Timer | None = None
+        self._last_mtgo_status: bool = False
 
         self._build_ui()
         self._apply_window_preferences()
@@ -136,6 +139,7 @@ class MTGDeckSelectionFrame(
         self.Bind(wx.EVT_MOVE, self.on_window_change)
 
         wx.CallAfter(self._run_initial_loads)
+        wx.CallAfter(self._start_mtgo_status_monitoring)
 
     # ------------------------------------------------------------------ UI ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -232,7 +236,7 @@ class MTGDeckSelectionFrame(
 
     def _build_toolbar(self, parent: wx.Window) -> ToolbarButtons:
         """Build the toolbar with utility buttons."""
-        return ToolbarButtons(
+        self.toolbar = ToolbarButtons(
             parent,
             on_open_opponent_tracker=self.open_opponent_tracker,
             on_open_timer_alert=self.open_timer_alert,
@@ -243,6 +247,7 @@ class MTGDeckSelectionFrame(
                 self, self.image_cache, self.image_downloader, self._set_status
             ),
         )
+        return self.toolbar
 
     def _build_card_data_controls(self, parent: wx.Window) -> wx.Panel:
         """Create cached-data preference controls."""
@@ -800,6 +805,48 @@ class MTGDeckSelectionFrame(
                 "Card Data Error",
                 wx.OK | wx.ICON_ERROR,
             )
+
+        BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
+
+    # ------------------------------------------------------------------ MTGO Status Monitoring -----------------------------------------------
+    def _start_mtgo_status_monitoring(self) -> None:
+        """Start periodic monitoring of MTGO connection status to enable/disable buttons."""
+        # Do initial check
+        self._check_mtgo_status()
+
+        # Set up timer for periodic checks (every 5 seconds)
+        self._mtgo_status_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_mtgo_status_timer, self._mtgo_status_timer)
+        self._mtgo_status_timer.Start(5000)  # 5 seconds
+
+    def _on_mtgo_status_timer(self, event: wx.TimerEvent) -> None:
+        """Timer callback to check MTGO status."""
+        self._check_mtgo_status()
+
+    def _check_mtgo_status(self) -> None:
+        """Check MTGO connection status and update button states."""
+        from utils import mtgo_bridge
+
+        # Run check in background thread to avoid blocking UI
+        def worker():
+            return mtgo_bridge.check_mtgo_connection()
+
+        def on_success(is_connected: bool):
+            # Only update if status changed
+            if is_connected != self._last_mtgo_status:
+                self._last_mtgo_status = is_connected
+                if self.toolbar:
+                    self.toolbar.update_mtgo_status(is_connected)
+                status_text = "MTGO connected" if is_connected else "MTGO not connected"
+                logger.debug(f"MTGO status changed: {status_text}")
+
+        def on_error(error: Exception):
+            # On error, assume not connected
+            if self._last_mtgo_status:
+                self._last_mtgo_status = False
+                if self.toolbar:
+                    self.toolbar.update_mtgo_status(False)
+                logger.debug(f"MTGO status check failed: {error}")
 
         BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
 

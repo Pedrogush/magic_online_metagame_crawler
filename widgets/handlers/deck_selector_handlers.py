@@ -157,6 +157,8 @@ class DeckSelectorHandlers:
     def on_close(self: MTGDeckSelectionFrame, event: wx.CloseEvent) -> None:
         if self._save_timer and self._save_timer.IsRunning():
             self._save_timer.Stop()
+        if self._mtgo_status_timer and self._mtgo_status_timer.IsRunning():
+            self._mtgo_status_timer.Stop()
         self._save_window_settings()
         for attr in ("tracker_window", "timer_window", "history_window"):
             window = getattr(self, attr)
