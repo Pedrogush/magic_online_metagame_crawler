@@ -14,123 +14,6 @@ import wx
 from loguru import logger
 
 
-class TransparentIconOverlay(wx.Panel):
-    """A transparent overlay that displays an icon with semi-transparent background.
-
-    This class provides a reusable way to overlay icons on images with proper transparency
-    support using a custom paint handler that composites with the background.
-    """
-
-    def __init__(self, parent: wx.Window, size: tuple[int, int] = (40, 40)):
-        """Initialize the transparent icon overlay.
-
-        Args:
-            parent: Parent window
-            size: Size of the overlay (width, height)
-        """
-        super().__init__(parent, size=size, style=wx.BORDER_NONE | wx.TRANSPARENT_WINDOW)
-        self.icon_size = size[0]
-        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
-
-        self.Bind(wx.EVT_PAINT, self._on_paint)
-
-        # Icon properties (can be overridden)
-        self.icon_text = "⟳"
-        self.icon_font_size = int(self.icon_size * 0.6)
-        self.bg_center_color = wx.Colour(255, 255, 255, 200)
-        self.bg_edge_color = wx.Colour(220, 220, 220, 150)
-        self.border_color = wx.Colour(100, 100, 100, 180)
-        self.text_color = wx.Colour(0, 0, 0, 255)
-
-        # Make it clickable
-        self.Bind(wx.EVT_LEFT_UP, self._on_click)
-        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
-
-    def _on_paint(self, event: wx.PaintEvent) -> None:
-        """Paint the transparent icon."""
-        dc = wx.PaintDC(self)
-
-        # Create the icon bitmap with alpha channel
-        bitmap = self._create_icon_bitmap()
-
-        # Draw it
-        dc.DrawBitmap(bitmap, 0, 0, True)
-
-    def _create_icon_bitmap(self) -> wx.Bitmap:
-        """Create a bitmap with the icon rendered with proper alpha channel.
-
-        Returns:
-            A wx.Bitmap with transparency
-        """
-        # Create an image with alpha channel
-        img = wx.Image(self.icon_size, self.icon_size)
-        img.InitAlpha()
-
-        # Fill with fully transparent pixels
-        rgb_data = bytearray([255, 255, 255] * (self.icon_size * self.icon_size))
-        alpha_data = bytearray([0] * (self.icon_size * self.icon_size))
-        img.SetData(bytes(rgb_data))
-        img.SetAlpha(bytes(alpha_data))
-
-        # Convert to bitmap to draw on
-        bitmap = wx.Bitmap(img)
-        dc = wx.MemoryDC(bitmap)
-
-        # Use GraphicsContext for transparency support
-        gc = wx.GraphicsContext.Create(dc)
-        if gc:
-            self._draw_icon(gc)
-
-        dc.SelectObject(wx.NullBitmap)
-
-        # Convert back to image to preserve alpha
-        img = bitmap.ConvertToImage()
-        return wx.Bitmap(img)
-
-    def _draw_icon(self, gc: wx.GraphicsContext) -> None:
-        """Draw the icon using GraphicsContext for transparency support.
-
-        Args:
-            gc: Graphics context to draw on
-        """
-        # Draw semi-transparent white background circle with shadow effect
-        # Outer shadow
-        gc.SetBrush(gc.CreateRadialGradientBrush(
-            self.icon_size / 2, self.icon_size / 2 + 2,  # offset for shadow
-            self.icon_size / 2, self.icon_size / 2 + 2,
-            self.icon_size / 2 + 2,
-            wx.Colour(0, 0, 0, 80),  # semi-transparent black shadow
-            wx.Colour(0, 0, 0, 0)    # fully transparent
-        ))
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.DrawEllipse(-2, 0, self.icon_size + 4, self.icon_size + 4)
-
-        # Main background circle
-        gc.SetBrush(gc.CreateRadialGradientBrush(
-            self.icon_size / 2, self.icon_size / 2,  # center
-            self.icon_size / 2, self.icon_size / 2,  # focal point
-            self.icon_size / 2,  # radius
-            self.bg_center_color,  # center color (white, semi-transparent)
-            self.bg_edge_color     # edge color (light gray, semi-transparent)
-        ))
-        gc.SetPen(wx.Pen(self.border_color, 2))
-        gc.DrawEllipse(0, 0, self.icon_size, self.icon_size)
-
-        # Draw icon text with bold font
-        font = wx.Font(wx.FontInfo(self.icon_font_size).Bold())
-        gc.SetFont(font, self.text_color)
-
-        text_width, text_height = gc.GetTextExtent(self.icon_text)
-        x = (self.icon_size - text_width) / 2
-        y = (self.icon_size - text_height) / 2
-        gc.DrawText(self.icon_text, x, y)
-
-    def _on_click(self, event: wx.MouseEvent) -> None:
-        """Handle click - post button event to parent."""
-        click_event = wx.CommandEvent(wx.wxEVT_BUTTON)
-        wx.PostEvent(self.GetParent(), click_event)
-
-
 class CardImageDisplay(wx.Panel):
     """A panel that displays MTG card images with navigation and animations."""
 
@@ -182,11 +65,6 @@ class CardImageDisplay(wx.Panel):
             pos=(0, 0)
         )
         self.bitmap_ctrl.Bind(wx.EVT_LEFT_UP, self._on_bitmap_left_click)
-
-        # Transparent flip icon overlay (initially hidden)
-        self.flip_icon_overlay = TransparentIconOverlay(self.image_panel, size=(40, 40))
-        self.flip_icon_overlay.SetPosition((self.image_width - 50, 10))  # Top-right corner
-        self.flip_icon_overlay.Hide()
 
         main_sizer.Add(self.image_panel, 1, wx.EXPAND | wx.ALL, 0)
 
@@ -452,29 +330,50 @@ class CardImageDisplay(wx.Panel):
 
     def _create_flip_icon(self, size: int = 32) -> wx.Bitmap:
         """Create a circular flip icon bitmap with transparent background."""
-        bitmap = wx.Bitmap(size, size, depth=32)
+        # Create image with alpha channel for transparency
+        img = wx.Image(size, size)
+        img.InitAlpha()
+
+        # Fill with fully transparent pixels
+        rgb_data = bytearray([0, 0, 0] * (size * size))
+        alpha_data = bytearray([0] * (size * size))
+        img.SetData(bytes(rgb_data))
+        img.SetAlpha(bytes(alpha_data))
+
+        # Convert to bitmap to draw on
+        bitmap = wx.Bitmap(img)
         dc = wx.MemoryDC(bitmap)
-        dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0, 0)))
-        dc.Clear()
 
-        bitmap = wx.Bitmap(size, size, depth=32)
-        dc = wx.MemoryDC(bitmap)
-        dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0, 0)))
-        dc.Clear()
+        # Use GraphicsContext for proper alpha support
+        gc = wx.GraphicsContext.Create(dc)
+        if gc:
+            # Draw semi-transparent white circle background
+            gc.SetBrush(gc.CreateRadialGradientBrush(
+                size / 2, size / 2,  # center
+                size / 2, size / 2,  # focal point
+                size / 2,  # radius
+                wx.Colour(255, 255, 255, 220),  # center: white, semi-transparent
+                wx.Colour(200, 200, 200, 180)   # edge: light gray, more transparent
+            ))
+            gc.SetPen(wx.Pen(wx.Colour(150, 150, 150, 200), 2))
+            gc.DrawEllipse(0, 0, size, size)
 
-        font_size = max(size - 2, 1)
-        font = wx.Font(font_size, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        dc.SetFont(font)
-        dc.SetTextForeground(wx.Colour(255, 255, 255))
-        dc.SetBackgroundMode(wx.TRANSPARENT)
+            # Draw the flip icon text
+            font_size = int(size * 0.65)
+            font = wx.Font(wx.FontInfo(font_size).Bold())
+            gc.SetFont(font, wx.Colour(0, 0, 0, 255))  # Black text, opaque
 
-        text = "⟳"
-        text_width, text_height = dc.GetTextExtent(text)
-        x = (size - text_width) // 2
-        y = (size - text_height) // 2
-        dc.DrawText(text, x, y)
+            text = "⟳"
+            tw, th = gc.GetTextExtent(text)
+            x = (size - tw) / 2
+            y = (size - th) / 2
+            gc.DrawText(text, x, y)
+
         dc.SelectObject(wx.NullBitmap)
-        return bitmap
+
+        # Convert back to image to preserve alpha channel
+        img = bitmap.ConvertToImage()
+        return wx.Bitmap(img)
 
     def _create_rounded_bitmap(self, image: wx.Image) -> wx.Bitmap:
         """Create a bitmap with the image centered and rounded corners.
@@ -633,14 +532,14 @@ class CardImageDisplay(wx.Panel):
 
     def show_flip_icon(self) -> None:
         """Show the flip icon overlay (e.g., for double-faced cards)."""
-        if hasattr(self, 'flip_icon_overlay'):
-            self.flip_icon_overlay.Show()
-            self.flip_icon_overlay.Refresh()
+        if hasattr(self, 'flip_button'):
+            self.flip_button.Show()
+            self.flip_button.Refresh()
 
     def hide_flip_icon(self) -> None:
         """Hide the flip icon overlay."""
-        if hasattr(self, 'flip_icon_overlay'):
-            self.flip_icon_overlay.Hide()
+        if hasattr(self, 'flip_button'):
+            self.flip_button.Hide()
 
     def __del__(self):
         """Cleanup when widget is destroyed."""
