@@ -97,14 +97,14 @@ class SideboardCardSelector(wx.Panel):
             dec_btn.Bind(wx.EVT_BUTTON, lambda evt, name=card_name: self._decrement(name))
             btn_sizer.Add(dec_btn, 0, wx.LEFT, 2)
 
-            # Button: Set to 0 (↑ up arrow)
-            zero_btn = wx.Button(btn_panel, label="↑", size=(28, 28))
+            # Button: Set to 0 (↓ down arrow)
+            zero_btn = wx.Button(btn_panel, label="↓", size=(28, 28))
             zero_btn.SetToolTip("Set to 0")
             zero_btn.Bind(wx.EVT_BUTTON, lambda evt, name=card_name: self._set_zero(name))
             btn_sizer.Add(zero_btn, 0, wx.LEFT, 2)
 
-            # Button: Set to max (↓ down arrow)
-            max_btn = wx.Button(btn_panel, label="↓", size=(28, 28))
+            # Button: Set to max (↑ up arrow)
+            max_btn = wx.Button(btn_panel, label="↑", size=(28, 28))
             max_btn.SetToolTip(f"Set to max ({max_qty})")
             max_btn.Bind(
                 wx.EVT_BUTTON, lambda evt, name=card_name, max_q=max_qty: self._set_max(name, max_q)
