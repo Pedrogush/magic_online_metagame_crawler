@@ -5,9 +5,11 @@ This module provides functionality for analyzing card frequencies across all dec
 in a specific archetype, tracking which cards appear and how often.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -63,7 +65,7 @@ class RadarService:
         archetype: dict[str, Any],
         format_name: str,
         max_decks: int | None = None,
-        progress_callback: callable | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> RadarData:
         """
         Calculate radar data for a specific archetype.

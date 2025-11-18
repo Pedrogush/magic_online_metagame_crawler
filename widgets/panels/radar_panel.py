@@ -4,7 +4,9 @@ Radar Panel - Displays archetype card frequency analysis.
 Shows mainboard and sideboard card frequencies with inclusion rates and saturation percentages.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, Callable
 
 import wx
 import wx.dataview as dv
@@ -20,8 +22,8 @@ class RadarPanel(wx.Panel):
         self,
         parent: wx.Window,
         radar_service: RadarService | None = None,
-        on_export: callable | None = None,
-        on_use_for_search: callable | None = None,
+        on_export: Callable[[RadarData], None] | None = None,
+        on_use_for_search: Callable[[RadarData], None] | None = None,
     ):
         """
         Initialize the radar panel.
