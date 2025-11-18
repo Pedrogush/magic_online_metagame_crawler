@@ -18,7 +18,12 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests
 from loguru import logger
 
-from utils.constants import MTGO_DECK_CACHE_FILE
+from utils.constants import (
+    ARCHETYPE_DECKS_CACHE_FILE,
+    ARCHETYPE_LIST_CACHE_FILE,
+    METAGAME_CACHE_TTL_SECONDS,
+    MTGO_DECK_CACHE_FILE,
+)
 
 BASE_URL = "https://www.mtgo.com"
 DECKLIST_INDEX_URL = "https://www.mtgo.com/decklists/{year}/{month:02d}"
@@ -30,6 +35,134 @@ DETAIL_RE = re.compile(r"window\.MTGO\.decklists\.data\s*=\s*(\{.*?\});", re.DOT
 
 # Global lock to prevent concurrent cache writes (main thread + background preloader)
 _cache_write_lock = threading.Lock()
+
+
+def _load_cached_archetypes_mtgo(mtg_format: str, max_age: int = METAGAME_CACHE_TTL_SECONDS) -> list[dict[str, Any]] | None:
+    """
+    Load cached archetypes for MTGO format.
+
+    Args:
+        mtg_format: Format name (e.g., "modern")
+        max_age: Maximum age in seconds before cache is considered stale
+
+    Returns:
+        List of archetype dicts or None if cache is stale/missing
+    """
+    if not ARCHETYPE_LIST_CACHE_FILE.exists():
+        return None
+
+    try:
+        with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Cached archetype list invalid: {exc}")
+        return None
+
+    # Use "_mtgo" suffix to distinguish from MTGGoldfish cache
+    cache_key = f"{mtg_format}_mtgo"
+    entry = data.get(cache_key)
+    if not entry:
+        return None
+
+    if time.time() - entry.get("timestamp", 0) > max_age:
+        logger.debug(f"MTGO archetype cache for {mtg_format} is stale")
+        return None
+
+    return entry.get("items")
+
+
+def _save_cached_archetypes_mtgo(mtg_format: str, items: list[dict[str, Any]]) -> None:
+    """
+    Save archetypes to cache for MTGO format.
+
+    Args:
+        mtg_format: Format name (e.g., "modern")
+        items: List of archetype dicts to cache
+    """
+    try:
+        if ARCHETYPE_LIST_CACHE_FILE.exists():
+            with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        else:
+            data = {}
+    except json.JSONDecodeError:
+        data = {}
+
+    # Use "_mtgo" suffix to distinguish from MTGGoldfish cache
+    cache_key = f"{mtg_format}_mtgo"
+    data[cache_key] = {"timestamp": time.time(), "items": items}
+
+    ARCHETYPE_LIST_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHETYPE_LIST_CACHE_FILE.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
+
+def _load_cached_archetype_decks_mtgo(
+    archetype: str, mtg_format: str | None = None, max_age: int = METAGAME_CACHE_TTL_SECONDS
+) -> list[dict[str, Any]] | None:
+    """
+    Load cached deck list for an MTGO archetype.
+
+    Args:
+        archetype: Archetype name
+        mtg_format: Format filter (e.g., "modern"), or None for all formats
+        max_age: Maximum age in seconds before cache is considered stale
+
+    Returns:
+        List of deck dicts or None if cache is stale/missing
+    """
+    if not ARCHETYPE_DECKS_CACHE_FILE.exists():
+        return None
+
+    try:
+        with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Cached archetype decks invalid: {exc}")
+        return None
+
+    # Cache key includes format to handle same archetype in different formats
+    format_key = mtg_format.lower() if mtg_format else "all"
+    cache_key = f"{archetype}_{format_key}_mtgo"
+    entry = data.get(cache_key)
+    if not entry:
+        return None
+
+    if time.time() - entry.get("timestamp", 0) > max_age:
+        logger.debug(f"MTGO archetype decks cache for {archetype} ({format_key}) is stale")
+        return None
+
+    return entry.get("items")
+
+
+def _save_cached_archetype_decks_mtgo(
+    archetype: str, mtg_format: str | None, items: list[dict[str, Any]]
+) -> None:
+    """
+    Save archetype deck list to cache for MTGO.
+
+    Args:
+        archetype: Archetype name
+        mtg_format: Format filter (e.g., "modern"), or None for all formats
+        items: List of deck dicts to cache
+    """
+    try:
+        if ARCHETYPE_DECKS_CACHE_FILE.exists():
+            with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        else:
+            data = {}
+    except json.JSONDecodeError:
+        data = {}
+
+    # Cache key includes format to handle same archetype in different formats
+    format_key = mtg_format.lower() if mtg_format else "all"
+    cache_key = f"{archetype}_{format_key}_mtgo"
+    data[cache_key] = {"timestamp": time.time(), "items": items}
+
+    ARCHETYPE_DECKS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHETYPE_DECKS_CACHE_FILE.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
 
 
 def _load_cache() -> dict[str, Any]:
@@ -528,6 +661,16 @@ def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
     Returns:
         List of archetype dictionaries with keys: name, href (archetype name)
     """
+    mtg_format_lower = mtg_format.lower()
+
+    # Check cache first to avoid re-processing events
+    cached = _load_cached_archetypes_mtgo(mtg_format_lower)
+    if cached is not None:
+        logger.debug(f"Using cached MTGO archetypes for {mtg_format_lower} ({len(cached)} archetypes)")
+        return cached
+
+    logger.debug(f"Fetching MTGO archetypes for {mtg_format_lower} from events...")
+
     now = datetime.utcnow()
     cutoff = now - timedelta(days=days)
 
@@ -543,7 +686,6 @@ def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
             current = current.replace(month=current.month + 1)
 
     archetype_counter: Counter[str] = Counter()
-    mtg_format_lower = mtg_format.lower()
 
     for year, month in sorted(months_to_fetch):
         try:
@@ -579,6 +721,9 @@ def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
         for archetype, _ in archetype_counter.most_common()
     ]
 
+    # Save to cache for next time
+    _save_cached_archetypes_mtgo(mtg_format_lower, archetypes)
+
     logger.info(f"Found {len(archetypes)} archetypes for {mtg_format} from MTGO")
     return archetypes
 
@@ -601,6 +746,18 @@ def get_archetype_decks(
     Returns:
         List of deck dictionaries with keys: date, number, player, event, result, name
     """
+    # Normalize archetype for cache key
+    archetype_normalized = archetype.lower().replace("-", " ").replace("_", " ")
+
+    # Check cache first to avoid re-processing events
+    cached = _load_cached_archetype_decks_mtgo(archetype_normalized, mtg_format)
+    if cached is not None:
+        format_desc = mtg_format or "all"
+        logger.debug(f"Using cached MTGO decks for archetype '{archetype_normalized}' in {format_desc} ({len(cached)} decks)")
+        return cached
+
+    logger.debug(f"Fetching MTGO decks for archetype '{archetype_normalized}' in format '{mtg_format or 'all'}' from events...")
+
     now = datetime.utcnow()
     cutoff = now - timedelta(days=days)
 
@@ -616,8 +773,6 @@ def get_archetype_decks(
             current = current.replace(month=current.month + 1)
 
     decks: list[dict[str, Any]] = []
-    # Normalize archetype for comparison
-    archetype_normalized = archetype.lower().replace("-", " ").replace("_", " ")
     format_normalized = mtg_format.lower() if mtg_format else None
 
     for year, month in sorted(months_to_fetch, reverse=True):
@@ -692,6 +847,9 @@ def get_archetype_decks(
                         "_mtgo_payload": deck,  # Store payload for deck content extraction
                         "_is_mtgo": True,  # Flag to indicate this is from MTGO
                     })
+
+    # Save to cache for next time
+    _save_cached_archetype_decks_mtgo(archetype_normalized, mtg_format, decks)
 
     logger.info(f"Found {len(decks)} decks for archetype '{archetype}' in format '{mtg_format or 'all'}' from MTGO")
     return decks
