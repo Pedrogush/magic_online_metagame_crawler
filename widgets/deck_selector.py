@@ -635,6 +635,7 @@ class MTGDeckSelectionFrame(
         BackgroundWorker(
             self.deck_research_service.load_decks_for_archetype,
             href,
+            self.current_format,  # Pass current format to filter results
             on_success=lambda decks: self._on_decks_loaded(name, decks),
             on_error=self._on_decks_error,
         ).start()

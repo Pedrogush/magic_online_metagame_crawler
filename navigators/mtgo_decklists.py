@@ -21,7 +21,7 @@ from utils.constants import MTGO_DECK_CACHE_FILE
 BASE_URL = "https://www.mtgo.com"
 DECKLIST_INDEX_URL = "https://www.mtgo.com/decklists/{year}/{month:02d}"
 DEFAULT_TIMEOUT = 30
-MAX_PARALLEL_WORKERS = 5
+MAX_PARALLEL_WORKERS = 15
 
 # Regex pattern to extract JSON payload from MTGO decklist pages
 DETAIL_RE = re.compile(r"window\.MTGO\.decklists\.data\s*=\s*(\{.*?\});", re.DOTALL)
@@ -333,14 +333,24 @@ def _parse_deck_event(html: str) -> dict[str, Any]:
     return payload
 
 
-def fetch_deck_event(url: str) -> dict[str, Any]:
+def fetch_deck_event(url: str, cache: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Return the deck event JSON for a decklist page.
 
     Transforms bloated payloads into slim format before caching to dramatically
     reduce cache size (41,000 lines → ~500 lines per event).
+
+    Args:
+        url: URL to fetch
+        cache: Optional cache dict to check/update. If None, loads cache but doesn't save.
+
+    Returns:
+        Slim event payload
     """
-    cache = _load_cache()
+    # Load cache if not provided
+    if cache is None:
+        cache = _load_cache()
+
     deck_cache = cache.setdefault("events", {})
     if url in deck_cache:
         return deck_cache[url]
@@ -350,7 +360,7 @@ def fetch_deck_event(url: str) -> dict[str, Any]:
     # Transform to slim format before caching
     slim_payload = _transform_event_payload(raw_payload)
     deck_cache[url] = slim_payload
-    _save_cache(cache)
+    # Don't save here - caller is responsible for saving to avoid concurrent writes
     return slim_payload
 
 
@@ -402,18 +412,38 @@ def fetch_recent_events_parallel(
     if not entries:
         return results
 
+    # Load cache once to check for already-fetched events
+    cache = _load_cache()
+    deck_cache = cache.setdefault("events", {})
+
+    # Track newly fetched events to save at the end (avoid concurrent writes)
+    newly_fetched: dict[str, dict[str, Any]] = {}
+
     # Use ThreadPoolExecutor for parallel fetching
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
-        future_to_entry = {executor.submit(fetch_deck_event, entry["url"]): entry for entry in entries}
+        # Submit jobs, passing the shared cache (read-only in workers)
+        future_to_entry = {
+            executor.submit(fetch_deck_event, entry["url"], cache): entry
+            for entry in entries
+        }
 
         for future in as_completed(future_to_entry):
             entry = future_to_entry[future]
             try:
                 payload = future.result()
                 results.append((entry, payload))
+                # Track if this was newly fetched (not from cache)
+                if entry["url"] not in deck_cache:
+                    newly_fetched[entry["url"]] = payload
             except Exception as exc:
                 logger.error(f"Failed to fetch deck event {entry['url']}: {exc}")
                 continue
+
+    # Save all newly fetched events at once to avoid concurrent write issues
+    if newly_fetched:
+        deck_cache.update(newly_fetched)
+        _save_cache(cache)
+        logger.debug(f"Saved {len(newly_fetched)} newly fetched events to cache")
 
     return results
 
