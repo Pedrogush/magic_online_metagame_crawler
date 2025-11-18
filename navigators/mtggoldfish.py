@@ -11,9 +11,10 @@ from loguru import logger
 
 from utils.constants import (
     ARCHETYPE_CACHE_FILE,
+    ARCHETYPE_DECKS_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
     CURR_DECK_FILE,
-    DECK_CACHE_FILE,
+    DECK_TEXT_CACHE_FILE,
     METAGAME_CACHE_TTL_SECONDS,
     ONE_DAY_SECONDS,
 )
@@ -94,7 +95,48 @@ def get_archetypes(
     return items
 
 
+def _load_cached_archetype_decks(archetype: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):
+    """Load cached deck list for an archetype."""
+    if not ARCHETYPE_DECKS_CACHE_FILE.exists():
+        return None
+    try:
+        with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Cached archetype decks invalid: {exc}")
+        return None
+    entry = data.get(archetype)
+    if not entry:
+        return None
+    if time.time() - entry.get("timestamp", 0) > max_age:
+        return None
+    return entry.get("items")
+
+
+def _save_cached_archetype_decks(archetype: str, items: list[dict]):
+    """Save archetype deck list to cache."""
+    try:
+        if ARCHETYPE_DECKS_CACHE_FILE.exists():
+            with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        else:
+            data = {}
+    except json.JSONDecodeError:
+        data = {}
+    data[archetype] = {"timestamp": time.time(), "items": items}
+    ARCHETYPE_DECKS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHETYPE_DECKS_CACHE_FILE.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
+
 def get_archetype_decks(archetype: str):
+    # Check cache first
+    cached = _load_cached_archetype_decks(archetype)
+    if cached is not None:
+        logger.debug(f"Using cached decks for archetype {archetype}")
+        return cached
+
+    logger.debug(f"Fetching decks for archetype {archetype} from MTGGoldfish")
     try:
         page = requests.get(
             f"https://www.mtggoldfish.com/archetype/{archetype}/decks",
@@ -126,6 +168,8 @@ def get_archetype_decks(archetype: str):
                 "name": archetype,
             }
         )
+    # Save to cache
+    _save_cached_archetype_decks(archetype, decks)
     return decks
 
 
@@ -219,7 +263,7 @@ def get_daily_decks(mtg_format: str):
 
 
 def _load_deck_cache() -> tuple[dict[str, str], Path, str | None]:
-    cache_path = DECK_CACHE_FILE
+    cache_path = DECK_TEXT_CACHE_FILE
     deck_cache: dict[str, str] = {}
     if cache_path.exists():
         try:
@@ -232,8 +276,8 @@ def _load_deck_cache() -> tuple[dict[str, str], Path, str | None]:
 
 
 def _persist_deck_cache(deck_cache: dict[str, str], cache_path: Path) -> None:
-    DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
+    DECK_TEXT_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DECK_TEXT_CACHE_FILE.open("w", encoding="utf-8") as fh:
         json.dump(deck_cache, fh, indent=4)
 
 
