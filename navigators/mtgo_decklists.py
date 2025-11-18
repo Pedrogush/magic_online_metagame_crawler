@@ -243,12 +243,18 @@ def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
     return archetypes
 
 
-def get_archetype_decks(archetype: str, days: int = 30, max_decks: int = 50) -> list[dict[str, Any]]:
+def get_archetype_decks(
+    archetype: str,
+    mtg_format: str | None = None,
+    days: int = 30,
+    max_decks: int = 50
+) -> list[dict[str, Any]]:
     """
     Get recent decks for a specific archetype from MTGO events.
 
     Args:
         archetype: The archetype name or href
+        mtg_format: MTG format to filter by (e.g., "Modern", "Standard"). If None, fetches all formats.
         days: Number of days to look back (default: 30)
         max_decks: Maximum number of decks to return (default: 50)
 
@@ -272,6 +278,7 @@ def get_archetype_decks(archetype: str, days: int = 30, max_decks: int = 50) -> 
     decks: list[dict[str, Any]] = []
     # Normalize archetype for comparison
     archetype_normalized = archetype.lower().replace("-", " ").replace("_", " ")
+    format_normalized = mtg_format.lower() if mtg_format else None
 
     for year, month in sorted(months_to_fetch, reverse=True):
         if len(decks) >= max_decks:
@@ -286,6 +293,12 @@ def get_archetype_decks(archetype: str, days: int = 30, max_decks: int = 50) -> 
         for entry, payload in events:
             if len(decks) >= max_decks:
                 break
+
+            # Filter by format if specified
+            if format_normalized:
+                entry_format = (entry.get("format") or "").lower()
+                if entry_format != format_normalized:
+                    continue
 
             # Check publish date
             publish_str = entry.get("publish_date")
@@ -310,21 +323,26 @@ def get_archetype_decks(archetype: str, days: int = 30, max_decks: int = 50) -> 
                     # Format date
                     date_str = publish_date.strftime("%Y-%m-%d") if publish_date else entry.get("publish_date", "")
 
-                    # Generate a unique identifier
-                    deck_id = deck.get("mtgoId") or deck.get("identifier") or f"{entry.get('url', '')}#{len(decks)}"
+                    # Generate a simple numeric-like identifier for compatibility
+                    # Use a hash of the deck to create a unique but simpler ID
+                    player = deck.get("player") or deck.get("pilot") or "Unknown"
+                    event_url = entry.get("url", "")
+                    deck_hash = hash(f"{event_url}#{player}#{deck_archetype}")
+                    simple_id = f"mtgo_{abs(deck_hash)}"
 
                     decks.append({
                         "date": date_str,
-                        "number": str(deck_id),  # MTGO deck identifier
-                        "player": deck.get("player") or deck.get("pilot") or "Unknown",
+                        "number": simple_id,  # Simple identifier for UI
+                        "player": player,
                         "event": entry.get("title") or "MTGO Event",
                         "result": deck.get("standing") or deck.get("finish") or deck.get("record") or "",
                         "name": deck_archetype,
-                        "_mtgo_url": entry.get("url"),  # Store for deck content fetching
+                        "_mtgo_url": event_url,  # Store for deck content fetching
                         "_mtgo_payload": deck,  # Store payload for deck content extraction
+                        "_is_mtgo": True,  # Flag to indicate this is from MTGO
                     })
 
-    logger.info(f"Found {len(decks)} decks for archetype '{archetype}' from MTGO")
+    logger.info(f"Found {len(decks)} decks for archetype '{archetype}' in format '{mtg_format or 'all'}' from MTGO")
     return decks
 
 

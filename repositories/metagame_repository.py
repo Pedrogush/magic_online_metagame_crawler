@@ -91,7 +91,10 @@ class MetagameRepository:
             raise
 
     def get_decks_for_archetype(
-        self, archetype: dict[str, Any], force_refresh: bool = False
+        self,
+        archetype: dict[str, Any],
+        mtg_format: str | None = None,
+        force_refresh: bool = False
     ) -> list[dict[str, Any]]:
         """
         Get deck lists for a specific archetype.
@@ -100,6 +103,7 @@ class MetagameRepository:
 
         Args:
             archetype: Archetype dictionary with 'href' or 'url' key
+            mtg_format: Optional MTG format to filter by (e.g., "Modern", "Standard")
             force_refresh: If True, bypass cache and fetch fresh data
 
         Returns:
@@ -116,11 +120,11 @@ class MetagameRepository:
                 logger.debug(f"Using cached decks for {archetype_name}")
                 return cached
 
-        # Fetch fresh data - try MTGO first
-        logger.info(f"Fetching fresh decks for {archetype_name} from MTGO.com")
+        # Fetch fresh data - try MTGO first with format filtering
+        logger.info(f"Fetching fresh decks for {archetype_name} in format '{mtg_format or 'all'}' from MTGO.com")
         try:
             # Try to get decks from MTGO using archetype name or href
-            decks = mtgo_decklists.get_archetype_decks(archetype_href)
+            decks = mtgo_decklists.get_archetype_decks(archetype_href, mtg_format=mtg_format)
             if decks:
                 # Cache the results
                 self._save_cached_decks(archetype_href, decks)
@@ -156,7 +160,7 @@ class MetagameRepository:
         Uses MTGO.com as the primary source with MTGGoldfish as fallback.
 
         Args:
-            deck: Deck dictionary with 'number' key (deck ID)
+            deck: Deck dictionary with 'number' key (deck ID) and optional _mtgo_payload
 
         Returns:
             Deck list as text string
@@ -166,32 +170,36 @@ class MetagameRepository:
         """
         deck_name = deck.get("name", "Unknown")
         deck_number = deck.get("number", "")
+        is_mtgo = deck.get("_is_mtgo", False)
 
         if not deck_number:
             raise ValueError(f"Deck {deck_name} has no 'number' field")
 
-        # Check if this is an MTGO deck (has _mtgo_payload field)
+        # Check if this is an MTGO deck (has _mtgo_payload field or _is_mtgo flag)
         mtgo_payload = deck.get("_mtgo_payload")
-        if mtgo_payload:
-            logger.info(f"Downloading deck from MTGO cache: {deck_name}")
+        if mtgo_payload or is_mtgo:
+            if mtgo_payload:
+                logger.info(f"Converting MTGO deck from payload: {deck_name}")
+                try:
+                    # Use the stored payload directly
+                    from navigators.mtgo_decklists import _deck_to_text
+                    deck_content = _deck_to_text(mtgo_payload)
+                    logger.info(f"Successfully converted MTGO deck from payload")
+                    return deck_content
+                except Exception as exc:
+                    logger.warning(f"Failed to use MTGO deck payload: {exc}")
+
+            # Try MTGO cache by deck ID
+            logger.info(f"Trying to fetch MTGO deck from cache: {deck_name}")
             try:
-                # Use the stored payload directly
-                from navigators.mtgo_decklists import _deck_to_text
-                deck_content = _deck_to_text(mtgo_payload)
+                deck_content = mtgo_decklists.fetch_deck_text(deck_number)
+                logger.info(f"Successfully fetched MTGO deck from cache")
                 return deck_content
             except Exception as exc:
-                logger.warning(f"Failed to use MTGO deck payload: {exc}, trying by ID")
+                logger.error(f"MTGO deck {deck_name} not available: {exc}")
+                raise ValueError(f"MTGO deck {deck_name} not available in cache") from exc
 
-        # Try MTGO first by deck ID
-        logger.info(f"Downloading deck from MTGO.com: {deck_name}")
-        try:
-            deck_content = mtgo_decklists.fetch_deck_text(deck_number)
-            logger.info(f"Successfully downloaded deck from MTGO.com")
-            return deck_content
-        except Exception as exc:
-            logger.warning(f"Failed to download from MTGO.com: {exc}, falling back to MTGGoldfish")
-
-        # Fallback to MTGGoldfish
+        # Not an MTGO deck - use MTGGoldfish
         logger.info(f"Downloading deck from MTGGoldfish: {deck_name}")
         try:
             # fetch_deck_text handles caching and returns the text directly
