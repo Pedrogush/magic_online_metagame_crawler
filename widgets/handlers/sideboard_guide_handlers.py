@@ -144,7 +144,31 @@ class SideboardGuideHandlers:
             # Get data (for both OK and Save & Continue)
             data = dlg.get_data()
             if data.get("archetype"):
-                self.sideboard_guide_entries.append(data)
+                archetype_name = data.get("archetype")
+                enable_double = data.get("enable_double_entries", False)
+
+                if not enable_double:
+                    # Check if archetype already exists and overwrite it
+                    existing_index = None
+                    for i, entry in enumerate(self.sideboard_guide_entries):
+                        if entry.get("archetype") == archetype_name:
+                            existing_index = i
+                            break
+
+                    if existing_index is not None:
+                        # Overwrite existing entry
+                        # Don't include enable_double_entries in the persisted data
+                        entry_data = {k: v for k, v in data.items() if k != "enable_double_entries"}
+                        self.sideboard_guide_entries[existing_index] = entry_data
+                    else:
+                        # Add new entry
+                        entry_data = {k: v for k, v in data.items() if k != "enable_double_entries"}
+                        self.sideboard_guide_entries.append(entry_data)
+                else:
+                    # Add new entry even if archetype exists
+                    entry_data = {k: v for k, v in data.items() if k != "enable_double_entries"}
+                    self.sideboard_guide_entries.append(entry_data)
+
                 self._persist_guide_for_current()
                 self._refresh_guide_view()
 
@@ -248,19 +272,52 @@ class SideboardGuideHandlers:
         self.sideboard_guide_panel.set_warning("")
 
         # Ask user for file to import
-        dlg = wx.FileDialog(
+        file_dlg = wx.FileDialog(
             self,
             "Import Sideboard Guide",
             wildcard="CSV files (*.csv)|*.csv",
             style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
         )
 
-        if dlg.ShowModal() != wx.ID_OK:
-            dlg.Destroy()
+        if file_dlg.ShowModal() != wx.ID_OK:
+            file_dlg.Destroy()
             return
 
-        file_path = dlg.GetPath()
-        dlg.Destroy()
+        file_path = file_dlg.GetPath()
+        file_dlg.Destroy()
+
+        # Show import options dialog
+        options_dlg = wx.Dialog(self, title="Import Options", size=(400, 150))
+        panel = wx.Panel(options_dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Checkbox for enabling double entries
+        enable_double_checkbox = wx.CheckBox(panel, label="Enable double entries")
+        enable_double_checkbox.SetToolTip(
+            "If unchecked, will overwrite existing entries for matching archetypes. "
+            "If checked, will add entries even if archetypes already exist."
+        )
+        sizer.Add(enable_double_checkbox, 0, wx.ALL, 12)
+
+        # Buttons
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        btn_sizer.AddStretchSpacer()
+        ok_btn = wx.Button(panel, label="Import", id=wx.ID_OK)
+        ok_btn.SetDefault()
+        btn_sizer.Add(ok_btn, 0, wx.RIGHT, 8)
+        cancel_btn = wx.Button(panel, label="Cancel", id=wx.ID_CANCEL)
+        btn_sizer.Add(cancel_btn, 0)
+        sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 8)
+
+        panel.SetSizer(sizer)
+        options_dlg.Centre()
+
+        if options_dlg.ShowModal() != wx.ID_OK:
+            options_dlg.Destroy()
+            return
+
+        enable_double_entries = enable_double_checkbox.GetValue()
+        options_dlg.Destroy()
 
         try:
             imported_entries, warnings = self._import_guide_from_csv(file_path)
@@ -271,8 +328,27 @@ class SideboardGuideHandlers:
                 )
                 return
 
-            # Add imported entries to existing guide
-            self.sideboard_guide_entries.extend(imported_entries)
+            # Handle duplicate archetypes based on enable_double_entries setting
+            if not enable_double_entries:
+                # Overwrite existing entries for matching archetypes
+                for imported_entry in imported_entries:
+                    archetype_name = imported_entry.get("archetype")
+                    existing_index = None
+                    for i, entry in enumerate(self.sideboard_guide_entries):
+                        if entry.get("archetype") == archetype_name:
+                            existing_index = i
+                            break
+
+                    if existing_index is not None:
+                        # Overwrite existing entry
+                        self.sideboard_guide_entries[existing_index] = imported_entry
+                    else:
+                        # Add new entry
+                        self.sideboard_guide_entries.append(imported_entry)
+            else:
+                # Add all imported entries even if archetypes exist
+                self.sideboard_guide_entries.extend(imported_entries)
+
             self._persist_guide_for_current()
             self._refresh_guide_view()
 

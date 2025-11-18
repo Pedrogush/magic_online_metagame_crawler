@@ -111,6 +111,15 @@ class GuideEntryDialog(wx.Dialog):
         self.notes_ctrl.SetHint("Strategy notes for this matchup")
         panel_sizer.Add(self.notes_ctrl, 0, wx.EXPAND | wx.ALL, 4)
 
+        # Enable double entries checkbox
+        self.enable_double_checkbox = wx.CheckBox(panel, label="Enable double entries")
+        self.enable_double_checkbox.SetForegroundColour(LIGHT_TEXT)
+        self.enable_double_checkbox.SetToolTip(
+            "If unchecked, will overwrite existing entries for this archetype. "
+            "If checked, will add new entry even if archetype already exists."
+        )
+        panel_sizer.Add(self.enable_double_checkbox, 0, wx.ALL, 8)
+
         # Custom button sizer with Save & Continue
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
@@ -166,4 +175,5 @@ class GuideEntryDialog(wx.Dialog):
             "draw_out": self.draw_out_selector.get_selected_cards(),
             "draw_in": self.draw_in_selector.get_selected_cards(),
             "notes": self.notes_ctrl.GetValue().strip(),
+            "enable_double_entries": self.enable_double_checkbox.GetValue(),
         }
