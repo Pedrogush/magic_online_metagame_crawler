@@ -116,6 +116,99 @@ def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
 DETAIL_RE = re.compile(r"window\.MTGO\.decklists\.data\s*=\s*(\{.*?\});", re.DOTALL)
 
 
+def _transform_event_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Transform bloated MTGO payload into slim format.
+
+    Reduces 41,000-line payloads to ~500 lines by extracting only essential data.
+
+    Args:
+        raw_payload: Raw payload from MTGO with full card_attributes, etc.
+
+    Returns:
+        Slim payload with only essential fields
+    """
+    # Extract event metadata
+    event_id = raw_payload.get("event_id", "")
+    description = raw_payload.get("description", "")
+    starttime = raw_payload.get("starttime", "")
+    format_raw = raw_payload.get("format", "")
+
+    # Normalize format name (CSTANDARD -> Standard, etc.)
+    format_name = format_raw.replace("C", "").title() if format_raw else "Unknown"
+
+    # Build loginid maps for winloss and final_rank
+    winloss_map: dict[str, dict[str, int]] = {}
+    rank_map: dict[str, str] = {}
+
+    # Extract winloss records if present
+    for wl in raw_payload.get("winloss", []):
+        loginid = wl.get("loginid")
+        if loginid:
+            winloss_map[loginid] = {
+                "wins": int(wl.get("wins", 0)),
+                "losses": int(wl.get("losses", 0))
+            }
+
+    # Extract final ranks if present
+    for rank_entry in raw_payload.get("final_rank", []):
+        loginid = rank_entry.get("loginid")
+        if loginid:
+            rank_map[loginid] = rank_entry.get("rank", "")
+
+    # Process decklists - extract only essential fields
+    slim_decks: list[dict[str, Any]] = []
+    for deck in raw_payload.get("decklists", []):
+        loginid = deck.get("loginid", "")
+        player = deck.get("player", "Unknown")
+
+        # Get winloss and rank for this player
+        wl_data = winloss_map.get(loginid, {})
+        wins = wl_data.get("wins", 0)
+        losses = wl_data.get("losses", 0)
+        final_rank = rank_map.get(loginid, "")
+
+        # Extract archetype if present
+        archetype = deck.get("archetype") or deck.get("deck_name", "")
+
+        # Process mainboard - extract only name, qty
+        mainboard: list[dict[str, Any]] = []
+        for card in deck.get("main_deck", []):
+            qty = int(card.get("qty", 1))
+            # card_name can be in card_attributes or directly in card
+            attrs = card.get("card_attributes") or {}
+            name = attrs.get("card_name") or card.get("card_name", "Unknown")
+            mainboard.append({"name": name, "qty": qty})
+
+        # Process sideboard
+        sideboard: list[dict[str, Any]] = []
+        for card in deck.get("sideboard_deck", []):
+            qty = int(card.get("qty", 1))
+            attrs = card.get("card_attributes") or {}
+            name = attrs.get("card_name") or card.get("card_name", "Unknown")
+            sideboard.append({"name": name, "qty": qty})
+
+        slim_decks.append({
+            "loginid": loginid,
+            "player": player,
+            "archetype": archetype,
+            "wins": wins,
+            "losses": losses,
+            "final_rank": final_rank,
+            "main_deck": mainboard,
+            "sideboard_deck": sideboard,
+        })
+
+    # Return slim payload
+    return {
+        "event_id": event_id,
+        "description": description,
+        "starttime": starttime,
+        "format": format_name,
+        "decklists": slim_decks,
+    }
+
+
 def _parse_deck_event(html: str) -> dict[str, Any]:
     match = DETAIL_RE.search(html)
     if not match:
@@ -125,17 +218,24 @@ def _parse_deck_event(html: str) -> dict[str, Any]:
 
 
 def fetch_deck_event(url: str) -> dict[str, Any]:
-    """Return the full deck event JSON for a decklist page."""
+    """
+    Return the deck event JSON for a decklist page.
+
+    Transforms bloated payloads into slim format before caching to dramatically
+    reduce cache size (41,000 lines → ~500 lines per event).
+    """
     cache = _load_cache()
     deck_cache = cache.setdefault("events", {})
     if url in deck_cache:
         return deck_cache[url]
 
     html = _fetch_html(url)
-    payload = _parse_deck_event(html)
-    deck_cache[url] = payload
+    raw_payload = _parse_deck_event(html)
+    # Transform to slim format before caching
+    slim_payload = _transform_event_payload(raw_payload)
+    deck_cache[url] = slim_payload
     _save_cache(cache)
-    return payload
+    return slim_payload
 
 
 def iter_deck_events(entries: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
@@ -330,12 +430,25 @@ def get_archetype_decks(
                     deck_hash = hash(f"{event_url}#{player}#{deck_archetype}")
                     simple_id = f"mtgo_{abs(deck_hash)}"
 
+                    # Build result string from wins/losses/rank
+                    wins = deck.get("wins", 0)
+                    losses = deck.get("losses", 0)
+                    final_rank = deck.get("final_rank", "")
+
+                    # Format result string
+                    if final_rank:
+                        result = f"#{final_rank} ({wins}-{losses})"
+                    elif wins or losses:
+                        result = f"{wins}-{losses}"
+                    else:
+                        result = ""
+
                     decks.append({
                         "date": date_str,
                         "number": simple_id,  # Simple identifier for UI
                         "player": player,
                         "event": entry.get("title") or "MTGO Event",
-                        "result": deck.get("standing") or deck.get("finish") or deck.get("record") or "",
+                        "result": result,
                         "name": deck_archetype,
                         "_mtgo_url": event_url,  # Store for deck content fetching
                         "_mtgo_payload": deck,  # Store payload for deck content extraction
@@ -378,15 +491,28 @@ def fetch_deck_text(deck_number: str) -> str:
 
 
 def _deck_to_text(deck: dict[str, Any]) -> str:
-    """Convert MTGO deck payload to text format."""
+    """
+    Convert MTGO deck payload to text format.
+
+    Works with both slim and legacy payload formats for backward compatibility.
+    """
     lines: list[str] = []
 
     # Add mainboard
     mainboard = deck.get("main_deck", [])
     for card in mainboard:
-        qty = card.get("qty") or card.get("quantity", 1)
-        attrs = card.get("card_attributes") or {}
-        name = attrs.get("card_name") or card.get("card_name") or "Unknown"
+        # Slim format: {"name": "Card", "qty": 2}
+        # Legacy format: {"qty": 2, "card_attributes": {"card_name": "Card"}}
+        if "name" in card:
+            # Slim format
+            qty = card.get("qty", 1)
+            name = card.get("name", "Unknown")
+        else:
+            # Legacy format
+            qty = card.get("qty") or card.get("quantity", 1)
+            attrs = card.get("card_attributes") or {}
+            name = attrs.get("card_name") or card.get("card_name") or "Unknown"
+
         lines.append(f"{qty} {name}")
 
     # Add sideboard
@@ -394,9 +520,18 @@ def _deck_to_text(deck: dict[str, Any]) -> str:
     if sideboard:
         lines.append("")  # Blank line separator
         for card in sideboard:
-            qty = card.get("qty") or card.get("quantity", 1)
-            attrs = card.get("card_attributes") or {}
-            name = attrs.get("card_name") or card.get("card_name") or "Unknown"
+            # Slim format: {"name": "Card", "qty": 2}
+            # Legacy format: {"qty": 2, "card_attributes": {"card_name": "Card"}}
+            if "name" in card:
+                # Slim format
+                qty = card.get("qty", 1)
+                name = card.get("name", "Unknown")
+            else:
+                # Legacy format
+                qty = card.get("qty") or card.get("quantity", 1)
+                attrs = card.get("card_attributes") or {}
+                name = attrs.get("card_name") or card.get("card_name") or "Unknown"
+
             lines.append(f"{qty} {name}")
 
     return "\n".join(lines)
