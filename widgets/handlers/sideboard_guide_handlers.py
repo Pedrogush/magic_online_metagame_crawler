@@ -324,7 +324,9 @@ class SideboardGuideHandlers:
 
             if not imported_entries:
                 wx.MessageBox(
-                    "No valid guide entries found in CSV.", "Import CSV", wx.OK | wx.ICON_INFORMATION
+                    "No valid guide entries found in CSV.",
+                    "Import CSV",
+                    wx.OK | wx.ICON_INFORMATION,
                 )
                 return
 
@@ -354,7 +356,9 @@ class SideboardGuideHandlers:
 
             # Display warnings if any
             if warnings:
-                warning_msg = f"Imported {len(imported_entries)} entries with warnings: {'; '.join(warnings)}"
+                warning_msg = (
+                    f"Imported {len(imported_entries)} entries with warnings: {'; '.join(warnings)}"
+                )
                 self.sideboard_guide_panel.set_warning(warning_msg)
             else:
                 # Show success message briefly then clear
@@ -487,7 +491,7 @@ class SideboardGuideHandlers:
         warnings: list[str] = []
         missing_cards: set[str] = set()
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             reader = csv.reader(f)
 
             # Read header

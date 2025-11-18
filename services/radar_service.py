@@ -8,8 +8,9 @@ in a specific archetype, tracking which cards appear and how often.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 

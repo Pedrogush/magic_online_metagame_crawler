@@ -1,6 +1,5 @@
 """Tests for the Radar Service."""
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
