@@ -158,6 +158,11 @@ class DeckSelectorHandlers:
         if self._save_timer and self._save_timer.IsRunning():
             self._save_timer.Stop()
         self._save_window_settings()
+
+        # Stop background cache preloader
+        if hasattr(self, 'cache_preloader') and self.cache_preloader.is_running():
+            self.cache_preloader.stop()
+
         for attr in ("tracker_window", "timer_window", "history_window"):
             window = getattr(self, attr)
             if widget_exists(window):

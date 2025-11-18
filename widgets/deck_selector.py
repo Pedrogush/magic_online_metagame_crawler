@@ -8,6 +8,7 @@ from repositories.card_repository import get_card_repository
 from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
 from services import get_deck_research_service, get_state_service
+from services.cache_preloader_service import get_cache_preloader
 from services.collection_service import get_collection_service
 from services.deck_service import get_deck_service
 from services.image_service import get_image_service
@@ -74,6 +75,7 @@ class MTGDeckSelectionFrame(
         self.collection_service = get_collection_service()
         self.image_service = get_image_service()
         self.store_service = get_store_service()
+        self.cache_preloader = get_cache_preloader()
         self.card_data_dialogs_disabled = False
 
         self.settings = self._load_window_settings()
@@ -495,6 +497,10 @@ class MTGDeckSelectionFrame(
         self._load_collection_from_cache()  # Fast cache-only load on startup
         self._check_and_download_bulk_data()  # Download card image bulk data if needed
 
+        # Start background cache preloader service
+        logger.info("Starting background cache preloader...")
+        self.cache_preloader.start()
+
     def _set_status(self, message: str) -> None:
         if self.status_bar:
             self.status_bar.SetStatusText(message)
@@ -661,6 +667,7 @@ class MTGDeckSelectionFrame(
         BackgroundWorker(
             self.deck_research_service.download_deck_text,
             deck_number,
+            deck,  # Pass full deck object with _mtgo_payload if present
             on_success=on_success,
             on_error=self._on_deck_download_error,
         ).start()

@@ -115,9 +115,18 @@ class DeckResearchService:
         logger.info(f"Downloading deck {deck_number} from MTGGoldfish")
         mtggoldfish.download_deck(deck_number)
 
-    def download_deck_text(self, deck_number: str) -> str:
-        """Download deck and return its text content."""
-        self.download_deck(deck_number)
+    def download_deck_text(self, deck_number: str, deck_payload: dict | None = None) -> str:
+        """
+        Download deck and return its text content.
+
+        Args:
+            deck_number: Deck identifier (MTGO ID or MTGGoldfish number)
+            deck_payload: Optional deck payload dict with _mtgo_payload field for MTGO decks
+
+        Returns:
+            Deck text content
+        """
+        self.download_deck(deck_number, deck_payload)
         return read_curr_deck_file()
 
     @staticmethod
