@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter, defaultdict
 from collections.abc import Iterable
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin
 
@@ -18,6 +20,7 @@ from utils.constants import MTGO_DECK_CACHE_FILE
 BASE_URL = "https://www.mtgo.com"
 DECKLIST_INDEX_URL = "https://www.mtgo.com/decklists/{year}/{month:02d}"
 DEFAULT_TIMEOUT = 30
+MAX_PARALLEL_WORKERS = 5
 
 
 def _load_cache() -> dict[str, Any]:
@@ -145,11 +148,251 @@ def iter_deck_events(entries: Iterable[dict[str, Any]]) -> Iterable[dict[str, An
         yield entry, payload
 
 
+def fetch_recent_events_parallel(
+    year: int, month: int, max_events: int | None = None
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Fetch recent MTGO events with parallel processing for better performance."""
+    entries = fetch_decklist_index(year, month)
+    if max_events:
+        entries = entries[:max_events]
+
+    results: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    if not entries:
+        return results
+
+    # Use ThreadPoolExecutor for parallel fetching
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+        future_to_entry = {executor.submit(fetch_deck_event, entry["url"]): entry for entry in entries}
+
+        for future in as_completed(future_to_entry):
+            entry = future_to_entry[future]
+            try:
+                payload = future.result()
+                results.append((entry, payload))
+            except Exception as exc:
+                logger.error(f"Failed to fetch deck event {entry['url']}: {exc}")
+                continue
+
+    return results
+
+
+def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
+    """
+    Extract archetypes from recent MTGO events for a given format.
+
+    Args:
+        mtg_format: The MTG format (e.g., "Modern", "Standard")
+        days: Number of days to look back (default: 30)
+
+    Returns:
+        List of archetype dictionaries with keys: name, href (archetype name)
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=days)
+
+    # Collect unique months to fetch
+    months_to_fetch: set[tuple[int, int]] = set()
+    current = cutoff
+    while current <= now:
+        months_to_fetch.add((current.year, current.month))
+        # Move to next month
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+
+    archetype_counter: Counter[str] = Counter()
+    mtg_format_lower = mtg_format.lower()
+
+    for year, month in sorted(months_to_fetch):
+        try:
+            events = fetch_recent_events_parallel(year, month, max_events=50)
+        except Exception as exc:
+            logger.warning(f"Failed to fetch events for {year}-{month:02d}: {exc}")
+            continue
+
+        for entry, payload in events:
+            # Filter by format
+            entry_format = (entry.get("format") or "").lower()
+            if entry_format != mtg_format_lower:
+                continue
+
+            # Check publish date
+            publish_str = entry.get("publish_date")
+            if publish_str:
+                try:
+                    publish_date = datetime.fromisoformat(publish_str.replace("Z", "+00:00"))
+                    if publish_date.replace(tzinfo=None) < cutoff:
+                        continue
+                except (ValueError, AttributeError):
+                    pass
+
+            # Extract archetypes from decklists
+            for deck in payload.get("decklists", []):
+                archetype = deck.get("archetype") or deck.get("deck_name")
+                if archetype and archetype.strip():
+                    archetype_counter[archetype.strip()] += 1
+
+    # Convert to format expected by repository
+    archetypes = [
+        {"name": archetype, "href": archetype.lower().replace(" ", "-").replace("'", "")}
+        for archetype, _ in archetype_counter.most_common()
+    ]
+
+    logger.info(f"Found {len(archetypes)} archetypes for {mtg_format} from MTGO")
+    return archetypes
+
+
+def get_archetype_decks(archetype: str, days: int = 30, max_decks: int = 50) -> list[dict[str, Any]]:
+    """
+    Get recent decks for a specific archetype from MTGO events.
+
+    Args:
+        archetype: The archetype name or href
+        days: Number of days to look back (default: 30)
+        max_decks: Maximum number of decks to return (default: 50)
+
+    Returns:
+        List of deck dictionaries with keys: date, number, player, event, result, name
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=days)
+
+    # Collect unique months to fetch
+    months_to_fetch: set[tuple[int, int]] = set()
+    current = cutoff
+    while current <= now:
+        months_to_fetch.add((current.year, current.month))
+        # Move to next month
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+
+    decks: list[dict[str, Any]] = []
+    # Normalize archetype for comparison
+    archetype_normalized = archetype.lower().replace("-", " ").replace("_", " ")
+
+    for year, month in sorted(months_to_fetch, reverse=True):
+        if len(decks) >= max_decks:
+            break
+
+        try:
+            events = fetch_recent_events_parallel(year, month, max_events=50)
+        except Exception as exc:
+            logger.warning(f"Failed to fetch events for {year}-{month:02d}: {exc}")
+            continue
+
+        for entry, payload in events:
+            if len(decks) >= max_decks:
+                break
+
+            # Check publish date
+            publish_str = entry.get("publish_date")
+            publish_date = None
+            if publish_str:
+                try:
+                    publish_date = datetime.fromisoformat(publish_str.replace("Z", "+00:00"))
+                    if publish_date.replace(tzinfo=None) < cutoff:
+                        continue
+                except (ValueError, AttributeError):
+                    pass
+
+            # Extract matching decks
+            for deck in payload.get("decklists", []):
+                if len(decks) >= max_decks:
+                    break
+
+                deck_archetype = deck.get("archetype") or deck.get("deck_name") or ""
+                deck_archetype_normalized = deck_archetype.lower().replace("-", " ").replace("_", " ")
+
+                if archetype_normalized in deck_archetype_normalized or deck_archetype_normalized in archetype_normalized:
+                    # Format date
+                    date_str = publish_date.strftime("%Y-%m-%d") if publish_date else entry.get("publish_date", "")
+
+                    # Generate a unique identifier
+                    deck_id = deck.get("mtgoId") or deck.get("identifier") or f"{entry.get('url', '')}#{len(decks)}"
+
+                    decks.append({
+                        "date": date_str,
+                        "number": str(deck_id),  # MTGO deck identifier
+                        "player": deck.get("player") or deck.get("pilot") or "Unknown",
+                        "event": entry.get("title") or "MTGO Event",
+                        "result": deck.get("standing") or deck.get("finish") or deck.get("record") or "",
+                        "name": deck_archetype,
+                        "_mtgo_url": entry.get("url"),  # Store for deck content fetching
+                        "_mtgo_payload": deck,  # Store payload for deck content extraction
+                    })
+
+    logger.info(f"Found {len(decks)} decks for archetype '{archetype}' from MTGO")
+    return decks
+
+
+def fetch_deck_text(deck_number: str) -> str:
+    """
+    Fetch deck text content from MTGO.
+
+    Note: For MTGO decks, the deck_number might be an event URL or deck ID.
+    This function attempts to reconstruct the deck list from cached event data.
+
+    Args:
+        deck_number: MTGO deck identifier (could be URL or ID)
+
+    Returns:
+        Deck list as text string
+
+    Raises:
+        ValueError: If deck cannot be found or parsed
+    """
+    cache = _load_cache()
+    events = cache.get("events", {})
+
+    # Try to find the deck in cached events
+    for url, event_payload in events.items():
+        for deck in event_payload.get("decklists", []):
+            deck_id = deck.get("mtgoId") or deck.get("identifier")
+            if str(deck_id) == str(deck_number) or deck_number in url:
+                # Convert deck to text format
+                return _deck_to_text(deck)
+
+    # If not found in cache, raise error
+    raise ValueError(f"Deck {deck_number} not found in MTGO cache. Try fetching recent events first.")
+
+
+def _deck_to_text(deck: dict[str, Any]) -> str:
+    """Convert MTGO deck payload to text format."""
+    lines: list[str] = []
+
+    # Add mainboard
+    mainboard = deck.get("main_deck", [])
+    for card in mainboard:
+        qty = card.get("qty") or card.get("quantity", 1)
+        attrs = card.get("card_attributes") or {}
+        name = attrs.get("card_name") or card.get("card_name") or "Unknown"
+        lines.append(f"{qty} {name}")
+
+    # Add sideboard
+    sideboard = deck.get("sideboard_deck", [])
+    if sideboard:
+        lines.append("")  # Blank line separator
+        for card in sideboard:
+            qty = card.get("qty") or card.get("quantity", 1)
+            attrs = card.get("card_attributes") or {}
+            name = attrs.get("card_name") or card.get("card_name") or "Unknown"
+            lines.append(f"{qty} {name}")
+
+    return "\n".join(lines)
+
+
 __all__ = [
     "fetch_decklist_index",
     "fetch_deck_event",
     "iter_deck_events",
     "fetch_recent_event_history",
+    "fetch_recent_events_parallel",
+    "get_archetypes",
+    "get_archetype_decks",
+    "fetch_deck_text",
 ]
 
 

@@ -13,11 +13,7 @@ from typing import Any, Final
 
 from loguru import logger
 
-from navigators.mtggoldfish import (
-    fetch_deck_text,
-    get_archetype_decks,
-    get_archetypes,
-)
+from navigators import mtggoldfish, mtgo_decklists
 from utils.constants import (
     ARCHETYPE_DECKS_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
@@ -47,6 +43,8 @@ class MetagameRepository:
         """
         Get list of archetypes for a specific format.
 
+        Uses MTGO.com as the primary source with MTGGoldfish as fallback.
+
         Args:
             mtg_format: MTG format (e.g., "Modern", "Standard")
             force_refresh: If True, bypass cache and fetch fresh data
@@ -61,15 +59,30 @@ class MetagameRepository:
                 logger.debug(f"Using cached archetypes for {mtg_format}")
                 return cached
 
-        # Fetch fresh data
-        logger.info(f"Fetching fresh archetypes for {mtg_format}")
+        # Fetch fresh data - try MTGO first
+        logger.info(f"Fetching fresh archetypes for {mtg_format} from MTGO.com")
         try:
-            archetypes = get_archetypes(mtg_format)
+            archetypes = mtgo_decklists.get_archetypes(mtg_format)
+            if archetypes:
+                # Cache the results
+                self._save_cached_archetypes(mtg_format, archetypes)
+                logger.info(f"Successfully fetched {len(archetypes)} archetypes from MTGO.com")
+                return archetypes
+            else:
+                logger.warning(f"No archetypes found on MTGO.com for {mtg_format}, falling back to MTGGoldfish")
+        except Exception as exc:
+            logger.warning(f"Failed to fetch archetypes from MTGO.com: {exc}, falling back to MTGGoldfish")
+
+        # Fallback to MTGGoldfish
+        logger.info(f"Fetching archetypes for {mtg_format} from MTGGoldfish")
+        try:
+            archetypes = mtggoldfish.get_archetypes(mtg_format)
             # Cache the results
             self._save_cached_archetypes(mtg_format, archetypes)
+            logger.info(f"Successfully fetched {len(archetypes)} archetypes from MTGGoldfish")
             return archetypes
         except Exception as exc:
-            logger.error(f"Failed to fetch archetypes: {exc}")
+            logger.error(f"Failed to fetch archetypes from MTGGoldfish: {exc}")
             # Try to return stale cache if available
             cached = self._load_cached_archetypes(mtg_format, max_age=None)
             if cached:
@@ -82,6 +95,8 @@ class MetagameRepository:
     ) -> list[dict[str, Any]]:
         """
         Get deck lists for a specific archetype.
+
+        Uses MTGO.com as the primary source with MTGGoldfish as fallback.
 
         Args:
             archetype: Archetype dictionary with 'href' or 'url' key
@@ -101,16 +116,32 @@ class MetagameRepository:
                 logger.debug(f"Using cached decks for {archetype_name}")
                 return cached
 
-        # Fetch fresh data
-        logger.info(f"Fetching fresh decks for {archetype_name}")
+        # Fetch fresh data - try MTGO first
+        logger.info(f"Fetching fresh decks for {archetype_name} from MTGO.com")
+        try:
+            # Try to get decks from MTGO using archetype name or href
+            decks = mtgo_decklists.get_archetype_decks(archetype_href)
+            if decks:
+                # Cache the results
+                self._save_cached_decks(archetype_href, decks)
+                logger.info(f"Successfully fetched {len(decks)} decks from MTGO.com")
+                return decks
+            else:
+                logger.warning(f"No decks found on MTGO.com for {archetype_name}, falling back to MTGGoldfish")
+        except Exception as exc:
+            logger.warning(f"Failed to fetch decks from MTGO.com: {exc}, falling back to MTGGoldfish")
+
+        # Fallback to MTGGoldfish
+        logger.info(f"Fetching decks for {archetype_name} from MTGGoldfish")
         try:
             # get_archetype_decks expects just the href string, not the dict
-            decks = get_archetype_decks(archetype_href)
+            decks = mtggoldfish.get_archetype_decks(archetype_href)
             # Cache the results
             self._save_cached_decks(archetype_href, decks)
+            logger.info(f"Successfully fetched {len(decks)} decks from MTGGoldfish")
             return decks
         except Exception as exc:
-            logger.error(f"Failed to fetch decks for {archetype_name}: {exc}")
+            logger.error(f"Failed to fetch decks from MTGGoldfish: {exc}")
             # Try to return stale cache if available
             cached = self._load_cached_decks(archetype_href, max_age=None)
             if cached:
@@ -121,6 +152,8 @@ class MetagameRepository:
     def download_deck_content(self, deck: dict[str, Any]) -> str:
         """
         Download the actual deck list content.
+
+        Uses MTGO.com as the primary source with MTGGoldfish as fallback.
 
         Args:
             deck: Deck dictionary with 'number' key (deck ID)
@@ -137,14 +170,37 @@ class MetagameRepository:
         if not deck_number:
             raise ValueError(f"Deck {deck_name} has no 'number' field")
 
-        logger.info(f"Downloading deck: {deck_name}")
+        # Check if this is an MTGO deck (has _mtgo_payload field)
+        mtgo_payload = deck.get("_mtgo_payload")
+        if mtgo_payload:
+            logger.info(f"Downloading deck from MTGO cache: {deck_name}")
+            try:
+                # Use the stored payload directly
+                from navigators.mtgo_decklists import _deck_to_text
+                deck_content = _deck_to_text(mtgo_payload)
+                return deck_content
+            except Exception as exc:
+                logger.warning(f"Failed to use MTGO deck payload: {exc}, trying by ID")
+
+        # Try MTGO first by deck ID
+        logger.info(f"Downloading deck from MTGO.com: {deck_name}")
+        try:
+            deck_content = mtgo_decklists.fetch_deck_text(deck_number)
+            logger.info(f"Successfully downloaded deck from MTGO.com")
+            return deck_content
+        except Exception as exc:
+            logger.warning(f"Failed to download from MTGO.com: {exc}, falling back to MTGGoldfish")
+
+        # Fallback to MTGGoldfish
+        logger.info(f"Downloading deck from MTGGoldfish: {deck_name}")
         try:
             # fetch_deck_text handles caching and returns the text directly
             # This avoids unnecessary write-to-file and read-from-file operations
-            deck_content = fetch_deck_text(deck_number)
+            deck_content = mtggoldfish.fetch_deck_text(deck_number)
+            logger.info(f"Successfully downloaded deck from MTGGoldfish")
             return deck_content
         except Exception as exc:
-            logger.error(f"Failed to download deck {deck_name}: {exc}")
+            logger.error(f"Failed to download deck from MTGGoldfish {deck_name}: {exc}")
             raise
 
     # ============= Cache Management =============
