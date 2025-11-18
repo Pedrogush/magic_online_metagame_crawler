@@ -162,6 +162,8 @@ class SearchService:
             - formats: list[str] - Format legality filters
             - color_mode: str - Color filter mode
             - selected_colors: list[str] - Colors to filter by
+            - radar_enabled: bool - Whether radar filtering is enabled
+            - radar_cards: set[str] - Set of card names to filter by (from radar)
         """
         # Parse and normalize filters
         mana_query = normalize_mana_query(filters.get("mana", ""))
@@ -229,6 +231,13 @@ class SearchService:
                 if not matches_color_filter(
                     card.get("color_identity") or [], selected_colors, color_mode
                 ):
+                    continue
+
+            # Radar filter
+            if filters.get("radar_enabled") and filters.get("radar_cards"):
+                radar_cards = filters.get("radar_cards", set())
+                card_name = card.get("name", "")
+                if card_name not in radar_cards:
                     continue
 
             # Add to results

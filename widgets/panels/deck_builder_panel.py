@@ -4,6 +4,7 @@ from typing import Any
 import wx
 import wx.dataview as dv
 
+from services.radar_service import RadarData
 from utils.constants import DARK_ALT, DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import (
@@ -37,6 +38,7 @@ class DeckBuilderPanel(wx.Panel):
         on_search: Callable[[], None],
         on_clear: Callable[[], None],
         on_result_selected: Callable[[int], None],
+        on_open_radar_dialog: Callable[[], RadarData | None] | None = None,
     ) -> None:
         super().__init__(parent)
 
@@ -48,6 +50,7 @@ class DeckBuilderPanel(wx.Panel):
         self._on_search_callback = on_search
         self._on_clear_callback = on_clear
         self._on_result_selected_callback = on_result_selected
+        self._on_open_radar_dialog = on_open_radar_dialog
 
         # State variables
         self.inputs: dict[str, wx.TextCtrl] = {}
@@ -61,6 +64,11 @@ class DeckBuilderPanel(wx.Panel):
         self.status_label: wx.StaticText | None = None
         self.results_cache: list[dict[str, Any]] = []
         self._mana_icon_cache: dict[str, dv.DataViewIconText] = {}
+
+        # Radar state
+        self.active_radar: RadarData | None = None
+        self.radar_enabled: bool = False
+        self.radar_zone: str = "both"  # "mainboard", "sideboard", or "both"
 
         # Build the UI
         self._build_ui()
@@ -195,7 +203,29 @@ class DeckBuilderPanel(wx.Panel):
         clear_btn = wx.Button(self, label="Clear Filters")
         stylize_button(clear_btn)
         clear_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_clear())
-        controls.Add(clear_btn, 0)
+        controls.Add(clear_btn, 0, wx.RIGHT, 6)
+
+        # Radar toggle checkbox
+        self.radar_cb = wx.CheckBox(self, label="Use Radar Filter")
+        self.radar_cb.SetForegroundColour(LIGHT_TEXT)
+        self.radar_cb.SetBackgroundColour(DARK_PANEL)
+        self.radar_cb.Bind(wx.EVT_CHECKBOX, self._on_radar_toggle)
+        controls.Add(self.radar_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+
+        # Radar zone choice
+        self.radar_zone_choice = wx.Choice(self, choices=["Both", "Mainboard", "Sideboard"])
+        self.radar_zone_choice.SetSelection(0)
+        stylize_choice(self.radar_zone_choice)
+        self.radar_zone_choice.Enable(False)
+        self.radar_zone_choice.Bind(wx.EVT_CHOICE, self._on_radar_zone_changed)
+        controls.Add(self.radar_zone_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+
+        # Open Radar button
+        self.open_radar_btn = wx.Button(self, label="Open Radar...")
+        stylize_button(self.open_radar_btn)
+        self.open_radar_btn.Bind(wx.EVT_BUTTON, self._on_open_radar)
+        controls.Add(self.open_radar_btn, 0)
+
         controls.AddStretchSpacer(1)
         sizer.Add(controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
@@ -259,6 +289,19 @@ class DeckBuilderPanel(wx.Panel):
         filters["selected_colors"] = [
             code for code, cb in self.color_checks.items() if cb.IsChecked()
         ]
+
+        # Add radar filter if enabled
+        filters["radar_enabled"] = self.radar_enabled
+        if self.radar_enabled and self.active_radar:
+            from services.radar_service import get_radar_service
+
+            radar_service = get_radar_service()
+            filters["radar_cards"] = radar_service.get_radar_card_names(
+                self.active_radar, self.radar_zone
+            )
+        else:
+            filters["radar_cards"] = set()
+
         return filters
 
     def clear_filters(self) -> None:
@@ -282,6 +325,13 @@ class DeckBuilderPanel(wx.Panel):
             self.color_mode_choice.SetSelection(0)
         for cb in self.color_checks.values():
             cb.SetValue(False)
+
+        # Clear radar filter
+        self.radar_enabled = False
+        self.active_radar = None
+        if hasattr(self, "radar_cb"):
+            self.radar_cb.SetValue(False)
+            self.radar_zone_choice.Enable(False)
 
     def update_results(self, results: list[dict[str, Any]]) -> None:
         """Update the results list with search results."""
@@ -344,3 +394,52 @@ class DeckBuilderPanel(wx.Panel):
         image = bitmap.ConvertToImage()
         scaled = image.Scale(width, height, wx.IMAGE_QUALITY_HIGH)
         return wx.Bitmap(scaled)
+
+    # ============= Radar Integration =============
+
+    def _on_radar_toggle(self, event: wx.Event) -> None:
+        """Handle radar filter checkbox toggle."""
+        self.radar_enabled = self.radar_cb.IsChecked()
+        self.radar_zone_choice.Enable(self.radar_enabled)
+
+        if self.radar_enabled and not self.active_radar:
+            # Prompt user to open radar dialog
+            wx.MessageBox(
+                "Please open a radar using the 'Open Radar...' button.",
+                "No Radar Loaded",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            self.radar_cb.SetValue(False)
+            self.radar_enabled = False
+            self.radar_zone_choice.Enable(False)
+
+    def _on_radar_zone_changed(self, event: wx.Event) -> None:
+        """Handle radar zone selection change."""
+        selection = self.radar_zone_choice.GetSelection()
+        zone_map = {0: "both", 1: "mainboard", 2: "sideboard"}
+        self.radar_zone = zone_map.get(selection, "both")
+
+    def _on_open_radar(self, event: wx.Event) -> None:
+        """Handle open radar button click."""
+        if self._on_open_radar_dialog:
+            radar = self._on_open_radar_dialog()
+            if radar:
+                self.set_active_radar(radar)
+
+    def set_active_radar(self, radar: RadarData) -> None:
+        """
+        Set the active radar for filtering.
+
+        Args:
+            radar: RadarData to use for filtering
+        """
+        self.active_radar = radar
+        self.radar_enabled = True
+        self.radar_cb.SetValue(True)
+        self.radar_zone_choice.Enable(True)
+
+        if self.status_label:
+            self.status_label.SetLabel(
+                f"Radar active: {radar.archetype_name} "
+                f"({len(radar.mainboard_cards)} MB, {len(radar.sideboard_cards)} SB cards)"
+            )
