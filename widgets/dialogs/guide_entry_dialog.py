@@ -141,7 +141,7 @@ class GuideEntryDialog(wx.Dialog):
         cancel_btn.Bind(wx.EVT_BUTTON, lambda evt: self.EndModal(wx.ID_CANCEL))
         button_sizer.Add(cancel_btn, 0)
 
-        main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
+        panel_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 8)
 
         # Load existing data if provided
         if data:
