@@ -227,24 +227,42 @@ class CachePreloaderService:
             return {}
 
     def _save_format_cache(self, fmt: str, cache: dict[str, Any]) -> None:
-        """Save format-specific cache."""
+        """Save format-specific cache with Windows-safe file handling."""
+        import platform
+        import time
+        import uuid
+
         cache_path = self._get_format_cache_path(fmt)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Write to temp file first
-            temp_path = cache_path.with_suffix(".tmp")
+            # Use unique temp filename to avoid conflicts
+            temp_path = cache_path.with_suffix(f".tmp.{uuid.uuid4().hex}")
             with temp_path.open("w", encoding="utf-8") as fh:
                 json.dump(cache, fh, indent=2)
 
-            # Atomic replace
-            import platform
+            # On Windows, delete target file first (with retry for file locking)
             if platform.system() == 'Windows' and cache_path.exists():
-                cache_path.unlink()
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        cache_path.unlink()
+                        break
+                    except OSError:
+                        if attempt < max_retries - 1:
+                            time.sleep(0.1 * (attempt + 1))
+
+            # Atomic replace
             temp_path.replace(cache_path)
 
         except Exception as exc:
             logger.error(f"Failed to save {fmt} cache: {exc}")
+            # Clean up temp file
+            if 'temp_path' in locals() and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
 
     def _merge_format_caches(self) -> None:
         """Merge all format-specific caches into the main cache."""

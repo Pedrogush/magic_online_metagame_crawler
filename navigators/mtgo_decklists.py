@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
@@ -25,6 +27,9 @@ MAX_PARALLEL_WORKERS = 15
 
 # Regex pattern to extract JSON payload from MTGO decklist pages
 DETAIL_RE = re.compile(r"window\.MTGO\.decklists\.data\s*=\s*(\{.*?\});", re.DOTALL)
+
+# Global lock to prevent concurrent cache writes (main thread + background preloader)
+_cache_write_lock = threading.Lock()
 
 
 def _load_cache() -> dict[str, Any]:
@@ -53,36 +58,54 @@ def _load_cache() -> dict[str, Any]:
 
 
 def _save_cache(cache: dict[str, Any]) -> None:
-    """Save cache with atomic write to prevent corruption."""
+    """
+    Save cache with atomic write and thread-safe locking.
+
+    Uses a global lock to prevent concurrent writes from:
+    - Main thread parallel workers
+    - Background cache preloader service
+    """
     import platform
 
-    MTGO_DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    # Use unique temp filename to support concurrent writes from parallel workers
-    unique_suffix = f".tmp.{uuid.uuid4().hex}"
-    temp_file = MTGO_DECK_CACHE_FILE.with_suffix(unique_suffix)
-    try:
-        with temp_file.open("w", encoding="utf-8") as fh:
-            json.dump(cache, fh, indent=2)
+    # Acquire global lock to prevent concurrent saves
+    with _cache_write_lock:
+        MTGO_DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Use unique temp filename
+        unique_suffix = f".tmp.{uuid.uuid4().hex}"
+        temp_file = MTGO_DECK_CACHE_FILE.with_suffix(unique_suffix)
 
-        # On Windows, we need to delete the target file first before renaming
-        if platform.system() == 'Windows' and MTGO_DECK_CACHE_FILE.exists():
-            try:
-                MTGO_DECK_CACHE_FILE.unlink()
-            except OSError as exc:
-                logger.warning(f"Could not delete existing cache file: {exc}")
-                # Try to continue anyway
+        try:
+            # Write to temp file
+            with temp_file.open("w", encoding="utf-8") as fh:
+                json.dump(cache, fh, indent=2)
 
-        # Atomic rename (on Unix) or regular rename (on Windows after deletion)
-        temp_file.replace(MTGO_DECK_CACHE_FILE)
-    except Exception as exc:
-        logger.error(f"Failed to save MTGO cache: {exc}")
-        # Clean up temp file if it exists
-        if temp_file.exists():
-            try:
-                temp_file.unlink()
-            except OSError:
-                pass
-        raise
+            # On Windows, delete target file first (with retry for file locking)
+            if platform.system() == 'Windows' and MTGO_DECK_CACHE_FILE.exists():
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        MTGO_DECK_CACHE_FILE.unlink()
+                        break  # Success
+                    except OSError as exc:
+                        if attempt < max_retries - 1:
+                            # File is locked, wait and retry
+                            time.sleep(0.1 * (attempt + 1))  # 0.1s, 0.2s, 0.3s
+                        else:
+                            # Final attempt failed, log but continue
+                            logger.debug(f"Could not delete existing cache file after {max_retries} attempts: {exc}")
+
+            # Atomic rename (on Unix) or regular rename (on Windows after deletion)
+            temp_file.replace(MTGO_DECK_CACHE_FILE)
+
+        except Exception as exc:
+            logger.error(f"Failed to save MTGO cache: {exc}")
+            # Clean up temp file if it exists
+            if temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except OSError:
+                    pass
+            raise
 
 
 def _fetch_html(url: str, stream_optimize: bool = True) -> str:
