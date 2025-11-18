@@ -2,10 +2,8 @@
 
 Features:
 - Display MTG card images with rounded corners
-- Navigate between multiple printings with arrow buttons
+- Toggle between multiple faces with an overlay button
 - Smooth fade transition animations between images
-- Printing counter display (e.g., "1 of 3")
-- Transparent icon overlay support for double-faced cards
 """
 
 from __future__ import annotations
@@ -116,7 +114,7 @@ class CardImageDisplay(wx.Panel):
         self.animation_current_bitmap: wx.Bitmap | None = None
 
         # Set panel size
-        self.SetMinSize((width, height + 50))  # Extra space for buttons
+        self.SetMinSize((width, height))
 
         # Create UI components
         self._create_ui()
@@ -125,7 +123,7 @@ class CardImageDisplay(wx.Panel):
         self.show_placeholder()
 
     def _create_ui(self) -> None:
-        """Create the UI layout with image display and navigation buttons."""
+        """Create the UI layout with image display and overlay controls."""
         # Main vertical sizer
         main_sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -147,33 +145,19 @@ class CardImageDisplay(wx.Panel):
 
         main_sizer.Add(self.image_panel, 1, wx.EXPAND | wx.ALL, 0)
 
-        # Navigation panel
-        nav_panel = wx.Panel(self)
-        nav_sizer = wx.BoxSizer(wx.HORIZONTAL)
-
-        # Left arrow button
-        self.left_button = wx.Button(nav_panel, label="◀", size=(40, 30))
-        self.left_button.SetToolTip("Previous printing (Left Arrow)")
-        self.left_button.Bind(wx.EVT_BUTTON, self._on_previous_clicked)
-        self.left_button.Enable(False)
-        nav_sizer.Add(self.left_button, 0, wx.ALL, 5)
-
-        # Counter label (e.g., "1 of 3")
-        self.counter_label = wx.StaticText(nav_panel, label="", style=wx.ALIGN_CENTER)
-        font = self.counter_label.GetFont()
-        font.PointSize = 9
-        self.counter_label.SetFont(font)
-        nav_sizer.Add(self.counter_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 5)
-
-        # Right arrow button
-        self.right_button = wx.Button(nav_panel, label="▶", size=(40, 30))
-        self.right_button.SetToolTip("Next printing (Right Arrow)")
-        self.right_button.Bind(wx.EVT_BUTTON, self._on_next_clicked)
-        self.right_button.Enable(False)
-        nav_sizer.Add(self.right_button, 0, wx.ALL, 5)
-
-        nav_panel.SetSizer(nav_sizer)
-        main_sizer.Add(nav_panel, 0, wx.EXPAND | wx.ALL, 0)
+        # Face toggle overlay button (hidden by default)
+        self.flip_icon_bitmap = self._create_flip_icon()
+        self.flip_button = wx.BitmapButton(
+            self.bitmap_ctrl,
+            bitmap=self.flip_icon_bitmap,
+            style=wx.BORDER_NONE,
+            size=self.flip_icon_bitmap.GetSize(),
+        )
+        self.flip_button.SetToolTip("Flip card face")
+        self.flip_button.Bind(wx.EVT_BUTTON, self._on_flip_clicked)
+        self.flip_button.Hide()
+        self.flip_button.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self._position_flip_button()
 
         self.SetSizer(main_sizer)
 
@@ -363,63 +347,89 @@ class CardImageDisplay(wx.Panel):
         return wx.Bitmap(result)
 
     def _update_navigation(self) -> None:
-        """Update navigation button states and counter label."""
-        num_images = len(self.image_paths)
+        """Update visibility and placement of the face toggle overlay."""
+        has_alternate_face = len(self.image_paths) > 1
 
-        if num_images <= 1:
-            # Hide navigation for single or no images
-            self.left_button.Enable(False)
-            self.right_button.Enable(False)
-            self.counter_label.SetLabel("")
+        if has_alternate_face:
+            self.flip_button.Show()
+            self.flip_button.Enable()
+            self._position_flip_button()
         else:
-            # Enable/disable buttons based on position
-            self.left_button.Enable(self.current_index > 0)
-            self.right_button.Enable(self.current_index < num_images - 1)
+            self.flip_button.Hide()
 
-            # Update counter
-            self.counter_label.SetLabel(f"{self.current_index + 1} of {num_images}")
-
-        # Force button refresh
-        self.left_button.Refresh()
-        self.right_button.Refresh()
-
-    def _on_previous_clicked(self, event: wx.CommandEvent) -> None:
-        """Handle previous button click."""
-        logger.debug(f"Previous button clicked, current index: {self.current_index}")
-        if self.current_index > 0:
-            self.current_index -= 1
-            logger.debug(f"Moving to index: {self.current_index}")
-            self._load_image_at_index(self.current_index, animate=True)
-            self._update_navigation()
-        event.Skip()
-
-    def _on_next_clicked(self, event: wx.CommandEvent) -> None:
-        """Handle next button click."""
-        logger.debug(f"Next button clicked, current index: {self.current_index}")
-        if self.current_index < len(self.image_paths) - 1:
-            self.current_index += 1
-            logger.debug(f"Moving to index: {self.current_index}")
-            self._load_image_at_index(self.current_index, animate=True)
-            self._update_navigation()
-        event.Skip()
+        self.Refresh(False)
 
     def _on_key_down(self, event: wx.KeyEvent) -> None:
         """Handle keyboard navigation."""
         keycode = event.GetKeyCode()
 
-        if keycode == wx.WXK_LEFT and self.left_button.IsEnabled():
-            self._on_previous_clicked(None)
-        elif keycode == wx.WXK_RIGHT and self.right_button.IsEnabled():
-            self._on_next_clicked(None)
+        if keycode in (wx.WXK_LEFT, wx.WXK_RIGHT, wx.WXK_SPACE):
+            self._toggle_face()
         else:
             event.Skip()
 
     def _on_bitmap_left_click(self, event: wx.MouseEvent) -> None:
         """Toggle to the next image when the bitmap is clicked."""
         if len(self.image_paths) > 1:
-            self._on_next_clicked(event)
+            self._toggle_face()
         else:
             event.Skip()
+
+    def _on_flip_clicked(self, _event: wx.CommandEvent) -> None:
+        """Handle overlay flip icon click."""
+        self._toggle_face()
+
+    def _toggle_face(self) -> None:
+        """Advance to the next face when multiple images are available."""
+        if len(self.image_paths) <= 1:
+            return
+        self.current_index = (self.current_index + 1) % len(self.image_paths)
+        self._load_image_at_index(self.current_index, animate=True)
+        self._update_navigation()
+
+    def _on_bitmap_resized(self, event: wx.SizeEvent) -> None:
+        """Reposition overlay controls when the image area changes size."""
+        self._position_flip_button()
+        event.Skip()
+
+    def _position_flip_button(self) -> None:
+        """Place the flip button in the top-right corner of the image."""
+        if not hasattr(self, "flip_button") or not self.flip_button:
+            return
+
+        btn_width, btn_height = self.flip_button.GetSize()
+        bmp_width, _ = self.bitmap_ctrl.GetSize()
+        margin = 8
+        x = max(margin, bmp_width - btn_width - margin)
+        y = margin
+        self.flip_button.SetPosition((x, y))
+        self.flip_button.Raise()
+
+    def _create_flip_icon(self, size: int = 32) -> wx.Bitmap:
+        """Create a circular flip icon bitmap with transparent background."""
+        bitmap = wx.Bitmap(size, size, depth=32)
+        dc = wx.MemoryDC(bitmap)
+        dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0, 0)))
+        dc.Clear()
+
+        bitmap = wx.Bitmap(size, size, depth=32)
+        dc = wx.MemoryDC(bitmap)
+        dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0, 0)))
+        dc.Clear()
+
+        font_size = max(size - 2, 1)
+        font = wx.Font(font_size, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        dc.SetFont(font)
+        dc.SetTextForeground(wx.Colour(255, 255, 255))
+        dc.SetBackgroundMode(wx.TRANSPARENT)
+
+        text = "⟳"
+        text_width, text_height = dc.GetTextExtent(text)
+        x = (size - text_width) // 2
+        y = (size - text_height) // 2
+        dc.DrawText(text, x, y)
+        dc.SelectObject(wx.NullBitmap)
+        return bitmap
 
     def _create_rounded_bitmap(self, image: wx.Image) -> wx.Bitmap:
         """Create a bitmap with the image centered and rounded corners.
