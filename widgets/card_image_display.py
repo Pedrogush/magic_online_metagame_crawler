@@ -378,37 +378,37 @@ class CardImageDisplay(wx.Panel):
         Args:
             gc: GraphicsContext to draw on
         """
-        # Calculate icon position (top-right corner)
-        icon_x = self.image_width - self.flip_icon_size - self.flip_icon_margin
+        # Calculate icon position (top-left corner)
+        icon_x = self.flip_icon_margin
         icon_y = self.flip_icon_margin
 
-        # Draw semi-transparent white circle background with shadow effect
+        # Draw semi-transparent shadow effect
         # Outer shadow
         gc.SetBrush(gc.CreateRadialGradientBrush(
             icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2 + 2,
             icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2 + 2,
             self.flip_icon_size / 2 + 2,
-            wx.Colour(0, 0, 0, 80),  # semi-transparent black shadow
-            wx.Colour(0, 0, 0, 0)    # fully transparent
+            wx.Colour(0, 0, 0, 100),  # semi-transparent black shadow
+            wx.Colour(0, 0, 0, 0)     # fully transparent
         ))
         gc.SetPen(wx.TRANSPARENT_PEN)
         gc.DrawEllipse(icon_x - 2, icon_y, self.flip_icon_size + 4, self.flip_icon_size + 4)
 
-        # Main background circle
+        # Main background circle (black with semi-transparency)
         gc.SetBrush(gc.CreateRadialGradientBrush(
             icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2,
             icon_x + self.flip_icon_size / 2, icon_y + self.flip_icon_size / 2,
             self.flip_icon_size / 2,
-            wx.Colour(255, 255, 255, 220),  # center: white, semi-transparent
-            wx.Colour(200, 200, 200, 180)   # edge: light gray, more transparent
+            wx.Colour(40, 40, 40, 220),   # center: dark gray, semi-transparent
+            wx.Colour(20, 20, 20, 200)    # edge: darker gray, semi-transparent
         ))
-        gc.SetPen(wx.Pen(wx.Colour(150, 150, 150, 200), 2))
+        gc.SetPen(wx.Pen(wx.Colour(80, 80, 80, 200), 2))
         gc.DrawEllipse(icon_x, icon_y, self.flip_icon_size, self.flip_icon_size)
 
-        # Draw the flip icon text
+        # Draw the flip icon text (yellow)
         font_size = int(self.flip_icon_size * 0.65)
         font = wx.Font(wx.FontInfo(font_size).Bold())
-        gc.SetFont(font, wx.Colour(0, 0, 0, 255))  # Black text, opaque
+        gc.SetFont(font, wx.Colour(255, 220, 0, 255))  # Yellow text, opaque
 
         text = "⟳"
         tw, th = gc.GetTextExtent(text)
@@ -422,7 +422,7 @@ class CardImageDisplay(wx.Panel):
         Returns:
             wx.Rect representing the flip icon bounds
         """
-        icon_x = self.image_width - self.flip_icon_size - self.flip_icon_margin
+        icon_x = self.flip_icon_margin
         icon_y = self.flip_icon_margin
         return wx.Rect(icon_x, icon_y, self.flip_icon_size, self.flip_icon_size)
 
