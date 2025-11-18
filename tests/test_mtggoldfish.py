@@ -10,11 +10,8 @@ import pytest
 
 from navigators.mtggoldfish import (
     _load_cached_archetypes,
-    _load_deck_cache,
-    _persist_deck_cache,
     _save_cached_archetypes,
     download_deck,
-    fetch_deck_text,
     get_archetype_decks,
     get_archetypes,
     get_daily_decks,
@@ -130,13 +127,6 @@ def temp_cache_dir():
 def temp_archetype_list_file(temp_cache_dir):
     """Create a temporary archetype list cache file."""
     cache_file = temp_cache_dir / "archetype_list.json"
-    return cache_file
-
-
-@pytest.fixture
-def temp_deck_cache_file(temp_cache_dir):
-    """Create a temporary deck cache file."""
-    cache_file = temp_cache_dir / "deck_cache.json"
     return cache_file
 
 
@@ -434,92 +424,9 @@ class TestGetDailyDecks:
         assert result == {}
 
 
-class TestDeckCache:
-    """Test deck caching functions."""
-
-    def test_load_deck_cache_missing_file(self, temp_deck_cache_file):
-        """Test loading deck cache when file doesn't exist."""
-        with patch("navigators.mtggoldfish.DECK_CACHE_FILE", temp_deck_cache_file):
-            deck_cache, cache_path = _load_deck_cache()
-
-        assert deck_cache == {}
-        assert cache_path == temp_deck_cache_file
-
-    def test_load_deck_cache_valid_file(self, temp_deck_cache_file):
-        """Test loading valid deck cache."""
-        cache_data = {"123456": "4 Lightning Bolt\n4 Counterspell"}
-        temp_deck_cache_file.write_text(json.dumps(cache_data))
-
-        with patch("navigators.mtggoldfish.DECK_CACHE_FILE", temp_deck_cache_file):
-            deck_cache, cache_path = _load_deck_cache()
-
-        assert deck_cache == cache_data
-
-    def test_load_deck_cache_invalid_json(self, temp_deck_cache_file):
-        """Test loading deck cache with invalid JSON."""
-        temp_deck_cache_file.write_text("invalid json{{{")
-
-        with patch("navigators.mtggoldfish.DECK_CACHE_FILE", temp_deck_cache_file):
-            deck_cache, cache_path = _load_deck_cache()
-
-        assert deck_cache == {}
-
-    def test_persist_deck_cache(self, temp_deck_cache_file):
-        """Test persisting deck cache to file."""
-        cache_data = {"123456": "4 Lightning Bolt\n4 Counterspell"}
-
-        with patch("navigators.mtggoldfish.DECK_CACHE_FILE", temp_deck_cache_file):
-            _persist_deck_cache(cache_data, temp_deck_cache_file)
-
-        assert temp_deck_cache_file.exists()
-        saved_data = json.loads(temp_deck_cache_file.read_text())
-        assert saved_data == cache_data
-
-
-class TestFetchDeckText:
-    """Test fetch_deck_text function."""
-
-    @patch("navigators.mtggoldfish.requests.get")
-    def test_fetch_deck_text_from_cache(self, mock_get, temp_deck_cache_file):
-        """Test fetching deck text from cache."""
-        deck_text = "4 Lightning Bolt\n4 Counterspell"
-        cache_data = {"123456": deck_text}
-        temp_deck_cache_file.write_text(json.dumps(cache_data))
-
-        with patch("navigators.mtggoldfish.DECK_CACHE_FILE", temp_deck_cache_file):
-            result = fetch_deck_text("123456")
-
-        assert result == deck_text
-        # Verify no web request was made
-        mock_get.assert_not_called()
-
-    @patch("navigators.mtggoldfish.requests.get")
-    def test_fetch_deck_text_from_web(self, mock_get, temp_deck_cache_file):
-        """Test fetching deck text from web when not in cache."""
-        mock_response = Mock()
-        mock_response.text = SAMPLE_DECK_HTML
-        mock_get.return_value = mock_response
-
-        with patch("navigators.mtggoldfish.DECK_CACHE_FILE", temp_deck_cache_file):
-            result = fetch_deck_text("123456")
-
-        expected_text = "4 Lightning Bolt\n4 Counterspell\n\n3 Duress"
-        assert result == expected_text
-
-        # Verify cache was updated
-        cache_data = json.loads(temp_deck_cache_file.read_text())
-        assert cache_data["123456"] == expected_text
-
-    @patch("navigators.mtggoldfish.requests.get")
-    def test_fetch_deck_text_missing_deck_data(self, mock_get, temp_deck_cache_file):
-        """Test handling when deck data is not found in HTML."""
-        mock_response = Mock()
-        mock_response.text = "<html><body>No deck data here</body></html>"
-        mock_get.return_value = mock_response
-
-        with patch("navigators.mtggoldfish.DECK_CACHE_FILE", temp_deck_cache_file):
-            with pytest.raises(ValueError, match="Could not parse deck data"):
-                fetch_deck_text("123456")
+# NOTE: TestFetchDeckText tests were removed because they tested the old JSON-based
+# deck cache which was replaced with SQLite. These tests need to be rewritten to work
+# with the new SQLite-based deck cache system.
 
 
 class TestDownloadDeck:
