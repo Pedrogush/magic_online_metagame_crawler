@@ -84,18 +84,19 @@ class MetagameRepository:
         Get deck lists for a specific archetype.
 
         Args:
-            archetype: Archetype dictionary with 'url' key
+            archetype: Archetype dictionary with 'href' or 'url' key
             force_refresh: If True, bypass cache and fetch fresh data
 
         Returns:
             List of deck dictionaries
         """
-        archetype_url = archetype.get("url", "")
+        # Support both 'href' (from get_archetypes) and 'url' for compatibility
+        archetype_href = archetype.get("href") or archetype.get("url", "")
         archetype_name = archetype.get("name", "Unknown")
 
         # Try cache first unless forced refresh
         if not force_refresh:
-            cached = self._load_cached_decks(archetype_url)
+            cached = self._load_cached_decks(archetype_href)
             if cached is not None:
                 logger.debug(f"Using cached decks for {archetype_name}")
                 return cached
@@ -103,14 +104,15 @@ class MetagameRepository:
         # Fetch fresh data
         logger.info(f"Fetching fresh decks for {archetype_name}")
         try:
-            decks = get_archetype_decks(archetype)
+            # get_archetype_decks expects just the href string, not the dict
+            decks = get_archetype_decks(archetype_href)
             # Cache the results
-            self._save_cached_decks(archetype_url, decks)
+            self._save_cached_decks(archetype_href, decks)
             return decks
         except Exception as exc:
             logger.error(f"Failed to fetch decks for {archetype_name}: {exc}")
             # Try to return stale cache if available
-            cached = self._load_cached_decks(archetype_url, max_age=None)
+            cached = self._load_cached_decks(archetype_href, max_age=None)
             if cached:
                 logger.warning(f"Returning stale cached decks for {archetype_name}")
                 return cached
