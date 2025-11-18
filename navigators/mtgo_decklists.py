@@ -23,6 +23,9 @@ DECKLIST_INDEX_URL = "https://www.mtgo.com/decklists/{year}/{month:02d}"
 DEFAULT_TIMEOUT = 30
 MAX_PARALLEL_WORKERS = 5
 
+# Regex pattern to extract JSON payload from MTGO decklist pages
+DETAIL_RE = re.compile(r"window\.MTGO\.decklists\.data\s*=\s*(\{.*?\});", re.DOTALL)
+
 
 def _load_cache() -> dict[str, Any]:
     if not MTGO_DECK_CACHE_FILE.exists():
@@ -71,11 +74,75 @@ def _save_cache(cache: dict[str, Any]) -> None:
         raise
 
 
-def _fetch_html(url: str) -> str:
+def _fetch_html(url: str, stream_optimize: bool = True) -> str:
+    """
+    Fetch HTML from MTGO.com with optional streaming optimization.
+
+    When stream_optimize=True, stops downloading as soon as the JSON payload
+    is found, saving bandwidth since the script tag appears before main content.
+
+    Args:
+        url: URL to fetch
+        stream_optimize: If True, use streaming to stop early when JSON is found
+
+    Returns:
+        HTML content (full page or partial if streaming)
+    """
     logger.debug(f"Fetching {url}")
-    response = requests.get(url, impersonate="chrome", timeout=DEFAULT_TIMEOUT)
+
+    if not stream_optimize:
+        # Original behavior: fetch entire page
+        response = requests.get(url, impersonate="chrome", timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+        return response.text
+
+    # Streaming optimization: stop when we have the JSON payload
+    response = requests.get(url, impersonate="chrome", timeout=DEFAULT_TIMEOUT, stream=True)
     response.raise_for_status()
-    return response.text
+
+    # Pattern to find: window.MTGO.decklists.data = {...};
+    # We need to find the complete JSON object including the closing };
+    accumulated = ""
+    chunk_size = 8192  # 8KB chunks
+    total_bytes = 0
+
+    try:
+        for chunk in response.iter_content(chunk_size=chunk_size, decode_unicode=True):
+            if chunk:
+                accumulated += chunk
+                total_bytes += len(chunk)
+
+                # Check if we have the complete JSON payload
+                # Look for the pattern with the closing };
+                if "window.MTGO.decklists.data" in accumulated:
+                    # Try to match the complete pattern
+                    match = DETAIL_RE.search(accumulated)
+                    if match:
+                        # Found complete JSON! Calculate how much we saved
+                        saved_pct = 0
+                        if response.headers.get('content-length'):
+                            total_size = int(response.headers['content-length'])
+                            saved_pct = round((1 - total_bytes / total_size) * 100, 1)
+
+                        logger.debug(
+                            f"Stream optimization: stopped after {total_bytes} bytes "
+                            f"(saved ~{saved_pct}% bandwidth)"
+                        )
+                        # Close connection to stop downloading
+                        response.close()
+                        return accumulated
+
+        # If we got here, we read the entire response without finding JSON
+        logger.warning("Stream optimization: read entire response without finding JSON pattern")
+        return accumulated
+
+    except Exception as exc:
+        logger.warning(f"Stream optimization failed: {exc}, falling back to full fetch")
+        response.close()
+        # Fallback to non-streaming
+        response = requests.get(url, impersonate="chrome", timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+        return response.text
 
 
 def _classify_event(title: str) -> tuple[str | None, str | None]:
@@ -142,9 +209,6 @@ def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
     index_cache[key] = {"entries": entries, "fetched_at": datetime.utcnow().isoformat()}
     _save_cache(cache)
     return entries
-
-
-DETAIL_RE = re.compile(r"window\.MTGO\.decklists\.data\s*=\s*(\{.*?\});", re.DOTALL)
 
 
 def _transform_event_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
