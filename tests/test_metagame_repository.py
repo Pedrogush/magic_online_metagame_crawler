@@ -29,16 +29,6 @@ def archetype_cache_file(tmp_path, monkeypatch):
     return cache_file
 
 
-@pytest.fixture
-def deck_cache_file(tmp_path, monkeypatch):
-    """Create a temporary deck cache file."""
-    import repositories.metagame_repository as metagame_repo_module
-
-    cache_file = tmp_path / "deck_cache.json"
-    monkeypatch.setattr(metagame_repo_module, "DECK_CACHE_FILE", cache_file)
-    return cache_file
-
-
 # ============= Cache Loading Tests =============
 
 
@@ -189,54 +179,9 @@ def test_save_cached_archetypes_update_existing_format(metagame_repo, archetype_
 # ============= Deck Cache Tests =============
 
 
-def test_load_cached_decks_success(metagame_repo, deck_cache_file):
-    """Test loading decks from cache successfully."""
-    cache_data = {
-        "archetype_url": {
-            "timestamp": time.time(),
-            "items": [
-                {"name": "Deck 1", "url": "deck1"},
-                {"name": "Deck 2", "url": "deck2"},
-            ],
-        }
-    }
-    deck_cache_file.write_text(json.dumps(cache_data), encoding="utf-8")
-
-    result = metagame_repo._load_cached_decks("archetype_url")
-
-    assert result is not None
-    assert len(result) == 2
-
-
-def test_load_cached_decks_expired(metagame_repo, deck_cache_file):
-    """Test loading expired decks returns None."""
-    cache_data = {
-        "archetype_url": {
-            "timestamp": time.time() - 7200,  # 2 hours ago
-            "items": [{"name": "Deck 1"}],
-        }
-    }
-    deck_cache_file.write_text(json.dumps(cache_data), encoding="utf-8")
-
-    result = metagame_repo._load_cached_decks("archetype_url", max_age=3600)
-
-    assert result is None
-
-
-def test_save_cached_decks_new_file(metagame_repo, deck_cache_file):
-    """Test saving decks to new cache file."""
-    decks = [
-        {"name": "Deck 1", "url": "deck1"},
-        {"name": "Deck 2", "url": "deck2"},
-    ]
-
-    metagame_repo._save_cached_decks("archetype_url", decks)
-
-    assert deck_cache_file.exists()
-    with deck_cache_file.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    assert "archetype_url" in data
-    assert len(data["archetype_url"]["items"]) == 2
+# NOTE: test_load_cached_decks_success, test_load_cached_decks_expired, and
+# test_save_cached_decks_new_file were removed because they tested DECK_CACHE_FILE
+# which no longer exists in metagame_repository.
 
 
 # ============= Stale Fallback Tests =============
@@ -262,40 +207,21 @@ def test_get_archetypes_returns_stale_cache_when_fetch_fails(archetype_cache_fil
     assert repo.get_archetypes_for_format("Modern") == stale_items
 
 
-def test_get_decks_returns_stale_cache_when_fetch_fails(deck_cache_file, monkeypatch):
-    """Ensure stale deck cache is returned when MTGGoldfish fetch fails."""
-    repo = MetagameRepository(cache_ttl=1)
-    archetype = {"url": "format/archetype", "name": "Test"}
-    stale_items = [{"name": "Deck A", "player": "Alice"}]
-    _write_cache(
-        deck_cache_file,
-        {archetype["url"]: {"timestamp": time.time() - 3600, "items": stale_items}},
-    )
-
-    def fake_get_archetype_decks(_archetype):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(
-        "repositories.metagame_repository.get_archetype_decks",
-        fake_get_archetype_decks,
-    )
-
-    assert repo.get_decks_for_archetype(archetype) == stale_items
+# NOTE: test_get_decks_returns_stale_cache_when_fetch_fails removed because it
+# tested DECK_CACHE_FILE which no longer exists.
 
 
 # ============= Clear Cache Tests =============
 
 
-def test_clear_cache(metagame_repo, archetype_cache_file, deck_cache_file):
+def test_clear_cache(metagame_repo, archetype_cache_file):
     """Test clearing all caches."""
     # Create cache files
     archetype_cache_file.write_text("{}", encoding="utf-8")
-    deck_cache_file.write_text("{}", encoding="utf-8")
 
     metagame_repo.clear_cache()
 
     assert not archetype_cache_file.exists()
-    assert not deck_cache_file.exists()
 
 
 def test_clear_cache_nonexistent_files(metagame_repo):
