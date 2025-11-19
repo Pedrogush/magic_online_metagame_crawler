@@ -176,6 +176,33 @@ class CachePreloaderService:
             self._save_format_cache(fmt, format_cache)
             logger.info(f"Pre-fetched {newly_fetched} new events for {fmt}")
 
+        # Also build archetype-level caches for this format
+        # This ensures user gets instant results when clicking archetypes
+        try:
+            logger.debug(f"Building archetype cache for {fmt}...")
+            archetypes = mtgo_decklists.get_archetypes(fmt, cache_only=False)
+            if archetypes:
+                logger.debug(f"Cached {len(archetypes)} archetypes for {fmt}")
+
+                # Pre-cache decks for top 3 most popular archetypes
+                # This makes the most common user actions instant
+                for archetype in archetypes[:3]:
+                    if self._stop_event.is_set():
+                        break
+                    try:
+                        archetype_name = archetype.get("name", "")
+                        if archetype_name:
+                            logger.debug(f"Pre-caching decks for {archetype_name}...")
+                            decks = mtgo_decklists.get_archetype_decks(
+                                archetype_name, mtg_format=fmt, cache_only=False
+                            )
+                            if decks:
+                                logger.debug(f"Cached {len(decks)} decks for {archetype_name}")
+                    except Exception as exc:
+                        logger.warning(f"Failed to pre-cache decks for archetype: {exc}")
+        except Exception as exc:
+            logger.warning(f"Failed to build archetype cache for {fmt}: {exc}")
+
     def _should_fetch_format(self, fmt: str) -> bool:
         """
         Check if format data needs to be fetched.

@@ -650,16 +650,19 @@ def fetch_recent_events_parallel(
     return results
 
 
-def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
+def get_archetypes(mtg_format: str, days: int = 30, cache_only: bool = False) -> list[dict[str, Any]] | None:
     """
     Extract archetypes from recent MTGO events for a given format.
 
     Args:
         mtg_format: The MTG format (e.g., "Modern", "Standard")
         days: Number of days to look back (default: 30)
+        cache_only: If True, only return cached data (no network fetching). Returns None if not cached.
+                    Use for passive cache checking. Default False for background preloader.
 
     Returns:
         List of archetype dictionaries with keys: name, href (archetype name)
+        Returns None if cache_only=True and data is not cached
     """
     mtg_format_lower = mtg_format.lower()
 
@@ -669,7 +672,12 @@ def get_archetypes(mtg_format: str, days: int = 30) -> list[dict[str, Any]]:
         logger.debug(f"Using cached MTGO archetypes for {mtg_format_lower} ({len(cached)} archetypes)")
         return cached
 
-    logger.debug(f"Fetching MTGO archetypes for {mtg_format_lower} from events...")
+    # If cache_only mode, return None instead of fetching
+    if cache_only:
+        logger.debug(f"MTGO archetypes for {mtg_format_lower} not cached (cache_only=True), returning None")
+        return None
+
+    logger.debug(f"Fetching MTGO archetypes for {mtg_format_lower} from events (background mode)...")
 
     now = datetime.utcnow()
     cutoff = now - timedelta(days=days)
@@ -732,8 +740,9 @@ def get_archetype_decks(
     archetype: str,
     mtg_format: str | None = None,
     days: int = 30,
-    max_decks: int = 50
-) -> list[dict[str, Any]]:
+    max_decks: int = 50,
+    cache_only: bool = False
+) -> list[dict[str, Any]] | None:
     """
     Get recent decks for a specific archetype from MTGO events.
 
@@ -742,9 +751,12 @@ def get_archetype_decks(
         mtg_format: MTG format to filter by (e.g., "Modern", "Standard"). If None, fetches all formats.
         days: Number of days to look back (default: 30)
         max_decks: Maximum number of decks to return (default: 50)
+        cache_only: If True, only return cached data (no network fetching). Returns None if not cached.
+                    Use for passive cache checking. Default False for background preloader.
 
     Returns:
         List of deck dictionaries with keys: date, number, player, event, result, name
+        Returns None if cache_only=True and data is not cached
     """
     # Normalize archetype for cache key
     archetype_normalized = archetype.lower().replace("-", " ").replace("_", " ")
@@ -756,7 +768,13 @@ def get_archetype_decks(
         logger.debug(f"Using cached MTGO decks for archetype '{archetype_normalized}' in {format_desc} ({len(cached)} decks)")
         return cached
 
-    logger.debug(f"Fetching MTGO decks for archetype '{archetype_normalized}' in format '{mtg_format or 'all'}' from events...")
+    # If cache_only mode, return None instead of fetching
+    if cache_only:
+        format_desc = mtg_format or "all"
+        logger.debug(f"MTGO decks for archetype '{archetype_normalized}' in {format_desc} not cached (cache_only=True), returning None")
+        return None
+
+    logger.debug(f"Fetching MTGO decks for archetype '{archetype_normalized}' in format '{mtg_format or 'all'}' from events (background mode)...")
 
     now = datetime.utcnow()
     cutoff = now - timedelta(days=days)

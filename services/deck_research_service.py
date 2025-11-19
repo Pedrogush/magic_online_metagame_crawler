@@ -20,50 +20,42 @@ class DeckResearchService:
         """
         Load archetypes for a given format.
 
-        Tries MTGO.com first, falls back to MTGGoldfish if needed.
+        Checks MTGO.com cache first (passive, non-blocking), falls back to MTGGoldfish if not cached.
+        Background preloader builds MTGO cache asynchronously.
         """
         fmt = (format_name or "").lower()
 
-        # Try MTGO first
-        try:
-            logger.info(f"Loading archetypes for {fmt} from MTGO.com")
-            archetypes = mtgo_decklists.get_archetypes(fmt)
-            if archetypes:
-                logger.info(f"Successfully loaded {len(archetypes)} archetypes from MTGO.com")
-                return archetypes
-            else:
-                logger.warning(f"No archetypes found on MTGO.com for {fmt}, falling back to MTGGoldfish")
-        except Exception as exc:
-            logger.warning(f"Failed to load archetypes from MTGO.com: {exc}, falling back to MTGGoldfish")
+        # Check MTGO cache (passive, non-blocking)
+        logger.debug(f"Checking MTGO cache for {fmt} archetypes (passive mode)")
+        archetypes = mtgo_decklists.get_archetypes(fmt, cache_only=True)
+        if archetypes:
+            logger.info(f"Successfully loaded {len(archetypes)} archetypes from MTGO cache")
+            return archetypes
 
-        # Fallback to MTGGoldfish
-        logger.info(f"Loading archetypes for {fmt} from MTGGoldfish")
+        # MTGO data not cached - fall back to MTGGoldfish (always available)
+        logger.info(f"MTGO cache miss for {fmt}, using MTGGoldfish")
         return mtggoldfish.get_archetypes(fmt, allow_stale=not force)
 
     def load_decks_for_archetype(self, identifier: str, mtg_format: str | None = None) -> list[dict[str, Any]]:
         """
         Load decks for a specific archetype.
 
-        Tries MTGO.com first, falls back to MTGGoldfish if needed.
+        Checks MTGO.com cache first (passive, non-blocking), falls back to MTGGoldfish if not cached.
+        Background preloader builds MTGO cache asynchronously.
 
         Args:
             identifier: Archetype identifier/href
             mtg_format: Optional format filter (e.g., "Modern", "Standard")
         """
-        # Try MTGO first with format filtering
-        try:
-            logger.info(f"Loading decks for archetype '{identifier}' format '{mtg_format or 'all'}' from MTGO.com")
-            decks = mtgo_decklists.get_archetype_decks(identifier, mtg_format=mtg_format)
-            if decks:
-                logger.info(f"Successfully loaded {len(decks)} decks from MTGO.com")
-                return decks
-            else:
-                logger.warning(f"No decks found on MTGO.com for '{identifier}', falling back to MTGGoldfish")
-        except Exception as exc:
-            logger.warning(f"Failed to load decks from MTGO.com: {exc}, falling back to MTGGoldfish")
+        # Check MTGO cache (passive, non-blocking)
+        logger.debug(f"Checking MTGO cache for archetype '{identifier}' format '{mtg_format or 'all'}' (passive mode)")
+        decks = mtgo_decklists.get_archetype_decks(identifier, mtg_format=mtg_format, cache_only=True)
+        if decks:
+            logger.info(f"Successfully loaded {len(decks)} decks from MTGO cache")
+            return decks
 
-        # Fallback to MTGGoldfish
-        logger.info(f"Loading decks for archetype '{identifier}' from MTGGoldfish")
+        # MTGO data not cached - fall back to MTGGoldfish (always available)
+        logger.info(f"MTGO cache miss for archetype '{identifier}', using MTGGoldfish")
         return mtggoldfish.get_archetype_decks(identifier)
 
     def download_deck(self, deck_number: str, deck_payload: dict | None = None) -> None:
