@@ -17,14 +17,19 @@ from utils.constants import MTGO_DECK_CACHE_FILE
 
 class CachePreloaderService:
     """
-    Background service that proactively fetches MTGO decklist data for all formats.
+    Comprehensive background service that continuously caches ALL MTGO data.
 
-    This service:
-    - Runs in a low-priority background thread
-    - Checks if we have recent data for each format
-    - Fetches missing data gradually over time
+    This service runs while the application is open and:
+    - Fetches ALL events for all formats (Modern, Legacy, Standard, Pioneer, Pauper)
+    - Builds archetype lists from event data
+    - Pre-caches decks for EVERY archetype (not just popular ones)
+    - Continuously checks for new MTGO.com data every hour
+    - Makes all user actions instant (everything served from cache)
+    - Runs in a daemon thread (doesn't prevent app exit)
     - Uses format-specific cache files to avoid race conditions
-    - Periodically merges into the main cache
+    - Merges caches periodically for consistency
+
+    The goal is complete, comprehensive caching so users never wait for data.
     """
 
     # Formats to pre-fetch
@@ -33,8 +38,11 @@ class CachePreloaderService:
     # How many days of data to keep cached
     CACHE_DAYS = 30
 
-    # Delay between format fetches (seconds) - don't overwhelm the server
-    FETCH_DELAY = 60
+    # Delay between operations (seconds) - balance between speed and server load
+    OPERATION_DELAY = 15  # Reduced from 60s for faster comprehensive caching
+
+    # How often to check for new data (seconds)
+    REFRESH_INTERVAL = 3600  # 1 hour - continuous checking for new MTGO data
 
     # How often to merge format caches into main cache (seconds)
     MERGE_INTERVAL = 300  # 5 minutes
@@ -78,22 +86,25 @@ class CachePreloaderService:
 
     def _run_loop(self) -> None:
         """Main loop that runs in the background thread."""
-        logger.info("Cache preloader loop started")
+        logger.info("Cache preloader loop started - will continuously fetch all MTGO data")
 
         try:
             while not self._stop_event.is_set():
+                cycle_start = time.time()
+                logger.info("Starting comprehensive MTGO cache refresh cycle...")
+
                 # Check each format and fetch if needed
                 for fmt in self.FORMATS:
                     if self._stop_event.is_set():
                         break
 
                     try:
-                        self._fetch_format_if_needed(fmt)
+                        self._fetch_format_comprehensively(fmt)
                     except Exception as exc:
                         logger.error(f"Error pre-fetching {fmt}: {exc}")
 
-                    # Wait between formats to not overwhelm server
-                    if not self._stop_event.wait(timeout=self.FETCH_DELAY):
+                    # Brief pause between formats
+                    if not self._stop_event.wait(timeout=self.OPERATION_DELAY):
                         continue
                     else:
                         break
@@ -105,27 +116,36 @@ class CachePreloaderService:
                     except Exception as exc:
                         logger.error(f"Error merging format caches: {exc}")
 
+                cycle_duration = time.time() - cycle_start
+                logger.info(f"Cache refresh cycle completed in {cycle_duration:.1f}s")
+
                 # Wait before next cycle
-                self._stop_event.wait(timeout=self.MERGE_INTERVAL)
+                logger.info(f"Next comprehensive refresh in {self.REFRESH_INTERVAL}s...")
+                self._stop_event.wait(timeout=self.REFRESH_INTERVAL)
 
         except Exception as exc:
             logger.error(f"Cache preloader loop crashed: {exc}")
         finally:
             logger.info("Cache preloader loop ended")
 
-    def _fetch_format_if_needed(self, fmt: str) -> None:
+    def _fetch_format_comprehensively(self, fmt: str) -> None:
         """
-        Check if format data is stale and fetch if needed.
+        Comprehensively fetch and cache ALL data for a format:
+        - All events for the last CACHE_DAYS
+        - All archetypes extracted from those events
+        - All decks for each archetype
+
+        This runs continuously in the background to build a complete cache.
 
         Args:
             fmt: Format name (e.g., "Modern", "Legacy")
         """
         # Check if we need to fetch this format
         if not self._should_fetch_format(fmt):
-            logger.debug(f"Format {fmt} cache is fresh, skipping")
+            logger.debug(f"Format {fmt} cache is fresh, skipping comprehensive fetch")
             return
 
-        logger.info(f"Pre-fetching data for {fmt}...")
+        logger.info(f"Starting comprehensive pre-fetch for {fmt}...")
 
         # Fetch events for the last CACHE_DAYS
         now = datetime.utcnow()
@@ -176,32 +196,38 @@ class CachePreloaderService:
             self._save_format_cache(fmt, format_cache)
             logger.info(f"Pre-fetched {newly_fetched} new events for {fmt}")
 
-        # Also build archetype-level caches for this format
-        # This ensures user gets instant results when clicking archetypes
+        # Build comprehensive archetype-level caches for this format
+        # Cache ALL archetypes and ALL decks for instant user access
         try:
-            logger.debug(f"Building archetype cache for {fmt}...")
+            logger.info(f"Building comprehensive archetype cache for {fmt}...")
             archetypes = mtgo_decklists.get_archetypes(fmt, cache_only=False)
             if archetypes:
-                logger.debug(f"Cached {len(archetypes)} archetypes for {fmt}")
+                logger.info(f"Found {len(archetypes)} archetypes for {fmt}, pre-caching ALL archetype decks...")
 
-                # Pre-cache decks for top 3 most popular archetypes
-                # This makes the most common user actions instant
-                for archetype in archetypes[:3]:
+                # Pre-cache decks for EVERY archetype (not just top 3)
+                # This makes ALL user actions instant
+                for idx, archetype in enumerate(archetypes, 1):
                     if self._stop_event.is_set():
                         break
                     try:
                         archetype_name = archetype.get("name", "")
                         if archetype_name:
-                            logger.debug(f"Pre-caching decks for {archetype_name}...")
+                            logger.debug(f"Pre-caching decks for archetype {idx}/{len(archetypes)}: {archetype_name}...")
                             decks = mtgo_decklists.get_archetype_decks(
                                 archetype_name, mtg_format=fmt, cache_only=False
                             )
                             if decks:
-                                logger.debug(f"Cached {len(decks)} decks for {archetype_name}")
+                                logger.debug(f"  → Cached {len(decks)} decks for {archetype_name}")
+
+                            # Brief pause between archetype fetches to not overwhelm server
+                            if not self._stop_event.wait(timeout=2):
+                                continue
                     except Exception as exc:
-                        logger.warning(f"Failed to pre-cache decks for archetype: {exc}")
+                        logger.warning(f"Failed to pre-cache decks for archetype {archetype_name}: {exc}")
+
+                logger.info(f"Completed comprehensive archetype deck caching for {fmt}")
         except Exception as exc:
-            logger.warning(f"Failed to build archetype cache for {fmt}: {exc}")
+            logger.warning(f"Failed to build comprehensive archetype cache for {fmt}: {exc}")
 
     def _should_fetch_format(self, fmt: str) -> bool:
         """
@@ -218,22 +244,28 @@ class CachePreloaderService:
         # Check if we have any events
         events = format_cache.get("events", {})
         if not events:
+            logger.debug(f"No cached events for {fmt}, needs fetch")
             return True
 
         # Check last updated time
         last_updated_str = format_cache.get("last_updated")
         if not last_updated_str:
+            logger.debug(f"No last_updated timestamp for {fmt}, needs fetch")
             return True
 
         try:
             last_updated = datetime.fromisoformat(last_updated_str)
-            # Refresh if older than 12 hours
-            if datetime.utcnow() - last_updated > timedelta(hours=12):
+            # Refresh if older than REFRESH_INTERVAL
+            age_seconds = (datetime.utcnow() - last_updated).total_seconds()
+            if age_seconds > self.REFRESH_INTERVAL:
+                logger.debug(f"{fmt} cache is {age_seconds/3600:.1f}h old, refreshing")
                 return True
+            else:
+                logger.debug(f"{fmt} cache is {age_seconds/60:.1f}m old, still fresh")
+                return False
         except (ValueError, AttributeError):
+            logger.debug(f"Invalid last_updated for {fmt}, needs fetch")
             return True
-
-        return False
 
     def _get_format_cache_path(self, fmt: str) -> Path:
         """Get the cache file path for a specific format."""
