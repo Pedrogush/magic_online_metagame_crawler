@@ -34,7 +34,7 @@ from services.store_service import get_store_service
 from utils.card_data import CardDataManager
 from utils.deck import read_curr_deck_file, sanitize_zone_cards
 from utils.game_constants import FORMAT_OPTIONS
-from utils.paths import CACHE_DIR, DECK_SELECTOR_SETTINGS_FILE
+from utils.paths import CACHE_DIR, CONFIG_FILE, DECK_SELECTOR_SETTINGS_FILE, DECKS_DIR
 from utils.service_config import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
@@ -104,6 +104,16 @@ class AppController:
         self.current_format = self.settings.get("format", "Modern")
         if self.current_format not in FORMAT_OPTIONS:
             self.current_format = "Modern"
+
+        # Config management
+        self.config = self._load_config()
+        default_deck_dir = Path(self.config.get("deck_selector_save_path") or DECKS_DIR)
+        self.deck_save_dir = default_deck_dir.expanduser()
+        try:
+            self.deck_save_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(f"Unable to create deck save directory '{self.deck_save_dir}': {exc}")
+        self.config.setdefault("deck_selector_save_path", str(self.deck_save_dir))
 
         # Bulk data settings
         raw_force = self.settings.get("force_cached_bulk_data", False)
@@ -530,6 +540,18 @@ class AppController:
             logger.warning(f"Failed to load deck selector settings: {exc}")
             return {}
 
+    def _load_config(self) -> dict[str, Any]:
+        """Load config from disk."""
+        if not CONFIG_FILE.exists():
+            logger.debug(f"{CONFIG_FILE} not found; using default deck save path")
+            return {}
+        try:
+            with CONFIG_FILE.open("r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except json.JSONDecodeError as exc:
+            logger.warning(f"Invalid {CONFIG_FILE} ({exc}); using default deck save path")
+            return {}
+
     def save_settings(
         self, window_size: tuple[int, int] | None = None, screen_pos: tuple[int, int] | None = None
     ) -> None:
@@ -853,7 +875,7 @@ class AppController:
         # Import here to avoid circular dependency
         import wx
 
-        from widgets.app_frame import DECK_SAVE_DIR, AppFrame
+        from widgets.app_frame import AppFrame
 
         # Create the frame
         frame = AppFrame(controller=self, parent=parent)
@@ -903,7 +925,7 @@ class AppController:
                 on_collection_not_found=on_collection_not_found,
                 on_bulk_data_status=on_bulk_data_status,
                 on_status=on_status,
-                deck_save_dir=DECK_SAVE_DIR,
+                deck_save_dir=self.deck_save_dir,
             )
         )
 

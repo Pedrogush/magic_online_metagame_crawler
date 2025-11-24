@@ -1,6 +1,4 @@
-import json
 import threading
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import wx
@@ -14,7 +12,6 @@ if TYPE_CHECKING:
 from utils.card_data import CardDataManager
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
-from utils.paths import CACHE_DIR, CONFIG_FILE, DECKS_DIR
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_constants import (
     DARK_BG,
@@ -26,8 +23,8 @@ from utils.ui_helpers import open_child_window
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
+from widgets.handlers.app_event_handlers import AppEventHandlers
 from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
-from widgets.handlers.deck_selector_handlers import AppEventHandlers
 from widgets.handlers.sideboard_guide_handlers import SideboardGuideHandlers
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.mana_keyboard import ManaKeyboardFrame, open_mana_keyboard
@@ -41,64 +38,6 @@ from widgets.panels.deck_research_panel import DeckResearchPanel
 from widgets.panels.deck_stats_panel import DeckStatsPanel
 from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
-
-LEGACY_CONFIG_FILE = Path("config.json")
-LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
-LEGACY_CURR_DECK_ROOT = Path("curr_deck.txt")
-NOTES_STORE = CACHE_DIR / "deck_notes.json"
-OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
-GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
-LEGACY_NOTES_STORE = CACHE_DIR / "deck_notes_wx.json"
-LEGACY_OUTBOARD_STORE = CACHE_DIR / "deck_outboard_wx.json"
-LEGACY_GUIDE_STORE = CACHE_DIR / "deck_sbguides_wx.json"
-CARD_INSPECTOR_LOG = CACHE_DIR / "card_inspector_debug.log"
-
-for new_path, legacy_path in [
-    (NOTES_STORE, LEGACY_NOTES_STORE),
-    (OUTBOARD_STORE, LEGACY_OUTBOARD_STORE),
-    (GUIDE_STORE, LEGACY_GUIDE_STORE),
-]:
-    if not new_path.exists() and legacy_path.exists():
-        try:
-            legacy_path.replace(new_path)
-            logger.info(f"Migrated {legacy_path.name} to {new_path.name}")
-        except OSError as exc:  # pragma: no cover - migration best-effort
-            logger.warning(f"Failed to migrate {legacy_path} to {new_path}: {exc}")
-
-
-CONFIG: dict[str, Any] = {}
-if CONFIG_FILE.exists():
-    try:
-        with CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
-            CONFIG = json.load(_cfg_file)
-    except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
-        logger.warning(f"Invalid {CONFIG_FILE} ({exc}); using default deck save path")
-        CONFIG = {}
-elif LEGACY_CONFIG_FILE.exists():
-    try:
-        with LEGACY_CONFIG_FILE.open("r", encoding="utf-8") as _cfg_file:
-            CONFIG = json.load(_cfg_file)
-        logger.warning(
-            "Loaded legacy config.json from project root; migrating to config/ directory"
-        )
-        try:
-            with CONFIG_FILE.open("w", encoding="utf-8") as fh:
-                json.dump(CONFIG, fh, indent=4)
-        except OSError as exc:
-            logger.warning(f"Failed to write migrated config.json: {exc}")
-    except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
-        logger.warning(f"Invalid legacy config.json ({exc}); using default deck save path")
-        CONFIG = {}
-else:
-    logger.debug(f"{CONFIG_FILE} not found; using default deck save path")
-
-default_deck_dir = Path(CONFIG.get("deck_selector_save_path") or DECKS_DIR)
-DECK_SAVE_DIR = default_deck_dir.expanduser()
-try:
-    DECK_SAVE_DIR.mkdir(parents=True, exist_ok=True)
-except OSError as exc:  # pragma: no cover - defensive logging
-    logger.warning(f"Unable to create deck save directory '{DECK_SAVE_DIR}': {exc}")
-CONFIG.setdefault("deck_selector_save_path", str(DECK_SAVE_DIR))
 
 
 class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, wx.Frame):
@@ -373,23 +312,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
         sizer.AddStretchSpacer(1)
         return panel
-
-    def _on_force_cached_toggle(self, _event: wx.CommandEvent | None) -> None:
-        """Handle cached-only checkbox toggles."""
-        enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
-        self.controller.set_force_cached_bulk_data(enabled)
-        self._schedule_settings_save()
-        self._check_and_download_bulk_data()
-
-    def _on_bulk_age_changed(self, event: wx.CommandEvent | None) -> None:
-        """Handle changes to the cache age spinner."""
-        if not self.bulk_cache_age_spin:
-            return
-        self.controller.set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
-        self._schedule_settings_save()
-        self._check_and_download_bulk_data()
-        if event:
-            event.Skip()
 
     def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
         """Build the summary text and deck list column."""
@@ -742,7 +664,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.collection_status_label.SetLabel("Fetching collection from MTGO...")
 
         self.controller.refresh_collection_from_bridge(
-            directory=DECK_SAVE_DIR,
+            directory=self.controller.deck_save_dir,
             on_success=lambda filepath, cards: wx.CallAfter(
                 self._on_collection_fetched, filepath, cards
             ),
