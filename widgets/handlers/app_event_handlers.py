@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import threading
 import wx
 from loguru import logger
+
+from utils.card_data import CardDataManager
+from utils.ui_helpers import open_child_window, widget_exists
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.match_history import MatchHistoryFrame
 from widgets.metagame_analysis import MetagameAnalysisFrame
 from widgets.timer_alert import TimerAlertFrame
-from utils.card_data import CardDataManager
-from utils.ui_helpers import open_child_window, widget_exists
 
 if TYPE_CHECKING:
     from widgets.app_frame import AppFrame
@@ -378,7 +379,10 @@ class AppEventHandlers:
     def _on_bulk_data_downloaded(self: AppFrame, msg: str) -> None:
         self._set_status("Card image database downloaded, indexing printings…")
         logger.info(f"Bulk data downloaded: {msg}")
-        self._load_bulk_data_into_memory(force=True)
+        self.controller.load_bulk_data_into_memory(
+            on_status=lambda status: wx.CallAfter(self._set_status, status),
+            force=True,
+        )
 
     def _on_bulk_data_failed(self: AppFrame, error_msg: str) -> None:
         self._set_status("Ready")

@@ -138,6 +138,7 @@ class AppController:
 
         self._bulk_check_worker_active = False
         self.frame = self.create_frame()
+
     # ============= Card Data Management =============
 
     def ensure_card_data_loaded(
@@ -437,6 +438,12 @@ class AppController:
 
         if not started:
             on_status("Ready")
+
+    def load_bulk_data_into_memory(
+        self, on_status: Callable[[str], None], force: bool = False
+    ) -> None:
+        """Public wrapper for UI callers."""
+        self._load_bulk_data_into_memory(on_status=on_status, force=force)
 
     # ============= Settings Management =============
 
