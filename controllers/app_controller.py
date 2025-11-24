@@ -499,6 +499,12 @@ class AppController:
         if not started:
             on_status("Ready")
 
+    def load_bulk_data_into_memory(
+        self, on_status: Callable[[str], None], force: bool = False
+    ) -> None:
+        """Public wrapper for UI callers."""
+        self._load_bulk_data_into_memory(on_status=on_status, force=force)
+
     # ============= Settings Management =============
 
     def _load_settings(self) -> dict[str, Any]:

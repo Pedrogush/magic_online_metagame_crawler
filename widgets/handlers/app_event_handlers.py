@@ -340,7 +340,10 @@ class AppEventHandlers:
     def _on_bulk_data_downloaded(self: AppFrame, msg: str) -> None:
         self._set_status("Card image database downloaded, indexing printings…")
         logger.info(f"Bulk data downloaded: {msg}")
-        self._load_bulk_data_into_memory(force=True)
+        self.controller.load_bulk_data_into_memory(
+            on_status=lambda status: wx.CallAfter(self._set_status, status),
+            force=True,
+        )
 
     def _on_bulk_data_failed(self: AppFrame, error_msg: str) -> None:
         self._set_status("Ready")
