@@ -380,8 +380,8 @@ User enters search query
 ```
 User clicks "Refresh from Bridge"
          ↓
-[deck_selector.py]
-  _refresh_collection_inventory(force=True)
+[app_frame.py]
+  controller.refresh_collection_from_bridge(force=True)
          ↓
 [collection_service.py]
   refresh_from_bridge_async()

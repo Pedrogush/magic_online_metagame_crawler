@@ -174,7 +174,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_open_timer_alert=self.open_timer_alert,
             on_open_match_history=self.open_match_history,
             on_open_metagame_analysis=self.open_metagame_analysis,
-            on_load_collection=lambda: self._refresh_collection_inventory(force=True),
+            on_load_collection=lambda: self.controller.refresh_collection_from_bridge(force=True),
             on_download_card_images=lambda: show_image_download_dialog(
                 self, self.image_cache, self.image_downloader, self._set_status
             ),
@@ -483,31 +483,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
     def _has_deck_loaded(self) -> bool:
         return bool(self.zone_cards["main"] or self.zone_cards["side"])
-
-    # ------------------------------------------------------------------ Collection + card data -----------------------------------------------
-
-    def _refresh_collection_inventory(self, force: bool = False) -> None:
-        self.collection_status_label.SetLabel("Fetching collection from MTGO...")
-
-        self.controller.refresh_collection_from_bridge(
-            directory=self.controller.deck_save_dir,
-            on_success=lambda filepath, cards: wx.CallAfter(
-                self._on_collection_fetched, filepath, cards
-            ),
-            on_error=lambda error_msg: wx.CallAfter(self._on_collection_fetch_failed, error_msg),
-            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
-            force=force,
-        )
-
-    def _check_and_download_bulk_data(self) -> None:
-        self.controller.check_and_download_bulk_data(
-            max_age_days=self.controller.get_bulk_cache_age_days(),
-            force_cached=self.controller.is_forcing_cached_bulk_data(),
-            on_download_needed=lambda reason: logger.info(f"Bulk data needs update: {reason}"),
-            on_download_complete=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
-            on_download_failed=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
-            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
-        )
 
     def _update_stats(self, deck_text: str) -> None:
         self.deck_stats_panel.update_stats(deck_text, self.zone_cards)
