@@ -1,5 +1,4 @@
-import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import wx
 from loguru import logger
@@ -9,7 +8,6 @@ from controllers.app_controller import get_deck_selector_controller
 if TYPE_CHECKING:
     from controllers.app_controller import AppController
 
-from utils.card_data import CardDataManager
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import stylize_listbox, stylize_textctrl
@@ -19,7 +17,6 @@ from utils.ui_constants import (
     LIGHT_TEXT,
     SUBDUED_TEXT,
 )
-from utils.ui_helpers import open_child_window
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
@@ -48,13 +45,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         controller: "AppController",
         parent: wx.Window | None = None,
     ):
-        """
-        Initialize the AppFrame.
-
-        Args:
-            controller: AppController instance that manages business logic and state
-            parent: Optional parent window
-        """
         super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
 
         # Store controller reference - ALL state and business logic goes through this
@@ -87,92 +77,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.Bind(wx.EVT_SIZE, self.on_window_change)
         self.Bind(wx.EVT_MOVE, self.on_window_change)
 
-    # ------------------------------------------------------------------ Properties for state delegation ---------------------------------------
-    @property
-    def current_format(self) -> str:
-        """Delegate to controller."""
-        return self.controller.current_format
-
-    @current_format.setter
-    def current_format(self, value: str) -> None:
-        """Delegate to controller."""
-        self.controller.current_format = value
-
-    @property
-    def archetypes(self) -> list[dict[str, Any]]:
-        """Delegate to controller."""
-        return self.controller.archetypes
-
-    @archetypes.setter
-    def archetypes(self, value: list[dict[str, Any]]) -> None:
-        """Delegate to controller."""
-        self.controller.archetypes = value
-
-    @property
-    def filtered_archetypes(self) -> list[dict[str, Any]]:
-        """Delegate to controller."""
-        return self.controller.filtered_archetypes
-
-    @filtered_archetypes.setter
-    def filtered_archetypes(self, value: list[dict[str, Any]]) -> None:
-        """Delegate to controller."""
-        self.controller.filtered_archetypes = value
-
-    @property
-    def zone_cards(self) -> dict[str, list[dict[str, Any]]]:
-        """Delegate to controller."""
-        return self.controller.zone_cards
-
-    @zone_cards.setter
-    def zone_cards(self, value: dict[str, list[dict[str, Any]]]) -> None:
-        """Delegate to controller."""
-        self.controller.zone_cards = value
-
-    @property
-    def left_mode(self) -> str:
-        """Delegate to controller."""
-        return self.controller.left_mode
-
-    @left_mode.setter
-    def left_mode(self, value: str) -> None:
-        """Delegate to controller."""
-        self.controller.left_mode = value
-
-    @property
-    def loading_archetypes(self) -> bool:
-        """Delegate to controller."""
-        return self.controller.loading_archetypes
-
-    @loading_archetypes.setter
-    def loading_archetypes(self, value: bool) -> None:
-        """Delegate to controller."""
-        self.controller.loading_archetypes = value
-
-    @property
-    def loading_decks(self) -> bool:
-        """Delegate to controller."""
-        return self.controller.loading_decks
-
-    @loading_decks.setter
-    def loading_decks(self, value: bool) -> None:
-        """Delegate to controller."""
-        self.controller.loading_decks = value
-
-    @property
-    def loading_daily_average(self) -> bool:
-        """Delegate to controller."""
-        return self.controller.loading_daily_average
-
-    @loading_daily_average.setter
-    def loading_daily_average(self, value: bool) -> None:
-        """Delegate to controller."""
-        self.controller.loading_daily_average = value
-
-    @property
-    def _loading_lock(self) -> threading.Lock:
-        """Delegate to controller."""
-        return self.controller._loading_lock
-
     # ------------------------------------------------------------------ UI ------------------------------------------------------------------
     def _build_ui(self) -> None:
         """Build the main UI structure."""
@@ -192,14 +96,12 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         root_sizer.Add(right_panel, 1, wx.EXPAND | wx.ALL, 10)
 
     def _setup_status_bar(self) -> None:
-        """Set up the status bar."""
         self.status_bar = self.CreateStatusBar()
         self.status_bar.SetBackgroundColour(DARK_PANEL)
         self.status_bar.SetForegroundColour(LIGHT_TEXT)
         self._set_status("Ready")
 
     def _build_left_panel(self, parent: wx.Window) -> wx.Panel:
-        """Build the left panel with research/builder panels."""
         left_panel = wx.Panel(parent)
         left_panel.SetBackgroundColour(DARK_PANEL)
         left_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -236,7 +138,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return left_panel
 
     def _build_right_panel(self, parent: wx.Window) -> wx.Panel:
-        """Build the right panel with all deck management components."""
         right_panel = wx.Panel(parent)
         right_panel.SetBackgroundColour(DARK_BG)
         right_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -267,7 +168,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return right_panel
 
     def _build_toolbar(self, parent: wx.Window) -> ToolbarButtons:
-        """Build the toolbar with utility buttons."""
         return ToolbarButtons(
             parent,
             on_open_opponent_tracker=self.open_opponent_tracker,
@@ -281,7 +181,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _build_card_data_controls(self, parent: wx.Window) -> wx.Panel:
-        """Create cached-data preference controls."""
         panel = wx.Panel(parent)
         panel.SetBackgroundColour(DARK_BG)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -314,7 +213,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return panel
 
     def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
-        """Build the summary text and deck list column."""
         summary_column = wx.BoxSizer(wx.VERTICAL)
 
         # Archetype summary
@@ -363,7 +261,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return summary_column
 
     def _build_card_inspector(self, parent: wx.Window) -> wx.StaticBoxSizer:
-        """Build the card inspector panel."""
         inspector_box = wx.StaticBox(parent, label="Card Inspector")
         inspector_box.SetForegroundColour(LIGHT_TEXT)
         inspector_box.SetBackgroundColour(DARK_PANEL)
@@ -383,7 +280,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return inspector_sizer
 
     def _build_deck_workspace(self, parent: wx.Window, parent_sizer: wx.BoxSizer) -> None:
-        """Build the deck workspace with tables, stats, guide, and notes."""
         detail_box = wx.StaticBox(parent, label="Deck Workspace")
         detail_box.SetForegroundColour(LIGHT_TEXT)
         detail_box.SetBackgroundColour(DARK_PANEL)
@@ -426,7 +322,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
 
     def _build_deck_tables_tab(self) -> None:
-        """Build the deck tables tab with main/side/out boards."""
         self.deck_tables_page = wx.Panel(self.deck_tabs)
         self.deck_tabs.AddPage(self.deck_tables_page, "Deck Tables")
         tables_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -452,7 +347,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
     def _create_zone_table(
         self, zone: str, tab_name: str, owned_status_func=None
     ) -> CardTablePanel:
-        """Create a CardTablePanel for a specific zone."""
         if owned_status_func is None:
             owned_status_func = self.controller.collection_service.get_owned_status
 
@@ -489,7 +383,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _restore_session_state(self) -> None:
-        """Restore session state from controller."""
         state = self.controller.restore_session_state()
 
         # Restore left panel mode
@@ -514,7 +407,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
     # ------------------------------------------------------------------ Window persistence ---------------------------------------------------
     def _save_window_settings(self) -> None:
-        """Save window settings to controller."""
         pos = self.GetPosition()
         size = self.GetSize()
         self.controller.save_settings(
@@ -522,7 +414,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _apply_window_preferences(self) -> None:
-        """Apply saved window preferences from controller."""
         state = self.controller.restore_session_state()
 
         # Apply window size
@@ -552,13 +443,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
     def _flush_pending_settings(self, _event: wx.TimerEvent) -> None:
         self._save_window_settings()
 
-    # ------------------------------------------------------------------ Event handlers -------------------------------------------------------
-    # Event handlers are now in AppEventHandlers mixin
-
-    # ------------------------------------------------------------------ Data loading ---------------------------------------------------------
     def fetch_archetypes(self, force: bool = False) -> None:
-        """Fetch archetypes - delegates to controller with UI callbacks."""
-        # Clear UI state immediately
         self.research_panel.set_loading_state()
         self.controller.deck_repo.clear_decks_list()
         self.deck_list.Clear()
@@ -568,7 +453,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.copy_button.Disable()
         self.save_button.Disable()
 
-        # Delegate to controller
         self.controller.fetch_archetypes(
             on_success=lambda archetypes: wx.CallAfter(self._on_archetypes_loaded, archetypes),
             on_error=lambda error: wx.CallAfter(self._on_archetypes_error, error),
@@ -577,7 +461,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _clear_deck_display(self) -> None:
-        """Clear deck display - UI only, no business logic."""
         self.controller.deck_repo.set_current_deck(None)
         self.summary_text.ChangeValue("Select an archetype to view decks.")
         self.zone_cards = {"main": [], "side": [], "out": []}
@@ -594,63 +477,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         archetype_names = [item.get("name", "Unknown") for item in self.filtered_archetypes]
         self.research_panel.populate_archetypes(archetype_names)
 
-    def _load_decks_for_archetype(self, archetype: dict[str, Any]) -> None:
-        """Load decks for archetype - delegates to controller with UI callbacks."""
-        name = archetype.get("name", "Unknown")
-
-        # Update UI state immediately
-        self.deck_list.Clear()
-        self.deck_list.Append("Loading…")
-        self.deck_list.Disable()
-        self.summary_text.ChangeValue(f"{name}\n\nFetching deck results…")
-
-        # Delegate to controller
-        self.controller.load_decks_for_archetype(
-            archetype=archetype,
-            on_success=lambda archetype_name, decks: wx.CallAfter(
-                self._on_decks_loaded, archetype_name, decks
-            ),
-            on_error=lambda error: wx.CallAfter(self._on_decks_error, error),
-            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
-        )
-
-    def _present_archetype_summary(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
-        by_date: dict[str, int] = {}
-        for deck in decks:
-            date = deck.get("date", "").lower()
-            by_date[date] = by_date.get(date, 0) + 1
-        latest_dates = sorted(by_date.items(), reverse=True)[:7]
-        lines = [archetype_name, "", f"Total decks loaded: {len(decks)}", ""]
-        if latest_dates:
-            lines.append("Recent activity:")
-            for day, count in latest_dates:
-                lines.append(f"  {day}: {count} deck(s)")
-        else:
-            lines.append("No recent deck activity.")
-        self.summary_text.ChangeValue("\n".join(lines))
-
-    def _download_and_display_deck(self, deck: dict[str, Any]) -> None:
-        """Download and display deck - delegates to controller with UI callbacks."""
-        deck_number = deck.get("number")
-        if not deck_number:
-            wx.MessageBox("Deck identifier missing.", "Deck Error", wx.OK | wx.ICON_ERROR)
-            return
-
-        # Update UI state immediately
-        self.load_button.Disable()
-        self.copy_button.Disable()
-        self.save_button.Disable()
-
-        # Delegate to controller
-        self.controller.download_and_display_deck(
-            deck=deck,
-            on_success=lambda content: wx.CallAfter(self._on_deck_download_success, content),
-            on_error=lambda error: wx.CallAfter(self._on_deck_download_error, error),
-            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
-        )
-
     def _on_deck_download_success(self, content: str) -> None:
-        """Handle successful deck download."""
         self._on_deck_content_ready(content, source="mtggoldfish")
         self.load_button.Enable()
 
@@ -660,7 +487,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
     # ------------------------------------------------------------------ Collection + card data -----------------------------------------------
 
     def _refresh_collection_inventory(self, force: bool = False) -> None:
-        """Fetch collection from MTGO Bridge - delegates to controller."""
         self.collection_status_label.SetLabel("Fetching collection from MTGO...")
 
         self.controller.refresh_collection_from_bridge(
@@ -674,7 +500,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _check_and_download_bulk_data(self) -> None:
-        """Check and download bulk data - delegates to controller."""
         self.controller.check_and_download_bulk_data(
             max_age_days=self.controller.get_bulk_cache_age_days(),
             force_cached=self.controller.is_forcing_cached_bulk_data(),
@@ -684,179 +509,11 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_status=lambda msg: wx.CallAfter(self._set_status, msg),
         )
 
-    # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
-    def _after_zone_change(self, zone: str) -> None:
-        """Handle zone changes - update UI based on zone card data."""
-        if zone == "main":
-            self.main_table.set_cards(self.zone_cards["main"])
-        elif zone == "side":
-            self.side_table.set_cards(self.zone_cards["side"])
-        else:
-            self.out_table.set_cards(self.zone_cards["out"])
-            self._persist_outboard_for_current()
-        deck_text = self.controller.deck_service.build_deck_text_from_zones(self.zone_cards)
-        self.controller.deck_repo.set_current_deck_text(deck_text)
-        self._update_stats(deck_text)
-        self.copy_button.Enable(self._has_deck_loaded())
-        self.save_button.Enable(self._has_deck_loaded())
-        self._schedule_settings_save()
-
-    # ------------------------------------------------------------------ Card inspector -----------------------------------------------------
-    def _collapse_other_zone_tables(self, active_zone: str) -> None:
-        tables = {
-            "main": self.main_table,
-            "side": self.side_table,
-            "out": self.out_table,
-        }
-        for zone, table in tables.items():
-            if zone == active_zone:
-                continue
-            table.collapse_active()
-
-    # ------------------------------------------------------------------ Stats + notes --------------------------------------------------------
     def _update_stats(self, deck_text: str) -> None:
-        """Update stats display using the DeckStatsPanel."""
         self.deck_stats_panel.update_stats(deck_text, self.zone_cards)
-
-    # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
-    # ------------------------------------------------------------------ Daily average --------------------------------------------------------
-    def _start_daily_average_build(self) -> None:
-        """Start daily average build - delegates to controller with UI callbacks."""
-        # Disable button immediately
-        self.daily_average_button.Disable()
-
-        # Create progress dialog
-        progress_dialog = wx.ProgressDialog(
-            "Daily Average",
-            "Downloading decks…",
-            maximum=100,
-            parent=self,
-            style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME,
-        )
-
-        # Delegate to controller
-        can_proceed, message = self.controller.build_daily_average_deck(
-            on_success=lambda buffer, deck_count: wx.CallAfter(
-                self._on_daily_average_success, buffer, deck_count, progress_dialog
-            ),
-            on_error=lambda error: wx.CallAfter(
-                self._on_daily_average_error, error, progress_dialog
-            ),
-            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
-            on_progress=lambda current, total: wx.CallAfter(
-                progress_dialog.Update, current, f"Processed {current}/{total} decks…"
-            ),
-        )
-
-        if not can_proceed:
-            progress_dialog.Close()
-            self.daily_average_button.Enable()
-            wx.MessageBox(message, "Daily Average", wx.OK | wx.ICON_INFORMATION)
-            return
-
-        # Update progress dialog maximum
-        progress_dialog.SetRange(int(message.split()[1]))
-
-    def _on_daily_average_success(
-        self, buffer: dict[str, float], deck_count: int, progress_dialog: wx.ProgressDialog
-    ) -> None:
-        """Handle successful daily average build."""
-        self.daily_average_button.Enable()
-        deck_text = self.controller.deck_service.render_average_deck(buffer, deck_count)
-        self._on_deck_content_ready(deck_text, source="average")
-
-        try:
-            progress_dialog.Update(deck_count)
-            progress_dialog.Close()
-        except Exception as dialog_exc:
-            logger.error(f"Error closing progress dialog: {dialog_exc}")
-
-    def _on_daily_average_error(self, error: Exception, progress_dialog: wx.ProgressDialog) -> None:
-        """Handle daily average build error."""
-        logger.error(f"Daily average error: {error}")
-        try:
-            progress_dialog.Close()
-        except Exception:
-            pass
-        self.daily_average_button.Enable()
-        wx.MessageBox(
-            f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR
-        )
-        self._set_status(f"Daily average failed: {error}")
-
-    def ensure_card_data_loaded(self) -> None:
-        """Ensure card data is loaded in background if not already loading/loaded."""
-
-        def on_success(manager: CardDataManager):
-            # Update UI panels with card manager (marshalled to UI thread by controller)
-            wx.CallAfter(self.card_inspector_panel.set_card_manager, manager)
-            wx.CallAfter(self.deck_stats_panel.set_card_manager, manager)
-
-        def on_error(error: Exception):
-            # Show error dialog on UI thread
-            wx.CallAfter(
-                wx.MessageBox,
-                f"Failed to load card database:\n{error}",
-                "Card Data Error",
-                wx.OK | wx.ICON_ERROR,
-            )
-
-        def on_status(message: str):
-            # Update status bar on UI thread
-            wx.CallAfter(self._set_status, message)
-
-        # Delegate business logic to controller
-        self.controller.ensure_card_data_loaded(
-            on_success=on_success, on_error=on_error, on_status=on_status
-        )
-
-    # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
-    def open_opponent_tracker(self) -> None:
-        open_child_window(
-            self,
-            "tracker_window",
-            MTGOpponentDeckSpy,
-            "Opponent Tracker",
-            self._handle_child_close,
-        )
-
-    def open_timer_alert(self) -> None:
-        open_child_window(
-            self,
-            "timer_window",
-            TimerAlertFrame,
-            "Timer Alert",
-            self._handle_child_close,
-        )
-
-    def open_match_history(self) -> None:
-        open_child_window(
-            self,
-            "history_window",
-            MatchHistoryFrame,
-            "Match History",
-            self._handle_child_close,
-        )
-
-    def open_metagame_analysis(self) -> None:
-        open_child_window(
-            self,
-            "metagame_window",
-            MetagameAnalysisFrame,
-            "Metagame Analysis",
-            self._handle_child_close,
-        )
-
-    def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
-        setattr(self, attr, None)
-        event.Skip()
-
-    # ------------------------------------------------------------------ Lifecycle ------------------------------------------------------------
-    # Lifecycle handlers are now in AppEventHandlers mixin
 
 
 def launch_app() -> None:
-    """Launch the application using the controller factory pattern."""
     app = wx.App(False)
     controller = get_deck_selector_controller()
     frame = controller.create_frame()

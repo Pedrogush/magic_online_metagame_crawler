@@ -16,6 +16,21 @@ if TYPE_CHECKING:
 class CardTablePanelHandler:
     """Mixin containing zone editing and card focus handlers."""
 
+    def _after_zone_change(self, zone: str) -> None:
+        if zone == "main":
+            self.main_table.set_cards(self.zone_cards["main"])
+        elif zone == "side":
+            self.side_table.set_cards(self.zone_cards["side"])
+        else:
+            self.out_table.set_cards(self.zone_cards["out"])
+            self._persist_outboard_for_current()
+        deck_text = self.controller.deck_service.build_deck_text_from_zones(self.zone_cards)
+        self.controller.deck_repo.set_current_deck_text(deck_text)
+        self._update_stats(deck_text)
+        self.copy_button.Enable(self._has_deck_loaded())
+        self.save_button.Enable(self._has_deck_loaded())
+        self._schedule_settings_save()
+
     def _handle_zone_delta(self: AppFrame, zone: str, name: str, delta: int) -> None:
         cards = self.zone_cards.get(zone, [])
         for entry in cards:
@@ -88,6 +103,17 @@ class CardTablePanelHandler:
         self.zone_cards.setdefault(zone, []).append({"name": name, "qty": max(1, qty)})
         self.zone_cards[zone].sort(key=lambda item: item["name"].lower())
         self._after_zone_change(zone)
+
+    def _collapse_other_zone_tables(self, active_zone: str) -> None:
+        tables = {
+            "main": self.main_table,
+            "side": self.side_table,
+            "out": self.out_table,
+        }
+        for zone, table in tables.items():
+            if zone == active_zone:
+                continue
+            table.collapse_active()
 
     def _handle_card_focus(self: AppFrame, zone: str, card: dict[str, Any] | None) -> None:
         if card is None:

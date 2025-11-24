@@ -3,16 +3,90 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import threading
 import wx
 from loguru import logger
-
-from utils.ui_helpers import widget_exists
+from widgets.identify_opponent import MTGOpponentDeckSpy
+from widgets.match_history import MatchHistoryFrame
+from widgets.metagame_analysis import MetagameAnalysisFrame
+from widgets.timer_alert import TimerAlertFrame
+from utils.card_data import CardDataManager
+from utils.ui_helpers import open_child_window, widget_exists
 
 if TYPE_CHECKING:
     from widgets.app_frame import AppFrame
 
 
 class AppEventHandlers:
+
+    # ------------------------------------------------------------------ Properties for state delegation ---------------------------------------
+    @property
+    def current_format(self) -> str:
+        return self.controller.current_format
+
+    @current_format.setter
+    def current_format(self, value: str) -> None:
+        self.controller.current_format = value
+
+    @property
+    def archetypes(self) -> list[dict[str, Any]]:
+        return self.controller.archetypes
+
+    @archetypes.setter
+    def archetypes(self, value: list[dict[str, Any]]) -> None:
+        self.controller.archetypes = value
+
+    @property
+    def filtered_archetypes(self) -> list[dict[str, Any]]:
+        return self.controller.filtered_archetypes
+
+    @filtered_archetypes.setter
+    def filtered_archetypes(self, value: list[dict[str, Any]]) -> None:
+        self.controller.filtered_archetypes = value
+
+    @property
+    def zone_cards(self) -> dict[str, list[dict[str, Any]]]:
+        return self.controller.zone_cards
+
+    @zone_cards.setter
+    def zone_cards(self, value: dict[str, list[dict[str, Any]]]) -> None:
+        self.controller.zone_cards = value
+
+    @property
+    def left_mode(self) -> str:
+        return self.controller.left_mode
+
+    @left_mode.setter
+    def left_mode(self, value: str) -> None:
+        self.controller.left_mode = value
+
+    @property
+    def loading_archetypes(self) -> bool:
+        return self.controller.loading_archetypes
+
+    @loading_archetypes.setter
+    def loading_archetypes(self, value: bool) -> None:
+        self.controller.loading_archetypes = value
+
+    @property
+    def loading_decks(self) -> bool:
+        return self.controller.loading_decks
+
+    @loading_decks.setter
+    def loading_decks(self, value: bool) -> None:
+        self.controller.loading_decks = value
+
+    @property
+    def loading_daily_average(self) -> bool:
+        return self.controller.loading_daily_average
+
+    @loading_daily_average.setter
+    def loading_daily_average(self, value: bool) -> None:
+        self.controller.loading_daily_average = value
+
+    @property
+    def _loading_lock(self) -> threading.Lock:
+        return self.controller._loading_lock
 
     @staticmethod
     def format_deck_name(deck: dict[str, Any]) -> str:
@@ -24,12 +98,10 @@ class AppEventHandlers:
 
     # UI Event Handlers
     def on_format_changed(self: AppFrame) -> None:
-        """Handle format selection change."""
         self.current_format = self.research_panel.get_selected_format()
         self.fetch_archetypes(force=True)
 
     def on_archetype_filter(self: AppFrame) -> None:
-        """Handle archetype search filter changes."""
         query = self.research_panel.get_search_query()
         if not query:
             self.filtered_archetypes = list(self.archetypes)
@@ -40,7 +112,6 @@ class AppEventHandlers:
         self._populate_archetype_list()
 
     def on_archetype_selected(self: AppFrame) -> None:
-        """Handle archetype selection from the list."""
         with self._loading_lock:
             if self.loading_archetypes or self.loading_decks:
                 return
@@ -165,14 +236,6 @@ class AppEventHandlers:
 
     # Helpers
     def _build_deck_text(self: AppFrame) -> str:
-        """
-        Build the current deck text for copy/save actions.
-
-        Preference order:
-        1. Text persisted in the repository (updated whenever a list downloads or zones change)
-        2. Deck text synthesized from the current zone tables
-        3. Raw text stored on the currently selected deck dictionary
-        """
         deck_text = self.controller.deck_repo.get_current_deck_text()
         if deck_text:
             return deck_text
@@ -274,7 +337,6 @@ class AppEventHandlers:
         self._schedule_settings_save()
 
     def _on_collection_fetched(self: AppFrame, filepath: Path, cards: list) -> None:
-        """Handle successful collection fetch."""
         if cards:
             try:
                 info = self.controller.collection_service.load_from_card_list(cards, filepath)
@@ -291,7 +353,6 @@ class AppEventHandlers:
         self.side_table.set_cards(self.zone_cards["side"])
 
     def _on_collection_fetch_failed(self: AppFrame, error_msg: str) -> None:
-        """Handle collection fetch failure."""
         self.controller.collection_service.clear_inventory()
         self.collection_status_label.SetLabel(f"Collection fetch failed: {error_msg}")
         logger.warning(f"Collection fetch failed: {error_msg}")
@@ -299,7 +360,6 @@ class AppEventHandlers:
     def _on_bulk_data_loaded(
         self: AppFrame, by_name: dict[str, list[dict[str, Any]]], stats: dict[str, Any]
     ) -> None:
-        """Handle successful printings index load."""
         self.controller.image_service.clear_printing_index_loading()
         self.controller.image_service.set_bulk_data(by_name)
         self.card_inspector_panel.set_bulk_data(by_name)
@@ -311,19 +371,16 @@ class AppEventHandlers:
         )
 
     def _on_bulk_data_load_failed(self: AppFrame, error_msg: str) -> None:
-        """Handle printings index loading failure."""
         self.controller.image_service.clear_printing_index_loading()
         self._set_status("Ready")
         logger.warning(f"Card printings index load failed: {error_msg}")
 
     def _on_bulk_data_downloaded(self: AppFrame, msg: str) -> None:
-        """Handle successful bulk data download."""
         self._set_status("Card image database downloaded, indexing printings…")
         logger.info(f"Bulk data downloaded: {msg}")
         self._load_bulk_data_into_memory(force=True)
 
     def _on_bulk_data_failed(self: AppFrame, error_msg: str) -> None:
-        """Handle bulk data download failure."""
         self._set_status("Ready")
         logger.warning(f"Bulk data download failed: {error_msg}")
 
@@ -333,7 +390,6 @@ class AppEventHandlers:
 
     # Builder Panel Handlers
     def _on_builder_search(self: AppFrame) -> None:
-        """Handle search button click from builder panel."""
         card_manager = self.controller.card_repo.get_card_manager()
         if not card_manager:
             if not self.controller.card_repo.is_card_data_loading():
@@ -360,11 +416,9 @@ class AppEventHandlers:
         self.builder_panel.update_results(results)
 
     def _on_builder_clear(self: AppFrame) -> None:
-        """Handle clear button click from builder panel."""
         self.builder_panel.clear_filters()
 
     def _on_builder_result_selected(self: AppFrame, idx: int) -> None:
-        """Handle result selection from builder panel."""
         meta = self.builder_panel.get_result_at_index(idx)
         if not meta:
             return
@@ -372,14 +426,12 @@ class AppEventHandlers:
         self.card_inspector_panel.update_card(faux_card, zone=None, meta=meta)
 
     def _on_force_cached_toggle(self: AppFrame, _event: wx.CommandEvent | None) -> None:
-        """Handle cached-only checkbox toggles."""
         enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
         self.controller.set_force_cached_bulk_data(enabled)
         self._schedule_settings_save()
         self._check_and_download_bulk_data()
 
     def _on_bulk_age_changed(self: AppFrame, event: wx.CommandEvent | None) -> None:
-        """Handle changes to the cache age spinner."""
         if not self.bulk_cache_age_spin:
             return
         self.controller.set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
@@ -387,3 +439,178 @@ class AppEventHandlers:
         self._check_and_download_bulk_data()
         if event:
             event.Skip()
+
+    def _on_daily_average_success(
+        self, buffer: dict[str, float], deck_count: int, progress_dialog: wx.ProgressDialog
+    ) -> None:
+        self.daily_average_button.Enable()
+        deck_text = self.controller.deck_service.render_average_deck(buffer, deck_count)
+        self._on_deck_content_ready(deck_text, source="average")
+
+        try:
+            progress_dialog.Update(deck_count)
+            progress_dialog.Close()
+        except Exception as dialog_exc:
+            logger.error(f"Error closing progress dialog: {dialog_exc}")
+
+    def _on_daily_average_error(self, error: Exception, progress_dialog: wx.ProgressDialog) -> None:
+        logger.error(f"Daily average error: {error}")
+        try:
+            progress_dialog.Close()
+        except Exception:
+            pass
+        self.daily_average_button.Enable()
+        wx.MessageBox(
+            f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR
+        )
+        self._set_status(f"Daily average failed: {error}")
+
+    def ensure_card_data_loaded(self) -> None:
+        def on_success(manager: CardDataManager):
+            # Update UI panels with card manager (marshalled to UI thread by controller)
+            wx.CallAfter(self.card_inspector_panel.set_card_manager, manager)
+            wx.CallAfter(self.deck_stats_panel.set_card_manager, manager)
+
+        def on_error(error: Exception):
+            # Show error dialog on UI thread
+            wx.CallAfter(
+                wx.MessageBox,
+                f"Failed to load card database:\n{error}",
+                "Card Data Error",
+                wx.OK | wx.ICON_ERROR,
+            )
+
+        def on_status(message: str):
+            # Update status bar on UI thread
+            wx.CallAfter(self._set_status, message)
+
+        # Delegate business logic to controller
+        self.controller.ensure_card_data_loaded(
+            on_success=on_success, on_error=on_error, on_status=on_status
+        )
+
+    # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
+    def open_opponent_tracker(self) -> None:
+        open_child_window(
+            self,
+            "tracker_window",
+            MTGOpponentDeckSpy,
+            "Opponent Tracker",
+            self._handle_child_close,
+        )
+
+    def open_timer_alert(self) -> None:
+        open_child_window(
+            self,
+            "timer_window",
+            TimerAlertFrame,
+            "Timer Alert",
+            self._handle_child_close,
+        )
+
+    def open_match_history(self) -> None:
+        open_child_window(
+            self,
+            "history_window",
+            MatchHistoryFrame,
+            "Match History",
+            self._handle_child_close,
+        )
+
+    def open_metagame_analysis(self) -> None:
+        open_child_window(
+            self,
+            "metagame_window",
+            MetagameAnalysisFrame,
+            "Metagame Analysis",
+            self._handle_child_close,
+        )
+
+    def _handle_child_close(self, event: wx.CloseEvent, attr: str) -> None:
+        setattr(self, attr, None)
+        event.Skip()
+
+    def _start_daily_average_build(self) -> None:
+        self.daily_average_button.Disable()
+
+        progress_dialog = wx.ProgressDialog(
+            "Daily Average",
+            "Downloading decks…",
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME,
+        )
+
+        can_proceed, message = self.controller.build_daily_average_deck(
+            on_success=lambda buffer, deck_count: wx.CallAfter(
+                self._on_daily_average_success, buffer, deck_count, progress_dialog
+            ),
+            on_error=lambda error: wx.CallAfter(
+                self._on_daily_average_error, error, progress_dialog
+            ),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+            on_progress=lambda current, total: wx.CallAfter(
+                progress_dialog.Update, current, f"Processed {current}/{total} decks…"
+            ),
+        )
+
+        if not can_proceed:
+            progress_dialog.Close()
+            self.daily_average_button.Enable()
+            wx.MessageBox(message, "Daily Average", wx.OK | wx.ICON_INFORMATION)
+            return
+
+        progress_dialog.SetRange(int(message.split()[1]))
+
+    def _download_and_display_deck(self, deck: dict[str, Any]) -> None:
+        deck_number = deck.get("number")
+        if not deck_number:
+            wx.MessageBox("Deck identifier missing.", "Deck Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        # Update UI state immediately
+        self.load_button.Disable()
+        self.copy_button.Disable()
+        self.save_button.Disable()
+
+        # Delegate to controller
+        self.controller.download_and_display_deck(
+            deck=deck,
+            on_success=lambda content: wx.CallAfter(self._on_deck_download_success, content),
+            on_error=lambda error: wx.CallAfter(self._on_deck_download_error, error),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+        )
+
+    def _present_archetype_summary(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
+        by_date: dict[str, int] = {}
+        for deck in decks:
+            date = deck.get("date", "").lower()
+            by_date[date] = by_date.get(date, 0) + 1
+        latest_dates = sorted(by_date.items(), reverse=True)[:7]
+        lines = [archetype_name, "", f"Total decks loaded: {len(decks)}", ""]
+        if latest_dates:
+            lines.append("Recent activity:")
+            for day, count in latest_dates:
+                lines.append(f"  {day}: {count} deck(s)")
+        else:
+            lines.append("No recent deck activity.")
+        self.summary_text.ChangeValue("\n".join(lines))
+
+    def _load_decks_for_archetype(self, archetype: dict[str, Any]) -> None:
+        name = archetype.get("name", "Unknown")
+
+        # Update UI state immediately
+        self.deck_list.Clear()
+        self.deck_list.Append("Loading…")
+        self.deck_list.Disable()
+        self.summary_text.ChangeValue(f"{name}\n\nFetching deck results…")
+
+        # Delegate to controller
+        self.controller.load_decks_for_archetype(
+            archetype=archetype,
+            on_success=lambda archetype_name, decks: wx.CallAfter(
+                self._on_decks_loaded, archetype_name, decks
+            ),
+            on_error=lambda error: wx.CallAfter(self._on_decks_error, error),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+        )

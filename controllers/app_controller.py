@@ -49,8 +49,6 @@ BULK_CACHE_MAX_AGE_DAYS = 365
 
 
 class BackgroundWorker:
-    """Helper for dispatching background work and returning results via callbacks."""
-
     def __init__(
         self,
         func: Callable,
@@ -79,16 +77,8 @@ class BackgroundWorker:
 
 
 class AppController:
-    """
-    Application controller for the deck selector window.
-
-    This class manages application state, coordinates between services and repositories,
-    and provides business logic operations. It is UI-agnostic and communicates with
-    the presentation layer via callbacks.
-    """
 
     def __init__(self):
-        """Initialize the controller with services, repositories, and initial state."""
         # Services and repositories
         self.deck_repo = get_deck_repository()
         self.metagame_repo = get_metagame_repository()
@@ -156,14 +146,6 @@ class AppController:
         on_error: Callable[[Exception], None],
         on_status: Callable[[str], None],
     ) -> None:
-        """
-        Ensure card data is loaded in background if not already loading/loaded.
-
-        Args:
-            on_success: Callback when card data is loaded successfully (receives CardDataManager)
-            on_error: Callback when loading fails (receives Exception)
-            on_status: Callback for status updates (receives status message string)
-        """
         if self.card_repo.get_card_manager() or self.card_repo.is_card_data_loading():
             return
 
@@ -197,15 +179,6 @@ class AppController:
         on_status: Callable[[str], None],
         force: bool = False,
     ) -> None:
-        """
-        Fetch archetypes for the current format.
-
-        Args:
-            on_success: Callback when archetypes are loaded (receives list of archetypes)
-            on_error: Callback when loading fails (receives Exception)
-            on_status: Callback for status updates (receives status message string)
-            force: If True, bypass cache and fetch fresh data
-        """
         with self._loading_lock:
             if self.loading_archetypes:
                 return
@@ -243,15 +216,6 @@ class AppController:
         on_error: Callable[[Exception], None],
         on_status: Callable[[str], None],
     ) -> None:
-        """
-        Load decks for a specific archetype.
-
-        Args:
-            archetype: Archetype data dictionary
-            on_success: Callback when decks are loaded (receives archetype name and deck list)
-            on_error: Callback when loading fails (receives Exception)
-            on_status: Callback for status updates (receives status message string)
-        """
         with self._loading_lock:
             if self.loading_decks:
                 return
@@ -292,15 +256,6 @@ class AppController:
         on_error: Callable[[Exception], None],
         on_status: Callable[[str], None],
     ) -> None:
-        """
-        Download a deck from MTGGoldfish and prepare it for display.
-
-        Args:
-            deck: Deck data dictionary with 'number' key
-            on_success: Callback when deck is downloaded (receives deck text)
-            on_error: Callback when download fails (receives Exception)
-            on_status: Callback for status updates (receives status message string)
-        """
         deck_number = deck.get("number")
         if not deck_number:
             on_error(ValueError("Deck identifier missing"))
@@ -321,18 +276,6 @@ class AppController:
         on_status: Callable[[str], None],
         on_progress: Callable[[int, int], None] | None = None,
     ) -> tuple[bool, str]:
-        """
-        Build a daily average deck from today's decks in the current archetype.
-
-        Args:
-            on_success: Callback when average is built (receives buffer dict and deck count)
-            on_error: Callback when building fails (receives Exception)
-            on_status: Callback for status updates (receives status message string)
-            on_progress: Optional callback for progress updates (receives current, total)
-
-        Returns:
-            Tuple of (can_proceed, message) - False with message if no decks found
-        """
         today = time.strftime("%Y-%m-%d").lower()
         todays_decks = [
             deck
@@ -384,16 +327,6 @@ class AppController:
     # ============= Collection Management =============
 
     def load_collection_from_cache(self, directory: Path) -> tuple[bool, dict[str, Any] | None]:
-        """
-        Load collection from cached file without calling MTGO Bridge.
-
-        Args:
-            directory: Directory to look for collection cache
-
-        Returns:
-            Tuple of (success, info_dict or None)
-            info_dict contains: filepath, card_count, age_hours
-        """
         try:
             info = self.collection_service.load_from_cached_file(directory)
             return True, info
@@ -409,16 +342,6 @@ class AppController:
         on_status: Callable[[str], None],
         force: bool = False,
     ) -> None:
-        """
-        Fetch collection from MTGO Bridge and export to JSON.
-
-        Args:
-            directory: Directory to save collection file
-            on_success: Callback when collection is fetched (receives filepath and cards dict)
-            on_error: Callback when fetch fails (receives error message)
-            on_status: Callback for status updates (receives status message string)
-            force: If True, force refresh even if cache is fresh
-        """
         on_status("Fetching collection from MTGO...")
         logger.info("Fetching collection from MTGO Bridge")
 
@@ -441,17 +364,6 @@ class AppController:
         on_download_failed: Callable[[str], None],
         on_status: Callable[[str], None],
     ) -> None:
-        """
-        Check bulk data freshness and download if needed.
-
-        Args:
-            max_age_days: Maximum age in days before data is considered stale
-            force_cached: If True, skip freshness check and use cached data only
-            on_download_needed: Callback when download is needed (receives reason)
-            on_download_complete: Callback when download completes (receives message)
-            on_download_failed: Callback when download fails (receives message)
-            on_status: Callback for status updates (receives status message string)
-        """
         if self._bulk_check_worker_active:
             logger.debug("Bulk data check already running")
             return
@@ -508,7 +420,6 @@ class AppController:
     def _load_bulk_data_into_memory(
         self, on_status: Callable[[str], None], force: bool = False
     ) -> None:
-        """Load the compact card printings index in the background."""
         on_status("Preparing card printings cache…")
 
         def success_callback(data, stats):
@@ -530,7 +441,6 @@ class AppController:
     # ============= Settings Management =============
 
     def _load_settings(self) -> dict[str, Any]:
-        """Load settings from disk."""
         if not DECK_SELECTOR_SETTINGS_FILE.exists():
             return {}
         try:
@@ -541,7 +451,6 @@ class AppController:
             return {}
 
     def _load_config(self) -> dict[str, Any]:
-        """Load config from disk."""
         if not CONFIG_FILE.exists():
             logger.debug(f"{CONFIG_FILE} not found; using default deck save path")
             return {}
@@ -555,13 +464,6 @@ class AppController:
     def save_settings(
         self, window_size: tuple[int, int] | None = None, screen_pos: tuple[int, int] | None = None
     ) -> None:
-        """
-        Save settings to disk.
-
-        Args:
-            window_size: Optional window size tuple (width, height)
-            screen_pos: Optional screen position tuple (x, y)
-        """
         data = dict(self.settings)
         data.update(
             {
@@ -593,12 +495,10 @@ class AppController:
         self.settings = data
 
     def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
-        """Serialize zone cards for storage."""
         return {zone: sanitize_zone_cards(cards) for zone, cards in self.zone_cards.items()}
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
-        """Coerce a value to boolean."""
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
@@ -606,7 +506,6 @@ class AppController:
         return bool(value)
 
     def _validate_bulk_cache_age(self, value: Any) -> int:
-        """Validate and clamp bulk cache age to valid range."""
         try:
             days = int(float(value))
         except (TypeError, ValueError):
@@ -614,22 +513,18 @@ class AppController:
         return max(BULK_CACHE_MIN_AGE_DAYS, min(days, BULK_CACHE_MAX_AGE_DAYS))
 
     def get_bulk_cache_age_days(self) -> int:
-        """Get the bulk cache age in days."""
         return self._bulk_data_age_days
 
     def is_forcing_cached_bulk_data(self) -> bool:
-        """Check if forcing cached bulk data only."""
         return self._bulk_cache_force
 
     def set_force_cached_bulk_data(self, enabled: bool) -> None:
-        """Set whether to force cached bulk data only."""
         if self._bulk_cache_force == enabled:
             return
         self._bulk_cache_force = enabled
         self.settings["force_cached_bulk_data"] = enabled
 
     def set_bulk_cache_age_days(self, days: int) -> None:
-        """Set the bulk cache age in days."""
         clamped = self._validate_bulk_cache_age(days)
         if clamped == self._bulk_data_age_days:
             return
@@ -637,18 +532,6 @@ class AppController:
         self.settings["bulk_data_max_age_days"] = clamped
 
     def restore_session_state(self) -> dict[str, Any]:
-        """
-        Restore session state from settings.
-
-        Returns:
-            Dictionary with restored state including:
-            - left_mode: "builder" or "research"
-            - zone_cards: dict of zone cards if any
-            - deck_text: saved deck text if any
-            - deck_info: saved deck info if any
-            - window_size: saved window size if any
-            - screen_pos: saved screen position if any
-        """
         result: dict[str, Any] = {"left_mode": self.left_mode}
 
         # Restore zone cards
@@ -697,15 +580,6 @@ class AppController:
         on_error: Callable[[Exception], None],
         on_status: Callable[[str], None],
     ) -> None:
-        """
-        Download a deck from MTGGoldfish.
-
-        Args:
-            deck_number: Deck identifier
-            on_success: Callback when deck is downloaded (receives deck text)
-            on_error: Callback when download fails (receives Exception)
-            on_status: Callback for status updates (receives status message string)
-        """
         on_status("Downloading deck…")
 
         def worker(number: str):
@@ -715,27 +589,11 @@ class AppController:
         BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
 
     def check_bulk_data_freshness(self, max_age_days: int) -> tuple[bool, str]:
-        """
-        Check if bulk data needs downloading.
-
-        Args:
-            max_age_days: Maximum age in days before data is considered stale
-
-        Returns:
-            Tuple of (needs_download, reason)
-        """
         return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
 
     def download_bulk_data(
         self, on_success: Callable[[str], None], on_error: Callable[[str], None]
     ) -> None:
-        """
-        Download bulk data asynchronously.
-
-        Args:
-            on_success: Callback when download completes (receives message)
-            on_error: Callback when download fails (receives message)
-        """
         self.image_service.download_bulk_metadata_async(on_success=on_success, on_error=on_error)
 
     def start_daily_average_build(
@@ -745,18 +603,6 @@ class AppController:
         on_status: Callable[[str], None],
         on_progress: Callable[[int, int], None] | None = None,
     ) -> tuple[bool, str]:
-        """
-        Start building a daily average deck from today's decks.
-
-        Args:
-            on_success: Callback when average is built (receives buffer dict and deck count)
-            on_error: Callback when building fails (receives Exception)
-            on_status: Callback for status updates (receives status message string)
-            on_progress: Optional callback for progress updates (receives current, total)
-
-        Returns:
-            Tuple of (can_proceed, message) - False with message if no decks found
-        """
         return self.build_daily_average_deck(
             on_success=on_success,
             on_error=on_error,
@@ -767,35 +613,27 @@ class AppController:
     # ============= State Accessors =============
 
     def get_current_format(self) -> str:
-        """Get the currently selected format."""
         return self.current_format
 
     def set_current_format(self, format_name: str) -> None:
-        """Set the current format."""
         self.current_format = format_name
 
     def get_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
-        """Get current zone cards state."""
         return self.zone_cards
 
     def get_archetypes(self) -> list[dict[str, Any]]:
-        """Get loaded archetypes."""
         return self.archetypes
 
     def get_filtered_archetypes(self) -> list[dict[str, Any]]:
-        """Get filtered archetypes list."""
         return self.filtered_archetypes
 
     def set_filtered_archetypes(self, archetypes: list[dict[str, Any]]) -> None:
-        """Set filtered archetypes."""
         self.filtered_archetypes = archetypes
 
     def get_left_mode(self) -> str:
-        """Get the current left panel mode."""
         return self.left_mode
 
     def set_left_mode(self, mode: str) -> None:
-        """Set the left panel mode."""
         self.left_mode = mode
 
     # ============= Initial Loading Orchestration =============
@@ -811,29 +649,7 @@ class AppController:
         deck_save_dir: Path,
         force_archetypes: bool = False,
     ) -> None:
-        """
-        Orchestrate initial application loading sequence.
 
-        This method coordinates the initial loading of:
-        1. Session state restoration
-        2. Archetype data
-        3. Collection cache
-        4. Bulk card data
-
-        Args:
-            on_archetypes_success: Callback when archetypes load successfully
-            on_archetypes_error: Callback when archetype loading fails
-            on_collection_loaded: Callback when collection is loaded from cache
-            on_collection_not_found: Callback when collection is not found
-            on_bulk_data_status: Callback for bulk data status updates
-            on_status: Callback for general status updates
-            deck_save_dir: Directory where deck data is saved
-            force_archetypes: If True, force fresh archetype fetch
-        """
-        # Step 1: Restore session state (already done during controller init)
-        # Session state is loaded from settings in __init__
-
-        # Step 2: Fetch archetypes
         self.fetch_archetypes(
             on_success=on_archetypes_success,
             on_error=on_archetypes_error,
@@ -863,16 +679,6 @@ class AppController:
     # ============= Frame Factory =============
 
     def create_frame(self, parent: wx.Window | None = None) -> AppFrame:
-        """
-        Create and return an AppFrame instance, then trigger initial loads.
-
-        Args:
-            parent: Optional parent window
-
-        Returns:
-            AppFrame instance
-        """
-        # Import here to avoid circular dependency
         import wx
 
         from widgets.app_frame import AppFrame
@@ -937,7 +743,6 @@ _controller_instance: AppController | None = None
 
 
 def get_deck_selector_controller() -> AppController:
-    """Get or create the singleton deck selector controller instance."""
     global _controller_instance
     if _controller_instance is None:
         _controller_instance = AppController()
@@ -945,6 +750,5 @@ def get_deck_selector_controller() -> AppController:
 
 
 def reset_deck_selector_controller() -> None:
-    """Reset the controller instance (primarily for testing)."""
     global _controller_instance
     _controller_instance = None
