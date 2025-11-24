@@ -89,9 +89,7 @@ class CardTablePanelHandler:
         self.zone_cards[zone].sort(key=lambda item: item["name"].lower())
         self._after_zone_change(zone)
 
-    def _handle_card_focus(
-        self: AppFrame, zone: str, card: dict[str, Any] | None
-    ) -> None:
+    def _handle_card_focus(self: AppFrame, zone: str, card: dict[str, Any] | None) -> None:
         if card is None:
             if self.card_inspector_panel.active_zone == zone:
                 self.card_inspector_panel.reset()

@@ -1,6 +1,5 @@
 import json
 import threading
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -28,7 +27,7 @@ from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
-from widgets.handlers.deck_selector_handlers import DeckSelectorHandlers
+from widgets.handlers.deck_selector_handlers import AppEventHandlers
 from widgets.handlers.sideboard_guide_handlers import SideboardGuideHandlers
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.mana_keyboard import ManaKeyboardFrame, open_mana_keyboard
@@ -102,46 +101,7 @@ except OSError as exc:  # pragma: no cover - defensive logging
 CONFIG.setdefault("deck_selector_save_path", str(DECK_SAVE_DIR))
 
 
-def format_deck_name(deck: dict[str, Any]) -> str:
-    """Compose a compact deck line for list display."""
-    date = deck.get("date", "")
-    player = deck.get("player", "")
-    event = deck.get("event", "")
-    result = deck.get("result", "")
-    return f"{date} | {player} — {event} [{result}]".strip()
-
-
-class _Worker:
-    """Helper for dispatching background work and returning results on the UI thread."""
-
-    def __init__(
-        self,
-        func: Callable,
-        *args,
-        on_success: Callable | None = None,
-        on_error: Callable | None = None,
-    ) -> None:
-        self.func = func
-        self.args = args
-        self.on_success = on_success
-        self.on_error = on_error
-
-    def start(self) -> None:
-        threading.Thread(target=self._run, daemon=True).start()
-
-    def _run(self) -> None:
-        try:
-            result = self.func(*self.args)
-        except Exception as exc:  # pragma: no cover - UI side effects
-            logger.exception(f"Background task failed: {exc}")
-            if self.on_error:
-                wx.CallAfter(self.on_error, exc)
-            return
-        if self.on_success:
-            wx.CallAfter(self.on_success, result)
-
-
-class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandler, wx.Frame):
+class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, wx.Frame):
     """wxPython-based metagame research + deck builder UI."""
 
     def __init__(
@@ -671,7 +631,7 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         self._save_window_settings()
 
     # ------------------------------------------------------------------ Event handlers -------------------------------------------------------
-    # Event handlers are now in DeckSelectorHandlers mixin
+    # Event handlers are now in AppEventHandlers mixin
 
     # ------------------------------------------------------------------ Data loading ---------------------------------------------------------
     def fetch_archetypes(self, force: bool = False) -> None:
@@ -970,7 +930,7 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         event.Skip()
 
     # ------------------------------------------------------------------ Lifecycle ------------------------------------------------------------
-    # Lifecycle handlers are now in DeckSelectorHandlers mixin
+    # Lifecycle handlers are now in AppEventHandlers mixin
 
 
 def launch_app() -> None:

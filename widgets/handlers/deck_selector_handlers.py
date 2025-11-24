@@ -1,5 +1,3 @@
-"""Event handlers for MTGDeckSelectionFrame extracted to reduce main file size."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,8 +12,15 @@ if TYPE_CHECKING:
     from widgets.app_frame import AppFrame
 
 
-class DeckSelectorHandlers:
-    """Mixin class containing all event handlers for MTGDeckSelectionFrame."""
+class AppEventHandlers:
+
+    @staticmethod
+    def format_deck_name(deck: dict[str, Any]) -> str:
+        date = deck.get("date", "")
+        player = deck.get("player", "")
+        event = deck.get("event", "")
+        result = deck.get("result", "")
+        return f"{date} | {player} — {event} [{result}]".strip()
 
     # UI Event Handlers
     def on_format_changed(self: AppFrame) -> None:
@@ -57,9 +62,7 @@ class DeckSelectorHandlers:
         self.load_button.Enable()
         self.copy_button.Enable(self._has_deck_loaded())
         self.save_button.Enable(self._has_deck_loaded())
-        from widgets.app_frame import format_deck_name
-
-        self._set_status(f"Selected deck {format_deck_name(deck)}")
+        self._set_status(f"Selected deck {self.format_deck_name(deck)}")
         self._show_left_panel("builder")
         self._schedule_settings_save()
 
@@ -97,7 +100,6 @@ class DeckSelectorHandlers:
     def on_save_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
         from utils.deck import sanitize_filename
         from utils.paths import DECK_SAVE_DIR
-        from widgets.app_frame import format_deck_name
 
         deck_content = self._build_deck_text().strip()
         if not deck_content:
@@ -106,7 +108,7 @@ class DeckSelectorHandlers:
         default_name = "saved_deck"
         current_deck = self.deck_repo.get_current_deck()
         if current_deck:
-            default_name = format_deck_name(current_deck).replace(" | ", "_")
+            default_name = self.format_deck_name(current_deck).replace(" | ", "_")
         dlg = wx.TextEntryDialog(self, "Deck name:", "Save Deck", default_name=default_name)
         if dlg.ShowModal() != wx.ID_OK:
             dlg.Destroy()
@@ -217,11 +219,7 @@ class DeckSelectorHandlers:
             f"Unable to load archetypes:\n{error}", "Archetype Error", wx.OK | wx.ICON_ERROR
         )
 
-    def _on_decks_loaded(
-        self: AppFrame, archetype_name: str, decks: list[dict[str, Any]]
-    ) -> None:
-        from widgets.app_frame import format_deck_name
-
+    def _on_decks_loaded(self: AppFrame, archetype_name: str, decks: list[dict[str, Any]]) -> None:
         with self._loading_lock:
             self.loading_decks = False
         self.deck_repo.set_decks_list(decks)
@@ -233,7 +231,7 @@ class DeckSelectorHandlers:
             self.summary_text.ChangeValue(f"{archetype_name}\n\nNo deck data available.")
             return
         for deck in decks:
-            self.deck_list.Append(format_deck_name(deck))
+            self.deck_list.Append(self.format_deck_name(deck))
         self.deck_list.Enable()
         self.daily_average_button.Enable()
         self._present_archetype_summary(archetype_name, decks)
@@ -252,9 +250,7 @@ class DeckSelectorHandlers:
         self._set_status(f"Deck download failed: {error}")
         wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
-    def _on_deck_content_ready(
-        self: AppFrame, deck_text: str, source: str = "manual"
-    ) -> None:
+    def _on_deck_content_ready(self: AppFrame, deck_text: str, source: str = "manual") -> None:
         self.deck_repo.set_current_deck_text(deck_text)
         stats = self.deck_service.analyze_deck(deck_text)
         self.zone_cards["main"] = sorted(
