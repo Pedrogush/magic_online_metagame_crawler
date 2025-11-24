@@ -237,14 +237,6 @@ class ImageDownloadDialog(wx.Dialog):
             dialog.Destroy()
         except RuntimeError:
             pass
-
-        msg = (
-            f"Download complete!\n\n"
-            f"Total processed: {result.get('total', 0)}\n"
-            f"Downloaded: {result.get('downloaded', 0)}\n"
-            f"Already cached: {result.get('skipped', 0)}\n"
-            f"Failed: {result.get('failed', 0)}"
-        )
         if self.on_status_update:
             self.on_status_update("Card image download complete")
 
@@ -256,7 +248,7 @@ class ImageDownloadDialog(wx.Dialog):
             pass
 
         wx.MessageBox(f"Download failed: {error_msg}", "Download Error", wx.OK | wx.ICON_ERROR)
-        
+
         if self.on_status_update:
             self.on_status_update("Ready")
 

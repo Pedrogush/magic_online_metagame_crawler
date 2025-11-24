@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from loguru import logger
 from typing import Any
 
 import wx
 import wx.dataview as dv
+from loguru import logger
 
 from services.radar_service import RadarData, RadarService, get_radar_service
 from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT

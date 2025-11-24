@@ -256,6 +256,7 @@ class SideboardGuideHandlers:
         except Exception as e:
             self._set_status("Error exporting sideboard guide to CSV.")
             from loguru import logger
+
             logger.exception(f"Error exporting sideboard guide to CSV: {e}")
 
     def _on_import_guide_csv(self: MTGDeckSelectionFrame) -> None:
@@ -355,6 +356,7 @@ class SideboardGuideHandlers:
         except Exception as e:
             self._set_status("Error importing sideboard guide from CSV.")
             from loguru import logger
+
             logger.exception(f"Error importing sideboard guide from CSV: {e}")
 
     def _export_guide_to_csv(self: MTGDeckSelectionFrame, file_path: str) -> None:
