@@ -3,30 +3,24 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import wx
 from loguru import logger
 
 from controllers.app_controller import get_deck_selector_controller
+
+if TYPE_CHECKING:
+    from controllers.app_controller import AppController
 from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
 from utils.card_data import CardDataManager
 from utils.deck import (
     read_curr_deck_file,
-    sanitize_zone_cards,
 )
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
-from utils.paths import (
-    CACHE_DIR,
-    CONFIG_FILE,
-    DECK_SELECTOR_SETTINGS_FILE,
-    DECKS_DIR,
-)
-from utils.service_config import (
-    COLLECTION_CACHE_MAX_AGE_SECONDS,
-    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
-)
+from utils.paths import CACHE_DIR, CONFIG_FILE, DECKS_DIR
+from utils.service_config import COLLECTION_CACHE_MAX_AGE_SECONDS
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_constants import (
     DARK_BG,
@@ -112,9 +106,6 @@ except OSError as exc:  # pragma: no cover - defensive logging
     logger.warning(f"Unable to create deck save directory '{DECK_SAVE_DIR}': {exc}")
 CONFIG.setdefault("deck_selector_save_path", str(DECK_SAVE_DIR))
 
-BULK_CACHE_MIN_AGE_DAYS = 1
-BULK_CACHE_MAX_AGE_DAYS = 365
-
 
 def format_deck_name(deck: dict[str, Any]) -> str:
     """Compose a compact deck line for list display."""
@@ -155,18 +146,27 @@ class _Worker:
             wx.CallAfter(self.on_success, result)
 
 
-class AppFrame(
-    DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandler, wx.Frame
-):
+class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandler, wx.Frame):
     """wxPython-based metagame research + deck builder UI."""
 
-    def __init__(self, parent: wx.Window | None = None):
+    def __init__(
+        self,
+        controller: "AppController",
+        parent: wx.Window | None = None,
+    ):
+        """
+        Initialize the AppFrame.
+
+        Args:
+            controller: AppController instance that manages business logic and state
+            parent: Optional parent window
+        """
         super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
 
-        # Initialize controller (handles business logic and service coordination)
-        self.controller = get_deck_selector_controller()
+        # Store controller reference - ALL state and business logic goes through this
+        self.controller: AppController = controller
 
-        # Keep references to services/repos for UI operations (will be refactored gradually)
+        # Convenience references to services/repos for UI operations
         self.deck_repo = self.controller.deck_repo
         self.metagame_repo = self.controller.metagame_repo
         self.card_repo = self.controller.card_repo
@@ -177,43 +177,20 @@ class AppFrame(
         self.store_service = self.controller.store_service
         self.card_data_dialogs_disabled = False
 
-        self.settings = self._load_window_settings()
-        self.current_format = self.settings.get("format", "Modern")
-        if self.current_format not in FORMAT_OPTIONS:
-            self.current_format = "Modern"
-        raw_force = self.settings.get("force_cached_bulk_data", False)
-        self._bulk_cache_force = self._coerce_bool(raw_force)
-        self._bulk_data_age_days = self._validate_bulk_cache_age(
-            self.settings.get("bulk_data_max_age_days", DEFAULT_BULK_DATA_MAX_AGE_DAYS)
-        )
-        self.settings.setdefault("force_cached_bulk_data", self._bulk_cache_force)
-        self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
-
-        self.archetypes: list[dict[str, Any]] = []
-        self.filtered_archetypes: list[dict[str, Any]] = []
-        self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": [], "out": []}
-
-        # Load deck metadata stores via store service
-        self.notes_store_path = NOTES_STORE
-        self.outboard_store_path = OUTBOARD_STORE
-        self.guide_store_path = GUIDE_STORE
-        self.deck_notes_store = self.store_service.load_store(self.notes_store_path)
-        self.outboard_store = self.store_service.load_store(self.outboard_store_path)
-        self.guide_store = self.store_service.load_store(self.guide_store_path)
+        # Store references for backward compatibility - delegate to controller
+        self.notes_store_path = self.controller.notes_store_path
+        self.outboard_store_path = self.controller.outboard_store_path
+        self.guide_store_path = self.controller.guide_store_path
+        self.deck_notes_store = self.controller.deck_notes_store
+        self.outboard_store = self.controller.outboard_store
+        self.guide_store = self.controller.guide_store
 
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
         self.active_inspector_zone: str | None = None
-        self.left_mode = "builder" if self.settings.get("left_mode") == "builder" else "research"
         self.left_stack: wx.Simplebook | None = None
         self.research_panel: DeckResearchPanel | None = None
         self.builder_panel: DeckBuilderPanel | None = None
-
-        # Thread-safe loading state flags
-        self._loading_lock = threading.Lock()
-        self.loading_archetypes = False
-        self.loading_decks = False
-        self.loading_daily_average = False
 
         self._save_timer: wx.Timer | None = None
         self.mana_icons = ManaIconFactory()
@@ -224,7 +201,6 @@ class AppFrame(
         self.mana_keyboard_window: ManaKeyboardFrame | None = None
         self.force_cache_checkbox: wx.CheckBox | None = None
         self.bulk_cache_age_spin: wx.SpinCtrl | None = None
-        self._bulk_check_worker_active = False
 
         self._build_ui()
         self._apply_window_preferences()
@@ -236,6 +212,92 @@ class AppFrame(
         self.Bind(wx.EVT_MOVE, self.on_window_change)
 
         wx.CallAfter(self._run_initial_loads)
+
+    # ------------------------------------------------------------------ Properties for state delegation ---------------------------------------
+    @property
+    def current_format(self) -> str:
+        """Delegate to controller."""
+        return self.controller.current_format
+
+    @current_format.setter
+    def current_format(self, value: str) -> None:
+        """Delegate to controller."""
+        self.controller.current_format = value
+
+    @property
+    def archetypes(self) -> list[dict[str, Any]]:
+        """Delegate to controller."""
+        return self.controller.archetypes
+
+    @archetypes.setter
+    def archetypes(self, value: list[dict[str, Any]]) -> None:
+        """Delegate to controller."""
+        self.controller.archetypes = value
+
+    @property
+    def filtered_archetypes(self) -> list[dict[str, Any]]:
+        """Delegate to controller."""
+        return self.controller.filtered_archetypes
+
+    @filtered_archetypes.setter
+    def filtered_archetypes(self, value: list[dict[str, Any]]) -> None:
+        """Delegate to controller."""
+        self.controller.filtered_archetypes = value
+
+    @property
+    def zone_cards(self) -> dict[str, list[dict[str, Any]]]:
+        """Delegate to controller."""
+        return self.controller.zone_cards
+
+    @zone_cards.setter
+    def zone_cards(self, value: dict[str, list[dict[str, Any]]]) -> None:
+        """Delegate to controller."""
+        self.controller.zone_cards = value
+
+    @property
+    def left_mode(self) -> str:
+        """Delegate to controller."""
+        return self.controller.left_mode
+
+    @left_mode.setter
+    def left_mode(self, value: str) -> None:
+        """Delegate to controller."""
+        self.controller.left_mode = value
+
+    @property
+    def loading_archetypes(self) -> bool:
+        """Delegate to controller."""
+        return self.controller.loading_archetypes
+
+    @loading_archetypes.setter
+    def loading_archetypes(self, value: bool) -> None:
+        """Delegate to controller."""
+        self.controller.loading_archetypes = value
+
+    @property
+    def loading_decks(self) -> bool:
+        """Delegate to controller."""
+        return self.controller.loading_decks
+
+    @loading_decks.setter
+    def loading_decks(self, value: bool) -> None:
+        """Delegate to controller."""
+        self.controller.loading_decks = value
+
+    @property
+    def loading_daily_average(self) -> bool:
+        """Delegate to controller."""
+        return self.controller.loading_daily_average
+
+    @loading_daily_average.setter
+    def loading_daily_average(self, value: bool) -> None:
+        """Delegate to controller."""
+        self.controller.loading_daily_average = value
+
+    @property
+    def _loading_lock(self) -> threading.Lock:
+        """Delegate to controller."""
+        return self.controller._loading_lock
 
     # ------------------------------------------------------------------ UI ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -276,7 +338,7 @@ class AppFrame(
         self.research_panel = DeckResearchPanel(
             parent=self.left_stack,
             format_options=FORMAT_OPTIONS,
-            initial_format=self.current_format,
+            initial_format=self.controller.current_format,
             on_format_changed=self.on_format_changed,
             on_archetype_filter=self.on_archetype_filter,
             on_archetype_selected=self.on_archetype_selected,
@@ -352,7 +414,7 @@ class AppFrame(
         panel.SetSizer(sizer)
 
         self.force_cache_checkbox = wx.CheckBox(panel, label="Use cached card data only")
-        self.force_cache_checkbox.SetValue(self._is_forcing_cached_bulk_data())
+        self.force_cache_checkbox.SetValue(self.controller.is_forcing_cached_bulk_data())
         self.force_cache_checkbox.Bind(wx.EVT_CHECKBOX, self._on_force_cached_toggle)
         sizer.Add(self.force_cache_checkbox, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
 
@@ -362,10 +424,10 @@ class AppFrame(
 
         self.bulk_cache_age_spin = wx.SpinCtrl(
             panel,
-            min=BULK_CACHE_MIN_AGE_DAYS,
-            max=BULK_CACHE_MAX_AGE_DAYS,
+            min=1,  # BULK_CACHE_MIN_AGE_DAYS
+            max=365,  # BULK_CACHE_MAX_AGE_DAYS
         )
-        self.bulk_cache_age_spin.SetValue(self._get_bulk_cache_age_days())
+        self.bulk_cache_age_spin.SetValue(self.controller.get_bulk_cache_age_days())
         self.bulk_cache_age_spin.Bind(wx.EVT_SPINCTRL, self._on_bulk_age_changed)
         self.bulk_cache_age_spin.Bind(wx.EVT_TEXT, self._on_bulk_age_changed)
         sizer.Add(self.bulk_cache_age_spin, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
@@ -380,14 +442,16 @@ class AppFrame(
     def _on_force_cached_toggle(self, _event: wx.CommandEvent | None) -> None:
         """Handle cached-only checkbox toggles."""
         enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
-        self._set_force_cached_bulk_data(enabled)
+        self.controller.set_force_cached_bulk_data(enabled)
+        self._schedule_settings_save()
         self._check_and_download_bulk_data()
 
     def _on_bulk_age_changed(self, event: wx.CommandEvent | None) -> None:
         """Handle changes to the cache age spinner."""
         if not self.bulk_cache_age_spin:
             return
-        self._set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
+        self.controller.set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
+        self._schedule_settings_save()
         self._check_and_download_bulk_data()
         if event:
             event.Skip()
@@ -568,33 +632,23 @@ class AppFrame(
         )
 
     def _restore_session_state(self) -> None:
-        saved_mode = self.settings.get("left_mode")
-        if saved_mode in {"research", "builder"}:
-            self.left_mode = saved_mode
-            self._show_left_panel(self.left_mode, force=True)
-        saved_zones = self.settings.get("saved_zone_cards") or {}
-        changed = False
-        for zone in ("main", "side", "out"):
-            entries = saved_zones.get(zone, [])
-            if not isinstance(entries, list):
-                continue
-            sanitized = sanitize_zone_cards(entries)
-            if sanitized:
-                self.zone_cards[zone] = sanitized
-                changed = True
-        if changed:
+        """Restore session state from controller."""
+        state = self.controller.restore_session_state()
+
+        # Restore left panel mode
+        self._show_left_panel(state["left_mode"], force=True)
+
+        # Restore zone cards
+        if "zone_cards" in state:
             self.main_table.set_cards(self.zone_cards["main"])
             self.side_table.set_cards(self.zone_cards["side"])
             self.out_table.set_cards(self.zone_cards["out"])
-        saved_text = self.settings.get("saved_deck_text", "")
-        if saved_text:
-            self.deck_repo.set_current_deck_text(saved_text)
-            self._update_stats(saved_text)
+
+        # Restore deck text
+        if "deck_text" in state:
+            self._update_stats(state["deck_text"])
             self.copy_button.Enable(True)
             self.save_button.Enable(True)
-        saved_deck = self.settings.get("saved_deck_info")
-        if isinstance(saved_deck, dict):
-            self.deck_repo.set_current_deck(saved_deck)
 
     def _run_initial_loads(self) -> None:
         self._restore_session_state()
@@ -608,94 +662,31 @@ class AppFrame(
         logger.info(message)
 
     # ------------------------------------------------------------------ Window persistence ---------------------------------------------------
-    def _load_window_settings(self) -> dict[str, Any]:
-        if not DECK_SELECTOR_SETTINGS_FILE.exists():
-            return {}
-        try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except json.JSONDecodeError as exc:  # pragma: no cover - defensive logging
-            logger.warning(f"Failed to load deck selector settings: {exc}")
-            return {}
-
     def _save_window_settings(self) -> None:
-        data = dict(self.settings)
+        """Save window settings to controller."""
         pos = self.GetPosition()
         size = self.GetSize()
-        data.update(
-            {
-                "format": self.current_format,
-                "window_size": [size.width, size.height],
-                "screen_pos": [pos.x, pos.y],
-                "left_mode": self.left_mode,
-                "force_cached_bulk_data": self._bulk_cache_force,
-                "bulk_data_max_age_days": self._bulk_data_age_days,
-                "saved_deck_text": self.deck_repo.get_current_deck_text(),
-                "saved_zone_cards": self._serialize_zone_cards(),
-            }
+        self.controller.save_settings(
+            window_size=(size.width, size.height), screen_pos=(pos.x, pos.y)
         )
-        current_deck = self.deck_repo.get_current_deck()
-        if current_deck:
-            data["saved_deck_info"] = current_deck
-        elif "saved_deck_info" in data:
-            data.pop("saved_deck_info")
-        try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
-                json.dump(data, fh, indent=2)
-        except OSError as exc:  # pragma: no cover - defensive logging
-            logger.warning(f"Unable to persist deck selector settings: {exc}")
-        self.settings = data
-
-    def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
-        return {zone: sanitize_zone_cards(cards) for zone, cards in self.zone_cards.items()}
-
-    @staticmethod
-    def _coerce_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(value)
-
-    def _validate_bulk_cache_age(self, value: Any) -> int:
-        try:
-            days = int(float(value))
-        except (TypeError, ValueError):
-            days = int(DEFAULT_BULK_DATA_MAX_AGE_DAYS)
-        return max(BULK_CACHE_MIN_AGE_DAYS, min(days, BULK_CACHE_MAX_AGE_DAYS))
-
-    def _get_bulk_cache_age_days(self) -> int:
-        return self._bulk_data_age_days
-
-    def _is_forcing_cached_bulk_data(self) -> bool:
-        return self._bulk_cache_force
-
-    def _set_force_cached_bulk_data(self, enabled: bool) -> None:
-        if self._bulk_cache_force == enabled:
-            return
-        self._bulk_cache_force = enabled
-        self.settings["force_cached_bulk_data"] = enabled
-        self._schedule_settings_save()
-
-    def _set_bulk_cache_age_days(self, days: int) -> None:
-        clamped = self._validate_bulk_cache_age(days)
-        if clamped == self._bulk_data_age_days:
-            return
-        self._bulk_data_age_days = clamped
-        self.settings["bulk_data_max_age_days"] = clamped
-        self._schedule_settings_save()
 
     def _apply_window_preferences(self) -> None:
-        size = self.settings.get("window_size")
-        if isinstance(size, list) and len(size) == 2:
+        """Apply saved window preferences from controller."""
+        state = self.controller.restore_session_state()
+
+        # Apply window size
+        if "window_size" in state:
             try:
-                self.SetSize(wx.Size(int(size[0]), int(size[1])))
+                width, height = state["window_size"]
+                self.SetSize(wx.Size(int(width), int(height)))
             except (TypeError, ValueError):
                 logger.debug("Ignoring invalid saved window size")
-        pos = self.settings.get("screen_pos")
-        if isinstance(pos, list) and len(pos) == 2:
+
+        # Apply window position
+        if "screen_pos" in state:
             try:
-                self.SetPosition(wx.Point(int(pos[0]), int(pos[1])))
+                x, y = state["screen_pos"]
+                self.SetPosition(wx.Point(int(x), int(y)))
             except (TypeError, ValueError):
                 logger.debug("Ignoring invalid saved window position")
 
@@ -862,83 +853,15 @@ class AppFrame(
         )
 
     def _check_and_download_bulk_data(self) -> None:
-        """Kick off a background freshness check before loading/downloading bulk data."""
-        if self._bulk_check_worker_active:
-            logger.debug("Bulk data check already running")
-            return
-
-        force_cached = self._is_forcing_cached_bulk_data()
-        max_age_days = self._get_bulk_cache_age_days()
-        status_msg = (
-            "Loading cached card image database…"
-            if force_cached
-            else "Checking card image database…"
+        """Delegate bulk data check to controller."""
+        self.controller.check_and_download_bulk_data(
+            max_age_days=self.controller.get_bulk_cache_age_days(),
+            force_cached=self.controller.is_forcing_cached_bulk_data(),
+            on_download_needed=lambda reason: logger.info(f"Bulk data needs update: {reason}"),
+            on_download_complete=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
+            on_download_failed=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
         )
-        self._set_status(status_msg)
-        self._bulk_check_worker_active = True
-
-        def worker():
-            if force_cached:
-                return False, "Cached-only mode enabled"
-            return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
-
-        def on_success(result: tuple[bool, str]):
-            self._bulk_check_worker_active = False
-            needs_download, reason = result
-            self._after_bulk_data_check(needs_download, reason, force_cached)
-
-        def on_error(exc: Exception):
-            self._bulk_check_worker_active = False
-            self._on_bulk_data_check_failed(exc)
-
-        _Worker(worker, on_success=on_success, on_error=on_error).start()
-
-    def _after_bulk_data_check(
-        self, needs_download: bool, reason: str, force_cached: bool = False
-    ) -> None:
-        """Handle the result of bulk data freshness check (UI thread)."""
-        if force_cached or not needs_download:
-            self._load_bulk_data_into_memory()
-            if force_cached:
-                self._set_status("Using cached card image database")
-            else:
-                self._set_status("Card image database ready")
-            return
-
-        # Data is stale or missing - attempt to load cached data while we download
-        if not self.image_service.get_bulk_data():
-            self._load_bulk_data_into_memory()
-
-        logger.info(f"Bulk data needs update: {reason}")
-        self._set_status("Downloading card image database...")
-
-        # Download in background using service
-        self.image_service.download_bulk_metadata_async(
-            on_success=lambda msg: wx.CallAfter(self._on_bulk_data_downloaded, msg),
-            on_error=lambda msg: wx.CallAfter(self._on_bulk_data_failed, msg),
-        )
-
-    def _on_bulk_data_check_failed(self, exc: Exception) -> None:
-        """Fallback when we fail to check bulk data freshness."""
-        logger.warning(f"Failed to check bulk data freshness: {exc}")
-        if not self.image_service.get_bulk_data():
-            self._load_bulk_data_into_memory()
-        else:
-            self._set_status("Ready")
-
-    def _load_bulk_data_into_memory(self, force: bool = False) -> None:
-        """Load the compact card printings index in the background."""
-        self._set_status("Preparing card printings cache…")
-
-        # Load using service
-        started = self.image_service.load_printing_index_async(
-            force=force,
-            on_success=lambda data, stats: wx.CallAfter(self._on_bulk_data_loaded, data, stats),
-            on_error=lambda msg: wx.CallAfter(self._on_bulk_data_load_failed, msg),
-        )
-
-        if not started:
-            self._set_status("Ready")  # Already loading or loaded
 
     # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
     def _after_zone_change(self, zone: str) -> None:
@@ -1120,8 +1043,10 @@ class AppFrame(
 
 
 def launch_app() -> None:
+    """Launch the application using the controller factory pattern."""
     app = wx.App(False)
-    frame = AppFrame()
+    controller = get_deck_selector_controller()
+    frame = controller.create_frame()
     frame.Show()
     app.MainLoop()
 

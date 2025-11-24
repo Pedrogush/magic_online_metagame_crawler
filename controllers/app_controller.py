@@ -8,13 +8,19 @@ for the UI layer to interact with application logic.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    import wx
+
+    from widgets.app_frame import AppFrame
 
 from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
 from repositories.card_repository import get_card_repository
@@ -26,13 +32,20 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
-from utils.deck import read_curr_deck_file
-from utils.paths import CACHE_DIR
-from utils.service_config import COLLECTION_CACHE_MAX_AGE_SECONDS
+from utils.deck import read_curr_deck_file, sanitize_zone_cards
+from utils.game_constants import FORMAT_OPTIONS
+from utils.paths import CACHE_DIR, DECK_SELECTOR_SETTINGS_FILE
+from utils.service_config import (
+    COLLECTION_CACHE_MAX_AGE_SECONDS,
+    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
+)
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
 GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
+
+BULK_CACHE_MIN_AGE_DAYS = 1
+BULK_CACHE_MAX_AGE_DAYS = 365
 
 
 class BackgroundWorker:
@@ -86,13 +99,28 @@ class AppController:
         self.image_service = get_image_service()
         self.store_service = get_store_service()
 
+        # Settings management
+        self.settings = self._load_settings()
+        self.current_format = self.settings.get("format", "Modern")
+        if self.current_format not in FORMAT_OPTIONS:
+            self.current_format = "Modern"
+
+        # Bulk data settings
+        raw_force = self.settings.get("force_cached_bulk_data", False)
+        self._bulk_cache_force = self._coerce_bool(raw_force)
+        self._bulk_data_age_days = self._validate_bulk_cache_age(
+            self.settings.get("bulk_data_max_age_days", DEFAULT_BULK_DATA_MAX_AGE_DAYS)
+        )
+        self.settings.setdefault("force_cached_bulk_data", self._bulk_cache_force)
+        self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
+
         # Application state
-        self.current_format = "Modern"
         self.archetypes: list[dict[str, Any]] = []
         self.filtered_archetypes: list[dict[str, Any]] = []
         self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": [], "out": []}
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
+        self.left_mode = "builder" if self.settings.get("left_mode") == "builder" else "research"
 
         # Thread-safe loading state flags
         self._loading_lock = threading.Lock()
@@ -489,6 +517,231 @@ class AppController:
         if not started:
             on_status("Ready")
 
+    # ============= Settings Management =============
+
+    def _load_settings(self) -> dict[str, Any]:
+        """Load settings from disk."""
+        if not DECK_SELECTOR_SETTINGS_FILE.exists():
+            return {}
+        try:
+            with DECK_SELECTOR_SETTINGS_FILE.open("r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except json.JSONDecodeError as exc:
+            logger.warning(f"Failed to load deck selector settings: {exc}")
+            return {}
+
+    def save_settings(
+        self, window_size: tuple[int, int] | None = None, screen_pos: tuple[int, int] | None = None
+    ) -> None:
+        """
+        Save settings to disk.
+
+        Args:
+            window_size: Optional window size tuple (width, height)
+            screen_pos: Optional screen position tuple (x, y)
+        """
+        data = dict(self.settings)
+        data.update(
+            {
+                "format": self.current_format,
+                "left_mode": self.left_mode,
+                "force_cached_bulk_data": self._bulk_cache_force,
+                "bulk_data_max_age_days": self._bulk_data_age_days,
+                "saved_deck_text": self.deck_repo.get_current_deck_text(),
+                "saved_zone_cards": self._serialize_zone_cards(),
+            }
+        )
+
+        if window_size:
+            data["window_size"] = list(window_size)
+        if screen_pos:
+            data["screen_pos"] = list(screen_pos)
+
+        current_deck = self.deck_repo.get_current_deck()
+        if current_deck:
+            data["saved_deck_info"] = current_deck
+        elif "saved_deck_info" in data:
+            data.pop("saved_deck_info")
+
+        try:
+            with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except OSError as exc:
+            logger.warning(f"Unable to persist deck selector settings: {exc}")
+        self.settings = data
+
+    def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
+        """Serialize zone cards for storage."""
+        return {zone: sanitize_zone_cards(cards) for zone, cards in self.zone_cards.items()}
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        """Coerce a value to boolean."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    def _validate_bulk_cache_age(self, value: Any) -> int:
+        """Validate and clamp bulk cache age to valid range."""
+        try:
+            days = int(float(value))
+        except (TypeError, ValueError):
+            days = int(DEFAULT_BULK_DATA_MAX_AGE_DAYS)
+        return max(BULK_CACHE_MIN_AGE_DAYS, min(days, BULK_CACHE_MAX_AGE_DAYS))
+
+    def get_bulk_cache_age_days(self) -> int:
+        """Get the bulk cache age in days."""
+        return self._bulk_data_age_days
+
+    def is_forcing_cached_bulk_data(self) -> bool:
+        """Check if forcing cached bulk data only."""
+        return self._bulk_cache_force
+
+    def set_force_cached_bulk_data(self, enabled: bool) -> None:
+        """Set whether to force cached bulk data only."""
+        if self._bulk_cache_force == enabled:
+            return
+        self._bulk_cache_force = enabled
+        self.settings["force_cached_bulk_data"] = enabled
+
+    def set_bulk_cache_age_days(self, days: int) -> None:
+        """Set the bulk cache age in days."""
+        clamped = self._validate_bulk_cache_age(days)
+        if clamped == self._bulk_data_age_days:
+            return
+        self._bulk_data_age_days = clamped
+        self.settings["bulk_data_max_age_days"] = clamped
+
+    def restore_session_state(self) -> dict[str, Any]:
+        """
+        Restore session state from settings.
+
+        Returns:
+            Dictionary with restored state including:
+            - left_mode: "builder" or "research"
+            - zone_cards: dict of zone cards if any
+            - deck_text: saved deck text if any
+            - deck_info: saved deck info if any
+            - window_size: saved window size if any
+            - screen_pos: saved screen position if any
+        """
+        result: dict[str, Any] = {"left_mode": self.left_mode}
+
+        # Restore zone cards
+        saved_zones = self.settings.get("saved_zone_cards") or {}
+        changed = False
+        for zone in ("main", "side", "out"):
+            entries = saved_zones.get(zone, [])
+            if not isinstance(entries, list):
+                continue
+            sanitized = sanitize_zone_cards(entries)
+            if sanitized:
+                self.zone_cards[zone] = sanitized
+                changed = True
+        if changed:
+            result["zone_cards"] = self.zone_cards
+
+        # Restore deck text
+        saved_text = self.settings.get("saved_deck_text", "")
+        if saved_text:
+            self.deck_repo.set_current_deck_text(saved_text)
+            result["deck_text"] = saved_text
+
+        # Restore deck info
+        saved_deck = self.settings.get("saved_deck_info")
+        if isinstance(saved_deck, dict):
+            self.deck_repo.set_current_deck(saved_deck)
+            result["deck_info"] = saved_deck
+
+        # Window preferences
+        window_size = self.settings.get("window_size")
+        if isinstance(window_size, list) and len(window_size) == 2:
+            result["window_size"] = tuple(window_size)
+
+        screen_pos = self.settings.get("screen_pos")
+        if isinstance(screen_pos, list) and len(screen_pos) == 2:
+            result["screen_pos"] = tuple(screen_pos)
+
+        return result
+
+    # ============= Business Logic Methods =============
+
+    def download_deck(
+        self,
+        deck_number: str,
+        on_success: Callable[[str], None],
+        on_error: Callable[[Exception], None],
+        on_status: Callable[[str], None],
+    ) -> None:
+        """
+        Download a deck from MTGGoldfish.
+
+        Args:
+            deck_number: Deck identifier
+            on_success: Callback when deck is downloaded (receives deck text)
+            on_error: Callback when download fails (receives Exception)
+            on_status: Callback for status updates (receives status message string)
+        """
+        on_status("Downloading deck…")
+
+        def worker(number: str):
+            download_deck(number)
+            return read_curr_deck_file()
+
+        BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+
+    def check_bulk_data_freshness(self, max_age_days: int) -> tuple[bool, str]:
+        """
+        Check if bulk data needs downloading.
+
+        Args:
+            max_age_days: Maximum age in days before data is considered stale
+
+        Returns:
+            Tuple of (needs_download, reason)
+        """
+        return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
+
+    def download_bulk_data(
+        self, on_success: Callable[[str], None], on_error: Callable[[str], None]
+    ) -> None:
+        """
+        Download bulk data asynchronously.
+
+        Args:
+            on_success: Callback when download completes (receives message)
+            on_error: Callback when download fails (receives message)
+        """
+        self.image_service.download_bulk_metadata_async(on_success=on_success, on_error=on_error)
+
+    def start_daily_average_build(
+        self,
+        on_success: Callable[[dict[str, float], int], None],
+        on_error: Callable[[Exception], None],
+        on_status: Callable[[str], None],
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Start building a daily average deck from today's decks.
+
+        Args:
+            on_success: Callback when average is built (receives buffer dict and deck count)
+            on_error: Callback when building fails (receives Exception)
+            on_status: Callback for status updates (receives status message string)
+            on_progress: Optional callback for progress updates (receives current, total)
+
+        Returns:
+            Tuple of (can_proceed, message) - False with message if no decks found
+        """
+        return self.build_daily_average_deck(
+            on_success=on_success,
+            on_error=on_error,
+            on_status=on_status,
+            on_progress=on_progress,
+        )
+
     # ============= State Accessors =============
 
     def get_current_format(self) -> str:
@@ -514,6 +767,31 @@ class AppController:
     def set_filtered_archetypes(self, archetypes: list[dict[str, Any]]) -> None:
         """Set filtered archetypes."""
         self.filtered_archetypes = archetypes
+
+    def get_left_mode(self) -> str:
+        """Get the current left panel mode."""
+        return self.left_mode
+
+    def set_left_mode(self, mode: str) -> None:
+        """Set the left panel mode."""
+        self.left_mode = mode
+
+    # ============= Frame Factory =============
+
+    def create_frame(self, parent: wx.Window | None = None) -> AppFrame:
+        """
+        Create and return an AppFrame instance.
+
+        Args:
+            parent: Optional parent window
+
+        Returns:
+            AppFrame instance
+        """
+        # Import here to avoid circular dependency
+        from widgets.app_frame import AppFrame
+
+        return AppFrame(controller=self, parent=parent)
 
 
 # Singleton instance
