@@ -516,8 +516,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 def launch_app() -> None:
     app = wx.App(False)
     controller = get_deck_selector_controller()
-    frame = controller.create_frame()
-    frame.Show()
+    controller.frame.Show()
     app.MainLoop()
 
 

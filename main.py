@@ -17,10 +17,9 @@ class MetagameWxApp(wx.App):
         # Initialize controller which manages all application state and business logic
         controller = get_deck_selector_controller()
         # Controller creates and configures the UI frame
-        frame = controller.create_frame(parent=None)
-        frame.Show()
-        self.SetTopWindow(frame)
-        wx.CallAfter(frame.ensure_card_data_loaded)
+        controller.frame.Show()
+        self.SetTopWindow(controller.frame)
+        wx.CallAfter(controller.frame.ensure_card_data_loaded)
         return True
 
     def OnExceptionInMainLoop(self) -> bool:  # noqa: N802 - wx override

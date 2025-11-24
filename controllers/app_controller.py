@@ -137,7 +137,7 @@ class AppController:
         self.guide_store = self.store_service.load_store(self.guide_store_path)
 
         self._bulk_check_worker_active = False
-
+        self.frame = self.create_frame()
     # ============= Card Data Management =============
 
     def ensure_card_data_loaded(
