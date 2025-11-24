@@ -484,11 +484,19 @@ class AppController:
         on_status("Preparing card printings cache…")
 
         def success_callback(data, stats):
-            # Stats logging handled by service
-            pass
+            import wx
+
+            # Persist bulk data and notify UI
+            self.image_service.set_bulk_data(data)
+            if self.frame:
+                wx.CallAfter(self.frame._on_bulk_data_loaded, data, stats)
 
         def error_callback(msg):
+            import wx
+
             logger.warning(f"Bulk data load issue: {msg}")
+            if self.frame:
+                wx.CallAfter(self.frame._on_bulk_data_load_failed, msg)
 
         started = self.image_service.load_printing_index_async(
             force=force,
