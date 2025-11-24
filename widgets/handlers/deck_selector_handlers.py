@@ -57,8 +57,8 @@ class AppEventHandlers:
         idx = self.deck_list.GetSelection()
         if idx == wx.NOT_FOUND:
             return
-        deck = self.deck_repo.get_decks_list()[idx]
-        self.deck_repo.set_current_deck(deck)
+        deck = self.controller.deck_repo.get_decks_list()[idx]
+        self.controller.deck_repo.set_current_deck(deck)
         self.load_button.Enable()
         self.copy_button.Enable(self._has_deck_loaded())
         self.save_button.Enable(self._has_deck_loaded())
@@ -67,7 +67,7 @@ class AppEventHandlers:
         self._schedule_settings_save()
 
     def on_load_deck_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
-        current_deck = self.deck_repo.get_current_deck()
+        current_deck = self.controller.deck_repo.get_current_deck()
         with self._loading_lock:
             if self.loading_decks:
                 return
@@ -79,7 +79,7 @@ class AppEventHandlers:
         with self._loading_lock:
             if self.loading_daily_average:
                 return
-        if not self.deck_repo.get_decks_list():
+        if not self.controller.deck_repo.get_decks_list():
             return
         self._start_daily_average_build()
 
@@ -106,7 +106,7 @@ class AppEventHandlers:
             wx.MessageBox("Load a deck first.", "Save Deck", wx.OK | wx.ICON_INFORMATION)
             return
         default_name = "saved_deck"
-        current_deck = self.deck_repo.get_current_deck()
+        current_deck = self.controller.deck_repo.get_current_deck()
         if current_deck:
             default_name = self.format_deck_name(current_deck).replace(" | ", "_")
         dlg = wx.TextEntryDialog(self, "Deck name:", "Save Deck", default_name=default_name)
@@ -126,7 +126,7 @@ class AppEventHandlers:
             return
 
         try:
-            deck_id = self.deck_repo.save_to_db(
+            deck_id = self.controller.deck_repo.save_to_db(
                 deck_name=deck_name,
                 deck_content=deck_content,
                 format_type=self.current_format,
@@ -174,21 +174,21 @@ class AppEventHandlers:
         2. Deck text synthesized from the current zone tables
         3. Raw text stored on the currently selected deck dictionary
         """
-        deck_text = self.deck_repo.get_current_deck_text()
+        deck_text = self.controller.deck_repo.get_current_deck_text()
         if deck_text:
             return deck_text
 
         zone_cards: dict[str, list[dict[str, Any]]] | None = getattr(self, "zone_cards", None)
         if zone_cards:
             try:
-                deck_text = self.deck_service.build_deck_text_from_zones(zone_cards)
+                deck_text = self.controller.deck_service.build_deck_text_from_zones(zone_cards)
             except Exception as exc:  # pragma: no cover - defensive log
                 logger.debug(f"Failed to build deck text from zones: {exc}")
             else:
                 if deck_text:
                     return deck_text
 
-        current_deck = self.deck_repo.get_current_deck() or {}
+        current_deck = self.controller.deck_repo.get_current_deck() or {}
         for key in ("deck_text", "content", "text"):
             value = current_deck.get(key)
             if value:
@@ -222,7 +222,7 @@ class AppEventHandlers:
     def _on_decks_loaded(self: AppFrame, archetype_name: str, decks: list[dict[str, Any]]) -> None:
         with self._loading_lock:
             self.loading_decks = False
-        self.deck_repo.set_decks_list(decks)
+        self.controller.deck_repo.set_decks_list(decks)
         self.deck_list.Clear()
         if not decks:
             self.deck_list.Append("No decks found.")
@@ -251,8 +251,8 @@ class AppEventHandlers:
         wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_content_ready(self: AppFrame, deck_text: str, source: str = "manual") -> None:
-        self.deck_repo.set_current_deck_text(deck_text)
-        stats = self.deck_service.analyze_deck(deck_text)
+        self.controller.deck_repo.set_current_deck_text(deck_text)
+        stats = self.controller.deck_service.analyze_deck(deck_text)
         self.zone_cards["main"] = sorted(
             [{"name": name, "qty": qty} for name, qty in stats["mainboard_cards"]],
             key=lambda card: card["name"].lower(),
@@ -278,14 +278,14 @@ class AppEventHandlers:
         """Handle successful collection fetch."""
         if cards:
             try:
-                info = self.collection_service.load_from_card_list(cards, filepath)
+                info = self.controller.collection_service.load_from_card_list(cards, filepath)
                 card_count = info["card_count"]
             except ValueError as exc:
                 logger.error(f"Failed to load collection: {exc}")
                 self.collection_status_label.SetLabel(f"Collection load failed: {exc}")
                 return
         else:
-            card_count = len(self.collection_service.get_inventory())
+            card_count = len(self.controller.collection_service.get_inventory())
 
         self.collection_status_label.SetLabel(f"Collection: {filepath.name} ({card_count} entries)")
         self.main_table.set_cards(self.zone_cards["main"])
@@ -293,7 +293,7 @@ class AppEventHandlers:
 
     def _on_collection_fetch_failed(self: AppFrame, error_msg: str) -> None:
         """Handle collection fetch failure."""
-        self.collection_service.clear_inventory()
+        self.controller.collection_service.clear_inventory()
         self.collection_status_label.SetLabel(f"Collection fetch failed: {error_msg}")
         logger.warning(f"Collection fetch failed: {error_msg}")
 
@@ -301,8 +301,8 @@ class AppEventHandlers:
         self: AppFrame, by_name: dict[str, list[dict[str, Any]]], stats: dict[str, Any]
     ) -> None:
         """Handle successful printings index load."""
-        self.image_service.clear_printing_index_loading()
-        self.image_service.set_bulk_data(by_name)
+        self.controller.image_service.clear_printing_index_loading()
+        self.controller.image_service.set_bulk_data(by_name)
         self.card_inspector_panel.set_bulk_data(by_name)
         self._set_status("Ready")
         logger.info(
@@ -313,7 +313,7 @@ class AppEventHandlers:
 
     def _on_bulk_data_load_failed(self: AppFrame, error_msg: str) -> None:
         """Handle printings index loading failure."""
-        self.image_service.clear_printing_index_loading()
+        self.controller.image_service.clear_printing_index_loading()
         self._set_status("Ready")
         logger.warning(f"Card printings index load failed: {error_msg}")
 
@@ -335,9 +335,9 @@ class AppEventHandlers:
     # Builder Panel Handlers
     def _on_builder_search(self: AppFrame) -> None:
         """Handle search button click from builder panel."""
-        card_manager = self.card_repo.get_card_manager()
+        card_manager = self.controller.card_repo.get_card_manager()
         if not card_manager:
-            if not self.card_repo.is_card_data_loading():
+            if not self.controller.card_repo.is_card_data_loading():
                 self.ensure_card_data_loaded()
             if not self.card_data_dialogs_disabled:
                 wx.MessageBox(
@@ -357,7 +357,7 @@ class AppEventHandlers:
                 wx.MessageBox("Mana value must be numeric.", "Card Search", wx.OK | wx.ICON_WARNING)
                 return
 
-        results = self.search_service.search_with_builder_filters(filters, card_manager)
+        results = self.controller.search_service.search_with_builder_filters(filters, card_manager)
         self.builder_panel.update_results(results)
 
     def _on_builder_clear(self: AppFrame) -> None:

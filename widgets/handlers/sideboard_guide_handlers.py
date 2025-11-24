@@ -16,13 +16,15 @@ class SideboardGuideHandlers:
     """Mixin that centralizes guide/outboard interactions for the deck selector."""
 
     def _persist_outboard_for_current(self: AppFrame) -> None:
-        key = self.deck_repo.get_current_deck_key()
-        self.outboard_store[key] = self.zone_cards.get("out", [])
-        self.store_service.save_store(self.outboard_store_path, self.outboard_store)
+        key = self.controller.deck_repo.get_current_deck_key()
+        self.controller.outboard_store[key] = self.zone_cards.get("out", [])
+        self.controller.store_service.save_store(
+            self.controller.outboard_store_path, self.controller.outboard_store
+        )
 
     def _load_outboard_for_current(self: AppFrame) -> list[dict[str, Any]]:
-        key = self.deck_repo.get_current_deck_key()
-        data = self.outboard_store.get(key, [])
+        key = self.controller.deck_repo.get_current_deck_key()
+        data = self.controller.outboard_store.get(key, [])
         cleaned: list[dict[str, Any]] = []
         for entry in data:
             name = entry.get("name")
@@ -37,8 +39,8 @@ class SideboardGuideHandlers:
         return cleaned
 
     def _load_guide_for_current(self: AppFrame) -> None:
-        key = self.deck_repo.get_current_deck_key()
-        payload = self.guide_store.get(key) or {}
+        key = self.controller.deck_repo.get_current_deck_key()
+        payload = self.controller.guide_store.get(key) or {}
         self.sideboard_guide_entries = payload.get("entries", [])
         self.sideboard_exclusions = payload.get("exclusions", [])
         self.sideboard_guide_panel.set_entries(
@@ -46,12 +48,14 @@ class SideboardGuideHandlers:
         )
 
     def _persist_guide_for_current(self: AppFrame) -> None:
-        key = self.deck_repo.get_current_deck_key()
-        self.guide_store[key] = {
+        key = self.controller.deck_repo.get_current_deck_key()
+        self.controller.guide_store[key] = {
             "entries": self.sideboard_guide_entries,
             "exclusions": self.sideboard_exclusions,
         }
-        self.store_service.save_store(self.guide_store_path, self.guide_store)
+        self.controller.store_service.save_store(
+            self.controller.guide_store_path, self.controller.guide_store
+        )
 
     def _refresh_guide_view(self: AppFrame) -> None:
         self.sideboard_guide_panel.set_entries(

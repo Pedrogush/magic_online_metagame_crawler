@@ -95,5 +95,5 @@ class CardTablePanelHandler:
                 self.card_inspector_panel.reset()
             return
         self._collapse_other_zone_tables(zone)
-        meta = self.card_repo.get_card_metadata(card["name"])
+        meta = self.controller.card_repo.get_card_metadata(card["name"])
         self.card_inspector_panel.update_card(card, zone=zone, meta=meta)
