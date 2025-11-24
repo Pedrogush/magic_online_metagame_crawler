@@ -137,6 +137,7 @@ class AppController:
         self.guide_store = self.store_service.load_store(self.guide_store_path)
 
         self._bulk_check_worker_active = False
+        self._ui_callbacks: dict[str, Callable[..., Any]] = {}
         self.frame = self.create_frame()
 
     # ============= Card Data Management =============
@@ -389,13 +390,14 @@ class AppController:
             return False, None
 
     def refresh_collection_from_bridge(
-        self,
-        directory: Path,
-        on_success: Callable[[Path, dict], None],
-        on_error: Callable[[str], None],
-        on_status: Callable[[str], None],
-        force: bool = False,
+        self, directory: Path | None = None, force: bool = False
     ) -> None:
+        callbacks = self._ui_callbacks
+        on_status = callbacks.get("on_status", lambda msg: None)
+        on_success = callbacks.get("on_collection_refresh_success")
+        on_error = callbacks.get("on_collection_failed")
+        directory = directory or self.deck_save_dir
+
         on_status("Fetching collection from MTGO...")
         logger.info("Fetching collection from MTGO Bridge")
 
@@ -411,16 +413,21 @@ class AppController:
 
     def check_and_download_bulk_data(
         self,
-        max_age_days: int,
-        force_cached: bool,
-        on_download_needed: Callable[[str], None],
-        on_download_complete: Callable[[str], None],
-        on_download_failed: Callable[[str], None],
-        on_status: Callable[[str], None],
+        max_age_days: int | None = None,
+        force_cached: bool | None = None,
     ) -> None:
         if self._bulk_check_worker_active:
             logger.debug("Bulk data check already running")
             return
+
+        callbacks = self._ui_callbacks
+        on_status = callbacks.get("on_status", lambda msg: None)
+        on_download_needed = callbacks.get("on_bulk_download_needed", lambda reason: None)
+        on_download_complete = callbacks.get("on_bulk_download_complete", lambda msg: None)
+        on_download_failed = callbacks.get("on_bulk_download_failed", lambda msg: None)
+
+        max_age_days = max_age_days if max_age_days is not None else self._bulk_data_age_days
+        force_cached = force_cached if force_cached is not None else self._bulk_cache_force
 
         status_msg = (
             "Loading cached card image database…"
@@ -692,42 +699,31 @@ class AppController:
 
     # ============= Initial Loading Orchestration =============
 
-    def run_initial_loads(
-        self,
-        on_archetypes_success: Callable[[list[dict[str, Any]]], None],
-        on_archetypes_error: Callable[[Exception], None],
-        on_collection_loaded: Callable[[dict[str, Any]], None],
-        on_collection_not_found: Callable[[], None],
-        on_bulk_data_status: Callable[[str], None],
-        on_status: Callable[[str], None],
-        deck_save_dir: Path,
-        force_archetypes: bool = False,
-    ) -> None:
+    def run_initial_loads(self, deck_save_dir: Path, force_archetypes: bool = False) -> None:
+        callbacks = self._ui_callbacks
 
         self.fetch_archetypes(
-            on_success=on_archetypes_success,
-            on_error=on_archetypes_error,
-            on_status=on_status,
+            on_success=callbacks.get("on_archetypes_success"),
+            on_error=callbacks.get("on_archetypes_error"),
+            on_status=callbacks.get("on_status"),
             force=force_archetypes,
         )
 
         # Step 3: Load collection from cache (non-blocking)
         success, info = self.load_collection_from_cache(deck_save_dir)
         if success and info:
-            on_collection_loaded(info)
+            callback = callbacks.get("on_collection_loaded")
+            if callback:
+                callback(info)
         else:
-            on_collection_not_found()
+            callback = callbacks.get("on_collection_not_found")
+            if callback:
+                callback()
 
         # Step 4: Check and download bulk data if needed (non-blocking)
         self.check_and_download_bulk_data(
             max_age_days=self._bulk_data_age_days,
             force_cached=self._bulk_cache_force,
-            on_download_needed=lambda reason: on_bulk_data_status(
-                f"Bulk data needs update: {reason}"
-            ),
-            on_download_complete=lambda msg: on_bulk_data_status(f"Bulk data ready: {msg}"),
-            on_download_failed=lambda msg: on_bulk_data_status(f"Bulk data error: {msg}"),
-            on_status=on_status,
         )
 
     # ============= Frame Factory =============
@@ -740,38 +736,47 @@ class AppController:
         # Create the frame
         frame = AppFrame(controller=self, parent=parent)
 
-        # Define UI callback functions that marshal to UI thread
-        def on_archetypes_success(archetypes: list[dict[str, Any]]) -> None:
-            wx.CallAfter(frame._on_archetypes_loaded, archetypes)
-
-        def on_archetypes_error(error: Exception) -> None:
-            wx.CallAfter(frame._on_archetypes_error, error)
-
-        def on_collection_loaded(info: dict[str, Any]) -> None:
+        def _format_collection_label(info: dict[str, Any]) -> str:
             filepath = info["filepath"]
             card_count = info["card_count"]
             age_hours = info["age_hours"]
             age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
+            return f"Collection: {filepath.name} ({card_count} entries, {age_str})"
+
+        def _on_collection_loaded(info: dict[str, Any]) -> None:
             wx.CallAfter(
                 frame.collection_status_label.SetLabel,
-                f"Collection: {filepath.name} ({card_count} entries, {age_str})",
+                _format_collection_label(info),
             )
             wx.CallAfter(frame.main_table.set_cards, self.zone_cards["main"])
             wx.CallAfter(frame.side_table.set_cards, self.zone_cards["side"])
 
-        def on_collection_not_found() -> None:
-            wx.CallAfter(
+        # Define UI callback functions that marshal to UI thread
+        self._ui_callbacks = {
+            "on_archetypes_success": lambda archetypes: wx.CallAfter(
+                frame._on_archetypes_loaded, archetypes
+            ),
+            "on_archetypes_error": lambda error: wx.CallAfter(frame._on_archetypes_error, error),
+            "on_collection_loaded": _on_collection_loaded,
+            "on_collection_not_found": lambda: wx.CallAfter(
                 frame.collection_status_label.SetLabel,
                 "No collection found. Click 'Refresh Collection' to fetch from MTGO.",
-            )
-
-        def on_bulk_data_status(message: str) -> None:
-            from loguru import logger
-
-            logger.info(message)
-
-        def on_status(message: str) -> None:
-            wx.CallAfter(frame._set_status, message)
+            ),
+            "on_collection_refresh_success": lambda filepath, cards: wx.CallAfter(
+                frame._on_collection_fetched, filepath, cards
+            ),
+            "on_collection_failed": lambda msg: wx.CallAfter(
+                frame._on_collection_fetch_failed, msg
+            ),
+            "on_status": lambda message: wx.CallAfter(frame._set_status, message),
+            "on_bulk_download_needed": lambda reason: logger.info(
+                f"Bulk data needs update: {reason}"
+            ),
+            "on_bulk_download_complete": lambda msg: wx.CallAfter(
+                frame._on_bulk_data_downloaded, msg
+            ),
+            "on_bulk_download_failed": lambda msg: wx.CallAfter(frame._on_bulk_data_failed, msg),
+        }
 
         # Restore UI state from controller's session data
         wx.CallAfter(frame._restore_session_state)
@@ -779,12 +784,6 @@ class AppController:
         # Trigger initial loading after frame is ready
         wx.CallAfter(
             lambda: self.run_initial_loads(
-                on_archetypes_success=on_archetypes_success,
-                on_archetypes_error=on_archetypes_error,
-                on_collection_loaded=on_collection_loaded,
-                on_collection_not_found=on_collection_not_found,
-                on_bulk_data_status=on_bulk_data_status,
-                on_status=on_status,
                 deck_save_dir=self.deck_save_dir,
             )
         )

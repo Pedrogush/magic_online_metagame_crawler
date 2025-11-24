@@ -391,14 +391,14 @@ class AppEventHandlers:
         enabled = bool(self.force_cache_checkbox and self.force_cache_checkbox.GetValue())
         self.controller.set_force_cached_bulk_data(enabled)
         self._schedule_settings_save()
-        self._check_and_download_bulk_data()
+        self.controller.check_and_download_bulk_data()
 
     def _on_bulk_age_changed(self: AppFrame, event: wx.CommandEvent | None) -> None:
         if not self.bulk_cache_age_spin:
             return
         self.controller.set_bulk_cache_age_days(self.bulk_cache_age_spin.GetValue())
         self._schedule_settings_save()
-        self._check_and_download_bulk_data()
+        self.controller.check_and_download_bulk_data()
         if event:
             event.Skip()
 
