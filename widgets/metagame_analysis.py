@@ -176,10 +176,7 @@ class MetagameAnalysisFrame(wx.Frame):
         if not self or not self.IsShown():
             logger.warning("Widget not shown, skipping error display")
             return
-        self._set_busy(False)
-        wx.MessageBox(
-            f"Unable to load metagame data:\n{message}", "Metagame Analysis", wx.OK | wx.ICON_ERROR
-        )
+        self._set_busy(False, f"Unable to load metagame data:\n{message}")
 
     def _populate_data(self, stats: dict[str, Any]) -> None:
         logger.info(f"_populate_data called with stats for format: {self.current_format}")
@@ -195,13 +192,8 @@ class MetagameAnalysisFrame(wx.Frame):
             self._set_busy(False, f"Loaded {archetype_count} archetypes")
             self.update_visualization()
         except Exception as exc:
-            logger.exception("Error in _populate_data")
-            self._set_busy(False)
-            wx.MessageBox(
-                f"Error processing metagame data:\n{exc}",
-                "Metagame Analysis",
-                wx.OK | wx.ICON_ERROR,
-            )
+            logger.exception(f"Error processing metagame data:\n{exc}")
+            self._set_busy(False, "Error processing metagame data")
 
     def _aggregate_for_days(self, days: int, base_offset: int = 0) -> dict[str, int]:
         """Aggregate deck counts for the specified number of days starting from base_offset.

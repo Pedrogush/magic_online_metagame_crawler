@@ -90,7 +90,7 @@ class DeckSelectorHandlers:
     def on_copy_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         deck_content = self._build_deck_text().strip()
         if not deck_content:
-            wx.MessageBox("No deck to copy.", "Copy Deck", wx.OK | wx.ICON_INFORMATION)
+            self._set_status("No deck to copy.")
             return
         if wx.TheClipboard.Open():
             try:
@@ -99,7 +99,7 @@ class DeckSelectorHandlers:
                 wx.TheClipboard.Close()
             self._set_status("Deck copied to clipboard.")
         else:  # pragma: no cover
-            wx.MessageBox("Could not access clipboard.", "Copy Deck", wx.OK | wx.ICON_WARNING)
+            self._set_status("Failed to open clipboard.")
 
     def on_save_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
         from utils.constants import DECK_SAVE_DIR
@@ -107,7 +107,7 @@ class DeckSelectorHandlers:
 
         deck_content = self._build_deck_text().strip()
         if not deck_content:
-            wx.MessageBox("Load a deck first.", "Save Deck", wx.OK | wx.ICON_INFORMATION)
+            self._set_status("No deck content to save.")
             return
         default_name = "saved_deck"
         current_deck = self.deck_repo.get_current_deck()
@@ -126,7 +126,8 @@ class DeckSelectorHandlers:
             with file_path.open("w", encoding="utf-8") as fh:
                 fh.write(deck_content)
         except OSError as exc:  # pragma: no cover
-            wx.MessageBox(f"Failed to write deck file:\n{exc}", "Save Deck", wx.OK | wx.ICON_ERROR)
+            self._set_status("Failed to save deck file.")
+            logger.error(f"Failed to write deck file {file_path}: {exc}")
             return
 
         try:
@@ -147,7 +148,6 @@ class DeckSelectorHandlers:
         message = f"Deck saved to {file_path}"
         if deck_id:
             message += f"\nDatabase ID: {deck_id}"
-        wx.MessageBox(message, "Deck Saved", wx.OK | wx.ICON_INFORMATION)
         self._set_status("Deck saved successfully.")
 
     def on_window_change(self: MTGDeckSelectionFrame, event: wx.Event) -> None:
@@ -218,10 +218,7 @@ class DeckSelectorHandlers:
         with self._loading_lock:
             self.loading_archetypes = False
         self.research_panel.set_error_state()
-        self._set_status(f"Error: {error}")
-        wx.MessageBox(
-            f"Unable to load archetypes:\n{error}", "Archetype Error", wx.OK | wx.ICON_ERROR
-        )
+        self._set_status(f"Error loading archetypes: {error}")
 
     def _on_decks_loaded(
         self: MTGDeckSelectionFrame, archetype_name: str, decks: list[dict[str, Any]]
@@ -249,12 +246,10 @@ class DeckSelectorHandlers:
         self.deck_list.Clear()
         self.deck_list.Append("Failed to load decks.")
         self._set_status(f"Error loading decks: {error}")
-        wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_download_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
         self.deck_action_buttons.load_button.Enable()
         self._set_status(f"Deck download failed: {error}")
-        wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_content_ready(
         self: MTGDeckSelectionFrame, deck_text: str, source: str = "manual"
@@ -347,11 +342,7 @@ class DeckSelectorHandlers:
             if not self.card_repo.is_card_data_loading():
                 self.ensure_card_data_loaded()
             if not self.card_data_dialogs_disabled:
-                wx.MessageBox(
-                    "Card database is still loading. Please try again in a moment.",
-                    "Card Search",
-                    wx.OK | wx.ICON_INFORMATION,
-                )
+                self._set_status("Card database is loading, please wait...")
             return
 
         filters = self.builder_panel.get_filters()
@@ -361,7 +352,7 @@ class DeckSelectorHandlers:
             try:
                 float(mv_value_text)
             except ValueError:
-                wx.MessageBox("Mana value must be numeric.", "Card Search", wx.OK | wx.ICON_WARNING)
+                self._set_status("Mana value must be numeric.")
                 return
 
         results = self.search_service.search_with_builder_filters(filters, card_manager)

@@ -646,7 +646,7 @@ class MTGDeckSelectionFrame(
     def _download_and_display_deck(self, deck: dict[str, Any]) -> None:
         deck_number = deck.get("number")
         if not deck_number:
-            wx.MessageBox("Deck identifier missing.", "Deck Error", wx.OK | wx.ICON_ERROR)
+            self._set_status("Error loading deck. Deck identifier missing.")
             return
         self._set_status("Downloading deck…")
         self.deck_action_buttons.load_button.Disable()
@@ -780,9 +780,6 @@ class MTGDeckSelectionFrame(
             with self._loading_lock:
                 self.loading_daily_average = False
             self.deck_action_buttons.daily_average_button.Enable()
-            wx.MessageBox(
-                f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR
-            )
             self._set_status(f"Daily average failed: {error}")
 
         BackgroundWorker(worker, todays_decks, on_success=on_success, on_error=on_error).start()
@@ -812,11 +809,6 @@ class MTGDeckSelectionFrame(
             self.card_repo.set_card_data_loading(False)
             logger.error(f"Failed to load card data: {error}")
             self._set_status(f"Card database load failed: {error}")
-            wx.MessageBox(
-                f"Failed to load card database:\n{error}",
-                "Card Data Error",
-                wx.OK | wx.ICON_ERROR,
-            )
 
         BackgroundWorker(worker, on_success=on_success, on_error=on_error).start()
 

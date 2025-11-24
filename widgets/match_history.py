@@ -176,10 +176,7 @@ class MatchHistoryFrame(wx.Frame):
     def _handle_history_error(self, message: str) -> None:
         if not self or not self.IsShown():
             return
-        self._set_busy(False)
-        wx.MessageBox(
-            f"Unable to load match history:\n{message}", "Match History", wx.OK | wx.ICON_ERROR
-        )
+        self._set_busy(False, "Failed to load match history.")
 
     def _populate_history(self, matches: list[dict[str, Any]]) -> None:
         if not self or not self.IsShown():
@@ -460,7 +457,7 @@ class MatchHistoryFrame(wx.Frame):
         try:
             return datetime.strptime(value, "%Y-%m-%d").date()
         except ValueError:
-            wx.MessageBox(f"Invalid date format: {value}", "Match History", wx.OK | wx.ICON_WARNING)
+            self._set_busy(False, "Invalid date format")
             return None
 
     def _within_range(self, date_obj, start, end) -> bool:

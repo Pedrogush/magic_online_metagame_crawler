@@ -405,7 +405,6 @@ class DeckBuilderPanel(wx.Panel):
         self.radar_zone_choice.Enable(self.radar_enabled)
 
         if self.radar_enabled and not self.active_radar:
-            # Prompt user to open radar dialog
             wx.MessageBox(
                 "Please open a radar using the 'Open Radar...' button.",
                 "No Radar Loaded",

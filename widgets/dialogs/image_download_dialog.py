@@ -245,8 +245,6 @@ class ImageDownloadDialog(wx.Dialog):
             f"Already cached: {result.get('skipped', 0)}\n"
             f"Failed: {result.get('failed', 0)}"
         )
-        wx.MessageBox(msg, "Download Complete", wx.OK | wx.ICON_INFORMATION)
-
         if self.on_status_update:
             self.on_status_update("Card image download complete")
 
@@ -258,7 +256,7 @@ class ImageDownloadDialog(wx.Dialog):
             pass
 
         wx.MessageBox(f"Download failed: {error_msg}", "Download Error", wx.OK | wx.ICON_ERROR)
-
+        
         if self.on_status_update:
             self.on_status_update("Ready")
 
