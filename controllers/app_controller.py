@@ -842,7 +842,7 @@ class AppController:
 
     def create_frame(self, parent: wx.Window | None = None) -> AppFrame:
         """
-        Create and return an AppFrame instance.
+        Create and return an AppFrame instance, then trigger initial loads.
 
         Args:
             parent: Optional parent window
@@ -851,9 +851,63 @@ class AppController:
             AppFrame instance
         """
         # Import here to avoid circular dependency
-        from widgets.app_frame import AppFrame
+        import wx
 
-        return AppFrame(controller=self, parent=parent)
+        from widgets.app_frame import DECK_SAVE_DIR, AppFrame
+
+        # Create the frame
+        frame = AppFrame(controller=self, parent=parent)
+
+        # Define UI callback functions that marshal to UI thread
+        def on_archetypes_success(archetypes: list[dict[str, Any]]) -> None:
+            wx.CallAfter(frame._on_archetypes_loaded, archetypes)
+
+        def on_archetypes_error(error: Exception) -> None:
+            wx.CallAfter(frame._on_archetypes_error, error)
+
+        def on_collection_loaded(info: dict[str, Any]) -> None:
+            filepath = info["filepath"]
+            card_count = info["card_count"]
+            age_hours = info["age_hours"]
+            age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
+            wx.CallAfter(
+                frame.collection_status_label.SetLabel,
+                f"Collection: {filepath.name} ({card_count} entries, {age_str})",
+            )
+            wx.CallAfter(frame.main_table.set_cards, self.zone_cards["main"])
+            wx.CallAfter(frame.side_table.set_cards, self.zone_cards["side"])
+
+        def on_collection_not_found() -> None:
+            wx.CallAfter(
+                frame.collection_status_label.SetLabel,
+                "No collection found. Click 'Refresh Collection' to fetch from MTGO.",
+            )
+
+        def on_bulk_data_status(message: str) -> None:
+            from loguru import logger
+
+            logger.info(message)
+
+        def on_status(message: str) -> None:
+            wx.CallAfter(frame._set_status, message)
+
+        # Restore UI state from controller's session data
+        wx.CallAfter(frame._restore_session_state)
+
+        # Trigger initial loading after frame is ready
+        wx.CallAfter(
+            lambda: self.run_initial_loads(
+                on_archetypes_success=on_archetypes_success,
+                on_archetypes_error=on_archetypes_error,
+                on_collection_loaded=on_collection_loaded,
+                on_collection_not_found=on_collection_not_found,
+                on_bulk_data_status=on_bulk_data_status,
+                on_status=on_status,
+                deck_save_dir=DECK_SAVE_DIR,
+            )
+        )
+
+        return frame
 
 
 # Singleton instance

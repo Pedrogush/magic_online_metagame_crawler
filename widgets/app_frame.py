@@ -1,6 +1,5 @@
 import json
 import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,15 +11,11 @@ from controllers.app_controller import get_deck_selector_controller
 
 if TYPE_CHECKING:
     from controllers.app_controller import AppController
-from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
+
 from utils.card_data import CardDataManager
-from utils.deck import (
-    read_curr_deck_file,
-)
 from utils.game_constants import FORMAT_OPTIONS
 from utils.mana_icon_factory import ManaIconFactory
 from utils.paths import CACHE_DIR, CONFIG_FILE, DECKS_DIR
-from utils.service_config import COLLECTION_CACHE_MAX_AGE_SECONDS
 from utils.stylize import stylize_listbox, stylize_textctrl
 from utils.ui_constants import (
     DARK_BG,
@@ -165,25 +160,7 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
 
         # Store controller reference - ALL state and business logic goes through this
         self.controller: AppController = controller
-
-        # Convenience references to services/repos for UI operations
-        self.deck_repo = self.controller.deck_repo
-        self.metagame_repo = self.controller.metagame_repo
-        self.card_repo = self.controller.card_repo
-        self.deck_service = self.controller.deck_service
-        self.search_service = self.controller.search_service
-        self.collection_service = self.controller.collection_service
-        self.image_service = self.controller.image_service
-        self.store_service = self.controller.store_service
         self.card_data_dialogs_disabled = False
-
-        # Store references for backward compatibility - delegate to controller
-        self.notes_store_path = self.controller.notes_store_path
-        self.outboard_store_path = self.controller.outboard_store_path
-        self.guide_store_path = self.controller.guide_store_path
-        self.deck_notes_store = self.controller.deck_notes_store
-        self.outboard_store = self.controller.outboard_store
-        self.guide_store = self.controller.guide_store
 
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
@@ -210,8 +187,6 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.Bind(wx.EVT_SIZE, self.on_window_change)
         self.Bind(wx.EVT_MOVE, self.on_window_change)
-
-        wx.CallAfter(self._run_initial_loads)
 
     # ------------------------------------------------------------------ Properties for state delegation ---------------------------------------
     @property
@@ -514,14 +489,14 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
 
         self.card_inspector_panel = CardInspectorPanel(
             inspector_box,
-            card_manager=self.card_repo.get_card_manager(),
+            card_manager=self.controller.card_repo.get_card_manager(),
             mana_icons=self.mana_icons,
         )
         inspector_sizer.Add(self.card_inspector_panel, 1, wx.EXPAND)
 
-        # Keep backward compatibility references (delegate to image service)
-        self.image_cache = self.image_service.image_cache
-        self.image_downloader = self.image_service.image_downloader
+        # Keep backward compatibility references (delegate to image service via controller)
+        self.image_cache = self.controller.image_service.image_cache
+        self.image_downloader = self.controller.image_service.image_downloader
 
         return inspector_sizer
 
@@ -542,8 +517,8 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         # Stats, guide, and notes tabs
         self.deck_stats_panel = DeckStatsPanel(
             self.deck_tabs,
-            card_manager=self.card_repo.get_card_manager(),
-            deck_service=self.deck_service,
+            card_manager=self.controller.card_repo.get_card_manager(),
+            deck_service=self.controller.deck_service,
         )
         self.deck_tabs.AddPage(self.deck_stats_panel, "Stats")
         # Maintain compatibility with callers/tests that accessed the old label directly.
@@ -560,10 +535,10 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
 
         self.deck_notes_panel = DeckNotesPanel(
             self.deck_tabs,
-            deck_repo=self.deck_repo,
-            store_service=self.store_service,
-            notes_store=self.deck_notes_store,
-            notes_store_path=self.notes_store_path,
+            deck_repo=self.controller.deck_repo,
+            store_service=self.controller.store_service,
+            notes_store=self.controller.deck_notes_store,
+            notes_store_path=self.controller.notes_store_path,
             on_status_update=self._set_status,
         )
         self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
@@ -597,13 +572,13 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
     ) -> CardTablePanel:
         """Create a CardTablePanel for a specific zone."""
         if owned_status_func is None:
-            owned_status_func = self.collection_service.get_owned_status
+            owned_status_func = self.controller.collection_service.get_owned_status
 
         table = CardTablePanel(
             self.zone_notebook,
             zone,
             self.mana_icons,
-            self.card_repo.get_card_metadata,
+            self.controller.card_repo.get_card_metadata,
             owned_status_func,
             self._handle_zone_delta,
             self._handle_zone_remove,
@@ -649,53 +624,6 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
             self._update_stats(state["deck_text"])
             self.copy_button.Enable(True)
             self.save_button.Enable(True)
-
-    def _run_initial_loads(self) -> None:
-        """Delegate initial loading orchestration to controller."""
-
-        def on_archetypes_success(archetypes: list[dict[str, Any]]) -> None:
-            wx.CallAfter(self._on_archetypes_loaded, archetypes)
-
-        def on_archetypes_error(error: Exception) -> None:
-            wx.CallAfter(self._on_archetypes_error, error)
-
-        def on_collection_loaded(info: dict[str, Any]) -> None:
-            filepath = info["filepath"]
-            card_count = info["card_count"]
-            age_hours = info["age_hours"]
-            age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
-            wx.CallAfter(
-                self.collection_status_label.SetLabel,
-                f"Collection: {filepath.name} ({card_count} entries, {age_str})",
-            )
-            wx.CallAfter(self.main_table.set_cards, self.zone_cards["main"])
-            wx.CallAfter(self.side_table.set_cards, self.zone_cards["side"])
-
-        def on_collection_not_found() -> None:
-            wx.CallAfter(
-                self.collection_status_label.SetLabel,
-                "No collection found. Click 'Refresh Collection' to fetch from MTGO.",
-            )
-
-        def on_bulk_data_status(message: str) -> None:
-            logger.info(message)
-
-        def on_status(message: str) -> None:
-            wx.CallAfter(self._set_status, message)
-
-        # Restore UI state from controller's session data
-        self._restore_session_state()
-
-        # Delegate all data loading to controller
-        self.controller.run_initial_loads(
-            on_archetypes_success=on_archetypes_success,
-            on_archetypes_error=on_archetypes_error,
-            on_collection_loaded=on_collection_loaded,
-            on_collection_not_found=on_collection_not_found,
-            on_bulk_data_status=on_bulk_data_status,
-            on_status=on_status,
-            deck_save_dir=DECK_SAVE_DIR,
-        )
 
     def _set_status(self, message: str) -> None:
         if self.status_bar:
@@ -747,13 +675,10 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
 
     # ------------------------------------------------------------------ Data loading ---------------------------------------------------------
     def fetch_archetypes(self, force: bool = False) -> None:
-        with self._loading_lock:
-            if self.loading_archetypes:
-                return
-            self.loading_archetypes = True
-        self._set_status(f"Loading archetypes for {self.current_format}…")
+        """Fetch archetypes - delegates to controller with UI callbacks."""
+        # Clear UI state immediately
         self.research_panel.set_loading_state()
-        self.deck_repo.clear_decks_list()
+        self.controller.deck_repo.clear_decks_list()
         self.deck_list.Clear()
         self._clear_deck_display()
         self.daily_average_button.Disable()
@@ -761,24 +686,23 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         self.copy_button.Disable()
         self.save_button.Disable()
 
-        def loader(fmt: str):
-            return get_archetypes(fmt.lower(), allow_stale=not force)
-
-        _Worker(
-            loader,
-            self.current_format,
-            on_success=self._on_archetypes_loaded,
-            on_error=self._on_archetypes_error,
-        ).start()
+        # Delegate to controller
+        self.controller.fetch_archetypes(
+            on_success=lambda archetypes: wx.CallAfter(self._on_archetypes_loaded, archetypes),
+            on_error=lambda error: wx.CallAfter(self._on_archetypes_error, error),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+            force=force,
+        )
 
     def _clear_deck_display(self) -> None:
-        self.deck_repo.set_current_deck(None)
+        """Clear deck display - UI only, no business logic."""
+        self.controller.deck_repo.set_current_deck(None)
         self.summary_text.ChangeValue("Select an archetype to view decks.")
         self.zone_cards = {"main": [], "side": [], "out": []}
         self.main_table.set_cards([])
         self.side_table.set_cards([])
         self.out_table.set_cards(self.zone_cards["out"])
-        self.deck_repo.set_current_deck_text("")
+        self.controller.deck_repo.set_current_deck_text("")
         self._update_stats("")
         self.deck_notes_panel.clear()
         self.sideboard_guide_panel.clear()
@@ -789,27 +713,24 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         self.research_panel.populate_archetypes(archetype_names)
 
     def _load_decks_for_archetype(self, archetype: dict[str, Any]) -> None:
-        with self._loading_lock:
-            if self.loading_decks:
-                return
-            self.loading_decks = True
+        """Load decks for archetype - delegates to controller with UI callbacks."""
         name = archetype.get("name", "Unknown")
-        href = archetype.get("href")
-        self._set_status(f"Loading decks for {name}…")
+
+        # Update UI state immediately
         self.deck_list.Clear()
         self.deck_list.Append("Loading…")
         self.deck_list.Disable()
         self.summary_text.ChangeValue(f"{name}\n\nFetching deck results…")
 
-        def loader(identifier: str):
-            return get_archetype_decks(identifier)
-
-        _Worker(
-            loader,
-            href,
-            on_success=lambda decks: self._on_decks_loaded(name, decks),
-            on_error=self._on_decks_error,
-        ).start()
+        # Delegate to controller
+        self.controller.load_decks_for_archetype(
+            archetype=archetype,
+            on_success=lambda archetype_name, decks: wx.CallAfter(
+                self._on_decks_loaded, archetype_name, decks
+            ),
+            on_error=lambda error: wx.CallAfter(self._on_decks_error, error),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+        )
 
     def _present_archetype_summary(self, archetype_name: str, decks: list[dict[str, Any]]) -> None:
         by_date: dict[str, int] = {}
@@ -827,74 +748,51 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         self.summary_text.ChangeValue("\n".join(lines))
 
     def _download_and_display_deck(self, deck: dict[str, Any]) -> None:
+        """Download and display deck - delegates to controller with UI callbacks."""
         deck_number = deck.get("number")
         if not deck_number:
             wx.MessageBox("Deck identifier missing.", "Deck Error", wx.OK | wx.ICON_ERROR)
             return
-        self._set_status("Downloading deck…")
+
+        # Update UI state immediately
         self.load_button.Disable()
         self.copy_button.Disable()
         self.save_button.Disable()
 
-        def worker(number: str):
-            download_deck(number)
-            return read_curr_deck_file()
+        # Delegate to controller
+        self.controller.download_and_display_deck(
+            deck=deck,
+            on_success=lambda content: wx.CallAfter(self._on_deck_download_success, content),
+            on_error=lambda error: wx.CallAfter(self._on_deck_download_error, error),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+        )
 
-        def on_success(content: str):
-            self._on_deck_content_ready(content, source="mtggoldfish")
-            self.load_button.Enable()
-
-        _Worker(
-            worker, deck_number, on_success=on_success, on_error=self._on_deck_download_error
-        ).start()
+    def _on_deck_download_success(self, content: str) -> None:
+        """Handle successful deck download."""
+        self._on_deck_content_ready(content, source="mtggoldfish")
+        self.load_button.Enable()
 
     def _has_deck_loaded(self) -> bool:
         return bool(self.zone_cards["main"] or self.zone_cards["side"])
 
     # ------------------------------------------------------------------ Collection + card data -----------------------------------------------
 
-    def _load_collection_from_cache(self) -> bool:
-        """Load collection from cached file without calling bridge. Returns True if loaded."""
-        try:
-            info = self.collection_service.load_from_cached_file(DECK_SAVE_DIR)
-        except (FileNotFoundError, ValueError) as exc:
-            logger.debug(f"Could not load collection from cache: {exc}")
-            self.collection_status_label.SetLabel(
-                "No collection found. Click 'Refresh Collection' to fetch from MTGO."
-            )
-            return False
-
-        # Update UI with collection info
-        filepath = info["filepath"]
-        card_count = info["card_count"]
-        age_hours = info["age_hours"]
-        age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
-
-        self.collection_status_label.SetLabel(
-            f"Collection: {filepath.name} ({card_count} entries, {age_str})"
-        )
-        self.main_table.set_cards(self.zone_cards["main"])
-        self.side_table.set_cards(self.zone_cards["side"])
-        return True
-
     def _refresh_collection_inventory(self, force: bool = False) -> None:
-        """Fetch collection from MTGO Bridge and export to JSON."""
+        """Fetch collection from MTGO Bridge - delegates to controller."""
         self.collection_status_label.SetLabel("Fetching collection from MTGO...")
-        logger.info("Fetching collection from MTGO Bridge")
 
-        # Use service to handle the fetch asynchronously
-        self.collection_service.refresh_from_bridge_async(
+        self.controller.refresh_collection_from_bridge(
             directory=DECK_SAVE_DIR,
-            force=force,
             on_success=lambda filepath, cards: wx.CallAfter(
                 self._on_collection_fetched, filepath, cards
             ),
             on_error=lambda error_msg: wx.CallAfter(self._on_collection_fetch_failed, error_msg),
-            cache_max_age_seconds=COLLECTION_CACHE_MAX_AGE_SECONDS,
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+            force=force,
         )
 
     def _check_and_download_bulk_data(self) -> None:
-        """Delegate bulk data check to controller."""
+        """Check and download bulk data - delegates to controller."""
         self.controller.check_and_download_bulk_data(
             max_age_days=self.controller.get_bulk_cache_age_days(),
             force_cached=self.controller.is_forcing_cached_bulk_data(),
@@ -906,6 +804,7 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
 
     # ------------------------------------------------------------------ Zone editing ---------------------------------------------------------
     def _after_zone_change(self, zone: str) -> None:
+        """Handle zone changes - update UI based on zone card data."""
         if zone == "main":
             self.main_table.set_cards(self.zone_cards["main"])
         elif zone == "side":
@@ -913,8 +812,8 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
         else:
             self.out_table.set_cards(self.zone_cards["out"])
             self._persist_outboard_for_current()
-        deck_text = self.deck_service.build_deck_text_from_zones(self.zone_cards)
-        self.deck_repo.set_current_deck_text(deck_text)
+        deck_text = self.controller.deck_service.build_deck_text_from_zones(self.zone_cards)
+        self.controller.deck_repo.set_current_deck_text(deck_text)
         self._update_stats(deck_text)
         self.copy_button.Enable(self._has_deck_loaded())
         self.save_button.Enable(self._has_deck_loaded())
@@ -940,77 +839,68 @@ class AppFrame(DeckSelectorHandlers, SideboardGuideHandlers, CardTablePanelHandl
     # ------------------------------------------------------------------ Guide / notes helpers ------------------------------------------------
     # ------------------------------------------------------------------ Daily average --------------------------------------------------------
     def _start_daily_average_build(self) -> None:
-        today = time.strftime("%Y-%m-%d").lower()
-        todays_decks = [
-            deck
-            for deck in self.deck_repo.get_decks_list()
-            if today in deck.get("date", "").lower()
-        ]
-
-        if not todays_decks:
-            wx.MessageBox(
-                "No decks from today found for this archetype.",
-                "Daily Average",
-                wx.OK | wx.ICON_INFORMATION,
-            )
-            return
-
-        with self._loading_lock:
-            self.loading_daily_average = True
+        """Start daily average build - delegates to controller with UI callbacks."""
+        # Disable button immediately
         self.daily_average_button.Disable()
-        self._set_status("Building daily average deck…")
+
+        # Create progress dialog
         progress_dialog = wx.ProgressDialog(
             "Daily Average",
             "Downloading decks…",
-            maximum=len(todays_decks),
+            maximum=100,
             parent=self,
             style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME,
         )
 
-        def worker(rows: list[dict[str, Any]]):
-            def update_progress(index: int, total: int) -> None:
-                wx.CallAfter(progress_dialog.Update, index, f"Processed {index}/{total} decks…")
+        # Delegate to controller
+        can_proceed, message = self.controller.build_daily_average_deck(
+            on_success=lambda buffer, deck_count: wx.CallAfter(
+                self._on_daily_average_success, buffer, deck_count, progress_dialog
+            ),
+            on_error=lambda error: wx.CallAfter(
+                self._on_daily_average_error, error, progress_dialog
+            ),
+            on_status=lambda msg: wx.CallAfter(self._set_status, msg),
+            on_progress=lambda current, total: wx.CallAfter(
+                progress_dialog.Update, current, f"Processed {current}/{total} decks…"
+            ),
+        )
 
-            return self.deck_repo.build_daily_average_deck(
-                rows,
-                download_deck,
-                read_curr_deck_file,
-                self.deck_service.add_deck_to_buffer,
-                progress_callback=update_progress,
-            )
-
-        def on_success(buffer: dict[str, float]):
-            # Process the deck data first
-            with self._loading_lock:
-                self.loading_daily_average = False
+        if not can_proceed:
+            progress_dialog.Close()
             self.daily_average_button.Enable()
-            deck_text = self.deck_service.render_average_deck(buffer, len(todays_decks))
-            self._on_deck_content_ready(deck_text, source="average")
+            wx.MessageBox(message, "Daily Average", wx.OK | wx.ICON_INFORMATION)
+            return
 
-            # Close progress dialog AFTER everything else is done
-            # Using Close() instead of Destroy() for safer modal dialog handling
-            try:
-                progress_dialog.Update(len(todays_decks))
-                progress_dialog.Close()
-            except Exception as dialog_exc:
-                logger.error(f"Error closing progress dialog: {dialog_exc}")
+        # Update progress dialog maximum
+        progress_dialog.SetRange(int(message.split()[1]))
 
-        def on_error(error: Exception):
-            logger.error(f"Daily average error: {error}")
-            # Close progress dialog first
-            try:
-                progress_dialog.Close()
-            except Exception:
-                pass
-            with self._loading_lock:
-                self.loading_daily_average = False
-            self.daily_average_button.Enable()
-            wx.MessageBox(
-                f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR
-            )
-            self._set_status(f"Daily average failed: {error}")
+    def _on_daily_average_success(
+        self, buffer: dict[str, float], deck_count: int, progress_dialog: wx.ProgressDialog
+    ) -> None:
+        """Handle successful daily average build."""
+        self.daily_average_button.Enable()
+        deck_text = self.controller.deck_service.render_average_deck(buffer, deck_count)
+        self._on_deck_content_ready(deck_text, source="average")
 
-        _Worker(worker, todays_decks, on_success=on_success, on_error=on_error).start()
+        try:
+            progress_dialog.Update(deck_count)
+            progress_dialog.Close()
+        except Exception as dialog_exc:
+            logger.error(f"Error closing progress dialog: {dialog_exc}")
+
+    def _on_daily_average_error(self, error: Exception, progress_dialog: wx.ProgressDialog) -> None:
+        """Handle daily average build error."""
+        logger.error(f"Daily average error: {error}")
+        try:
+            progress_dialog.Close()
+        except Exception:
+            pass
+        self.daily_average_button.Enable()
+        wx.MessageBox(
+            f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR
+        )
+        self._set_status(f"Daily average failed: {error}")
 
     def ensure_card_data_loaded(self) -> None:
         """Ensure card data is loaded in background if not already loading/loaded."""
