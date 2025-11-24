@@ -776,6 +776,68 @@ class AppController:
         """Set the left panel mode."""
         self.left_mode = mode
 
+    # ============= Initial Loading Orchestration =============
+
+    def run_initial_loads(
+        self,
+        on_archetypes_success: Callable[[list[dict[str, Any]]], None],
+        on_archetypes_error: Callable[[Exception], None],
+        on_collection_loaded: Callable[[dict[str, Any]], None],
+        on_collection_not_found: Callable[[], None],
+        on_bulk_data_status: Callable[[str], None],
+        on_status: Callable[[str], None],
+        deck_save_dir: Path,
+        force_archetypes: bool = False,
+    ) -> None:
+        """
+        Orchestrate initial application loading sequence.
+
+        This method coordinates the initial loading of:
+        1. Session state restoration
+        2. Archetype data
+        3. Collection cache
+        4. Bulk card data
+
+        Args:
+            on_archetypes_success: Callback when archetypes load successfully
+            on_archetypes_error: Callback when archetype loading fails
+            on_collection_loaded: Callback when collection is loaded from cache
+            on_collection_not_found: Callback when collection is not found
+            on_bulk_data_status: Callback for bulk data status updates
+            on_status: Callback for general status updates
+            deck_save_dir: Directory where deck data is saved
+            force_archetypes: If True, force fresh archetype fetch
+        """
+        # Step 1: Restore session state (already done during controller init)
+        # Session state is loaded from settings in __init__
+
+        # Step 2: Fetch archetypes
+        self.fetch_archetypes(
+            on_success=on_archetypes_success,
+            on_error=on_archetypes_error,
+            on_status=on_status,
+            force=force_archetypes,
+        )
+
+        # Step 3: Load collection from cache (non-blocking)
+        success, info = self.load_collection_from_cache(deck_save_dir)
+        if success and info:
+            on_collection_loaded(info)
+        else:
+            on_collection_not_found()
+
+        # Step 4: Check and download bulk data if needed (non-blocking)
+        self.check_and_download_bulk_data(
+            max_age_days=self._bulk_data_age_days,
+            force_cached=self._bulk_cache_force,
+            on_download_needed=lambda reason: on_bulk_data_status(
+                f"Bulk data needs update: {reason}"
+            ),
+            on_download_complete=lambda msg: on_bulk_data_status(f"Bulk data ready: {msg}"),
+            on_download_failed=lambda msg: on_bulk_data_status(f"Bulk data error: {msg}"),
+            on_status=on_status,
+        )
+
     # ============= Frame Factory =============
 
     def create_frame(self, parent: wx.Window | None = None) -> AppFrame:
