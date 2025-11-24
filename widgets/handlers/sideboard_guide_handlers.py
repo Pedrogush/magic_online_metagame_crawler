@@ -9,18 +9,18 @@ import wx
 from widgets.dialogs.guide_entry_dialog import GuideEntryDialog
 
 if TYPE_CHECKING:
-    from widgets.deck_selector import MTGDeckSelectionFrame
+    from widgets.app_frame import AppFrame
 
 
 class SideboardGuideHandlers:
     """Mixin that centralizes guide/outboard interactions for the deck selector."""
 
-    def _persist_outboard_for_current(self: MTGDeckSelectionFrame) -> None:
+    def _persist_outboard_for_current(self: AppFrame) -> None:
         key = self.deck_repo.get_current_deck_key()
         self.outboard_store[key] = self.zone_cards.get("out", [])
         self.store_service.save_store(self.outboard_store_path, self.outboard_store)
 
-    def _load_outboard_for_current(self: MTGDeckSelectionFrame) -> list[dict[str, Any]]:
+    def _load_outboard_for_current(self: AppFrame) -> list[dict[str, Any]]:
         key = self.deck_repo.get_current_deck_key()
         data = self.outboard_store.get(key, [])
         cleaned: list[dict[str, Any]] = []
@@ -36,7 +36,7 @@ class SideboardGuideHandlers:
                 cleaned.append({"name": name, "qty": qty})
         return cleaned
 
-    def _load_guide_for_current(self: MTGDeckSelectionFrame) -> None:
+    def _load_guide_for_current(self: AppFrame) -> None:
         key = self.deck_repo.get_current_deck_key()
         payload = self.guide_store.get(key) or {}
         self.sideboard_guide_entries = payload.get("entries", [])
@@ -45,7 +45,7 @@ class SideboardGuideHandlers:
             self.sideboard_guide_entries, self.sideboard_exclusions
         )
 
-    def _persist_guide_for_current(self: MTGDeckSelectionFrame) -> None:
+    def _persist_guide_for_current(self: AppFrame) -> None:
         key = self.deck_repo.get_current_deck_key()
         self.guide_store[key] = {
             "entries": self.sideboard_guide_entries,
@@ -53,12 +53,12 @@ class SideboardGuideHandlers:
         }
         self.store_service.save_store(self.guide_store_path, self.guide_store)
 
-    def _refresh_guide_view(self: MTGDeckSelectionFrame) -> None:
+    def _refresh_guide_view(self: AppFrame) -> None:
         self.sideboard_guide_panel.set_entries(
             self.sideboard_guide_entries, self.sideboard_exclusions
         )
 
-    def _on_add_guide_entry(self: MTGDeckSelectionFrame) -> None:
+    def _on_add_guide_entry(self: AppFrame) -> None:
         names = [item.get("name", "") for item in self.archetypes]
         dlg = GuideEntryDialog(self, names)
         if dlg.ShowModal() == wx.ID_OK:
@@ -69,7 +69,7 @@ class SideboardGuideHandlers:
                 self._refresh_guide_view()
         dlg.Destroy()
 
-    def _on_edit_guide_entry(self: MTGDeckSelectionFrame) -> None:
+    def _on_edit_guide_entry(self: AppFrame) -> None:
         index = self.sideboard_guide_panel.get_selected_index()
         if index is None:
             wx.MessageBox(
@@ -87,7 +87,7 @@ class SideboardGuideHandlers:
                 self._refresh_guide_view()
         dlg.Destroy()
 
-    def _on_remove_guide_entry(self: MTGDeckSelectionFrame) -> None:
+    def _on_remove_guide_entry(self: AppFrame) -> None:
         index = self.sideboard_guide_panel.get_selected_index()
         if index is None:
             wx.MessageBox(
@@ -98,7 +98,7 @@ class SideboardGuideHandlers:
         self._persist_guide_for_current()
         self._refresh_guide_view()
 
-    def _on_edit_exclusions(self: MTGDeckSelectionFrame) -> None:
+    def _on_edit_exclusions(self: AppFrame) -> None:
         archetype_names = [item.get("name", "") for item in self.archetypes]
         dlg = wx.MultiChoiceDialog(
             self,

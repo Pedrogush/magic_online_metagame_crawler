@@ -13,11 +13,11 @@ if sys.platform != "win32":
 import navigators.mtggoldfish as mtggoldfish
 import utils.card_images as card_images
 import utils.paths as paths
-import widgets.deck_selector as deck_selector
+import widgets.app_frame as app_frame
 import widgets.identify_opponent as identify_opponent
 from utils.card_data import CardDataManager
 from utils.service_config import METAGAME_CACHE_TTL_SECONDS
-from widgets.deck_selector import MTGDeckSelectionFrame
+from widgets.app_frame import AppFrame
 
 wx = pytest.importorskip("wx")
 
@@ -136,91 +136,91 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(CardDataManager, "search_cards", fake_search_cards, raising=False)
 
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "CONFIG_FILE",
         replacements["CONFIG_FILE"],
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "DECK_SELECTOR_SETTINGS_FILE",
         replacements["DECK_SELECTOR_SETTINGS_FILE"],
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "NOTES_STORE",
         cache / "deck_notes.json",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "OUTBOARD_STORE",
         cache / "deck_outboard.json",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "GUIDE_STORE",
         cache / "deck_sbguides.json",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "LEGACY_NOTES_STORE",
         cache / "deck_notes_wx.json",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "LEGACY_OUTBOARD_STORE",
         cache / "deck_outboard_wx.json",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "LEGACY_GUIDE_STORE",
         cache / "deck_sbguides_wx.json",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "MANA_RENDER_LOG",
         cache / "mana_render.log",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "CARD_INSPECTOR_LOG",
         cache / "card_inspector_debug.log",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "LEGACY_CONFIG_FILE",
         config / "legacy_config.json",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "LEGACY_CURR_DECK_CACHE",
         cache / "curr_deck.txt",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "LEGACY_CURR_DECK_ROOT",
         decks / "curr_deck.txt",
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "CURR_DECK_FILE",
         replacements["CURR_DECK_FILE"],
         raising=False,
     )
     monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "DECKS_DIR",
         replacements["DECKS_DIR"],
         raising=False,
@@ -256,7 +256,7 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(mtggoldfish, attr, value, raising=False)
 
     monkeypatch.setattr(
-        deck_selector._Worker,
+        app_frame._Worker,
         "start",
         lambda self: self._run(),
         raising=False,
@@ -291,10 +291,10 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(mtggoldfish, "get_archetypes", fake_archetypes, raising=False)
     monkeypatch.setattr(mtggoldfish, "get_archetype_decks", fake_archetype_decks, raising=False)
-    monkeypatch.setattr(deck_selector, "get_archetypes", fake_archetypes, raising=False)
-    monkeypatch.setattr(deck_selector, "get_archetype_decks", fake_archetype_decks, raising=False)
+    monkeypatch.setattr(app_frame, "get_archetypes", fake_archetypes, raising=False)
+    monkeypatch.setattr(app_frame, "get_archetype_decks", fake_archetype_decks, raising=False)
     monkeypatch.setattr(mtggoldfish, "download_deck", fake_download, raising=False)
-    monkeypatch.setattr(deck_selector, "download_deck", fake_download, raising=False)
+    monkeypatch.setattr(app_frame, "download_deck", fake_download, raising=False)
 
     payload_data: dict[str, list[dict[str, Any]]] = {}
     for card in SAMPLE_CARDS:
@@ -358,14 +358,14 @@ def pump_ui_events(app: wx.App, *, max_passes: int = 25) -> None:
 
 
 @pytest.fixture
-def deck_selector_factory(wx_app) -> MTGDeckSelectionFrame:
-    def _factory() -> MTGDeckSelectionFrame:
-        return MTGDeckSelectionFrame()
+def deck_selector_factory(wx_app) -> AppFrame:
+    def _factory() -> AppFrame:
+        return AppFrame()
 
     return _factory
 
 
-def prepare_card_manager(frame: MTGDeckSelectionFrame) -> None:
+def prepare_card_manager(frame: AppFrame) -> None:
     manager = CardDataManager()
     manager._cards = SAMPLE_CARDS
     manager._cards_by_name = {card["name_lower"]: card for card in SAMPLE_CARDS}

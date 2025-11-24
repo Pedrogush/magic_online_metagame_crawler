@@ -11,19 +11,19 @@ from loguru import logger
 from utils.ui_helpers import widget_exists
 
 if TYPE_CHECKING:
-    from widgets.deck_selector import MTGDeckSelectionFrame
+    from widgets.app_frame import AppFrame
 
 
 class DeckSelectorHandlers:
     """Mixin class containing all event handlers for MTGDeckSelectionFrame."""
 
     # UI Event Handlers
-    def on_format_changed(self: MTGDeckSelectionFrame) -> None:
+    def on_format_changed(self: AppFrame) -> None:
         """Handle format selection change."""
         self.current_format = self.research_panel.get_selected_format()
         self.fetch_archetypes(force=True)
 
-    def on_archetype_filter(self: MTGDeckSelectionFrame) -> None:
+    def on_archetype_filter(self: AppFrame) -> None:
         """Handle archetype search filter changes."""
         query = self.research_panel.get_search_query()
         if not query:
@@ -34,7 +34,7 @@ class DeckSelectorHandlers:
             ]
         self._populate_archetype_list()
 
-    def on_archetype_selected(self: MTGDeckSelectionFrame) -> None:
+    def on_archetype_selected(self: AppFrame) -> None:
         """Handle archetype selection from the list."""
         with self._loading_lock:
             if self.loading_archetypes or self.loading_decks:
@@ -45,7 +45,7 @@ class DeckSelectorHandlers:
         archetype = self.filtered_archetypes[idx]
         self._load_decks_for_archetype(archetype)
 
-    def on_deck_selected(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
+    def on_deck_selected(self: AppFrame, _event: wx.CommandEvent) -> None:
         with self._loading_lock:
             if self.loading_decks:
                 return
@@ -57,13 +57,13 @@ class DeckSelectorHandlers:
         self.load_button.Enable()
         self.copy_button.Enable(self._has_deck_loaded())
         self.save_button.Enable(self._has_deck_loaded())
-        from widgets.deck_selector import format_deck_name
+        from widgets.app_frame import format_deck_name
 
         self._set_status(f"Selected deck {format_deck_name(deck)}")
         self._show_left_panel("builder")
         self._schedule_settings_save()
 
-    def on_load_deck_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
+    def on_load_deck_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
         current_deck = self.deck_repo.get_current_deck()
         with self._loading_lock:
             if self.loading_decks:
@@ -72,7 +72,7 @@ class DeckSelectorHandlers:
             return
         self._download_and_display_deck(current_deck)
 
-    def on_daily_average_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
+    def on_daily_average_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
         with self._loading_lock:
             if self.loading_daily_average:
                 return
@@ -80,7 +80,7 @@ class DeckSelectorHandlers:
             return
         self._start_daily_average_build()
 
-    def on_copy_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
+    def on_copy_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
         deck_content = self._build_deck_text().strip()
         if not deck_content:
             wx.MessageBox("No deck to copy.", "Copy Deck", wx.OK | wx.ICON_INFORMATION)
@@ -94,10 +94,10 @@ class DeckSelectorHandlers:
         else:  # pragma: no cover
             wx.MessageBox("Could not access clipboard.", "Copy Deck", wx.OK | wx.ICON_WARNING)
 
-    def on_save_clicked(self: MTGDeckSelectionFrame, _event: wx.CommandEvent) -> None:
+    def on_save_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
         from utils.deck import sanitize_filename
         from utils.paths import DECK_SAVE_DIR
-        from widgets.deck_selector import format_deck_name
+        from widgets.app_frame import format_deck_name
 
         deck_content = self._build_deck_text().strip()
         if not deck_content:
@@ -144,11 +144,11 @@ class DeckSelectorHandlers:
         wx.MessageBox(message, "Deck Saved", wx.OK | wx.ICON_INFORMATION)
         self._set_status("Deck saved successfully.")
 
-    def on_window_change(self: MTGDeckSelectionFrame, event: wx.Event) -> None:
+    def on_window_change(self: AppFrame, event: wx.Event) -> None:
         self._schedule_settings_save()
         event.Skip()
 
-    def on_close(self: MTGDeckSelectionFrame, event: wx.CloseEvent) -> None:
+    def on_close(self: AppFrame, event: wx.CloseEvent) -> None:
         if self._save_timer and self._save_timer.IsRunning():
             self._save_timer.Stop()
         self._save_window_settings()
@@ -163,7 +163,7 @@ class DeckSelectorHandlers:
         event.Skip()
 
     # Helpers
-    def _build_deck_text(self: MTGDeckSelectionFrame) -> str:
+    def _build_deck_text(self: AppFrame) -> str:
         """
         Build the current deck text for copy/save actions.
 
@@ -195,7 +195,7 @@ class DeckSelectorHandlers:
         return ""
 
     # Async Callback Handlers
-    def _on_archetypes_loaded(self: MTGDeckSelectionFrame, items: list[dict[str, Any]]) -> None:
+    def _on_archetypes_loaded(self: AppFrame, items: list[dict[str, Any]]) -> None:
         with self._loading_lock:
             self.loading_archetypes = False
         self.archetypes = sorted(items, key=lambda entry: entry.get("name", "").lower())
@@ -208,7 +208,7 @@ class DeckSelectorHandlers:
             f"Select an archetype to view decks.\nLoaded {count} archetypes."
         )
 
-    def _on_archetypes_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
+    def _on_archetypes_error(self: AppFrame, error: Exception) -> None:
         with self._loading_lock:
             self.loading_archetypes = False
         self.research_panel.set_error_state()
@@ -218,9 +218,9 @@ class DeckSelectorHandlers:
         )
 
     def _on_decks_loaded(
-        self: MTGDeckSelectionFrame, archetype_name: str, decks: list[dict[str, Any]]
+        self: AppFrame, archetype_name: str, decks: list[dict[str, Any]]
     ) -> None:
-        from widgets.deck_selector import format_deck_name
+        from widgets.app_frame import format_deck_name
 
         with self._loading_lock:
             self.loading_decks = False
@@ -239,7 +239,7 @@ class DeckSelectorHandlers:
         self._present_archetype_summary(archetype_name, decks)
         self._set_status(f"Loaded {len(decks)} decks for {archetype_name}. Select one to inspect.")
 
-    def _on_decks_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
+    def _on_decks_error(self: AppFrame, error: Exception) -> None:
         with self._loading_lock:
             self.loading_decks = False
         self.deck_list.Clear()
@@ -247,13 +247,13 @@ class DeckSelectorHandlers:
         self._set_status(f"Error loading decks: {error}")
         wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
 
-    def _on_deck_download_error(self: MTGDeckSelectionFrame, error: Exception) -> None:
+    def _on_deck_download_error(self: AppFrame, error: Exception) -> None:
         self.load_button.Enable()
         self._set_status(f"Deck download failed: {error}")
         wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_content_ready(
-        self: MTGDeckSelectionFrame, deck_text: str, source: str = "manual"
+        self: AppFrame, deck_text: str, source: str = "manual"
     ) -> None:
         self.deck_repo.set_current_deck_text(deck_text)
         stats = self.deck_service.analyze_deck(deck_text)
@@ -278,7 +278,7 @@ class DeckSelectorHandlers:
         self._show_left_panel("builder")
         self._schedule_settings_save()
 
-    def _on_collection_fetched(self: MTGDeckSelectionFrame, filepath: Path, cards: list) -> None:
+    def _on_collection_fetched(self: AppFrame, filepath: Path, cards: list) -> None:
         """Handle successful collection fetch."""
         if cards:
             try:
@@ -295,14 +295,14 @@ class DeckSelectorHandlers:
         self.main_table.set_cards(self.zone_cards["main"])
         self.side_table.set_cards(self.zone_cards["side"])
 
-    def _on_collection_fetch_failed(self: MTGDeckSelectionFrame, error_msg: str) -> None:
+    def _on_collection_fetch_failed(self: AppFrame, error_msg: str) -> None:
         """Handle collection fetch failure."""
         self.collection_service.clear_inventory()
         self.collection_status_label.SetLabel(f"Collection fetch failed: {error_msg}")
         logger.warning(f"Collection fetch failed: {error_msg}")
 
     def _on_bulk_data_loaded(
-        self: MTGDeckSelectionFrame, by_name: dict[str, list[dict[str, Any]]], stats: dict[str, Any]
+        self: AppFrame, by_name: dict[str, list[dict[str, Any]]], stats: dict[str, Any]
     ) -> None:
         """Handle successful printings index load."""
         self.image_service.clear_printing_index_loading()
@@ -315,29 +315,29 @@ class DeckSelectorHandlers:
             total=stats.get("total_printings"),
         )
 
-    def _on_bulk_data_load_failed(self: MTGDeckSelectionFrame, error_msg: str) -> None:
+    def _on_bulk_data_load_failed(self: AppFrame, error_msg: str) -> None:
         """Handle printings index loading failure."""
         self.image_service.clear_printing_index_loading()
         self._set_status("Ready")
         logger.warning(f"Card printings index load failed: {error_msg}")
 
-    def _on_bulk_data_downloaded(self: MTGDeckSelectionFrame, msg: str) -> None:
+    def _on_bulk_data_downloaded(self: AppFrame, msg: str) -> None:
         """Handle successful bulk data download."""
         self._set_status("Card image database downloaded, indexing printings…")
         logger.info(f"Bulk data downloaded: {msg}")
         self._load_bulk_data_into_memory(force=True)
 
-    def _on_bulk_data_failed(self: MTGDeckSelectionFrame, error_msg: str) -> None:
+    def _on_bulk_data_failed(self: AppFrame, error_msg: str) -> None:
         """Handle bulk data download failure."""
         self._set_status("Ready")
         logger.warning(f"Bulk data download failed: {error_msg}")
 
-    def _on_mana_keyboard_closed(self: MTGDeckSelectionFrame, event: wx.CloseEvent) -> None:
+    def _on_mana_keyboard_closed(self: AppFrame, event: wx.CloseEvent) -> None:
         self.mana_keyboard_window = None
         event.Skip()
 
     # Builder Panel Handlers
-    def _on_builder_search(self: MTGDeckSelectionFrame) -> None:
+    def _on_builder_search(self: AppFrame) -> None:
         """Handle search button click from builder panel."""
         card_manager = self.card_repo.get_card_manager()
         if not card_manager:
@@ -364,11 +364,11 @@ class DeckSelectorHandlers:
         results = self.search_service.search_with_builder_filters(filters, card_manager)
         self.builder_panel.update_results(results)
 
-    def _on_builder_clear(self: MTGDeckSelectionFrame) -> None:
+    def _on_builder_clear(self: AppFrame) -> None:
         """Handle clear button click from builder panel."""
         self.builder_panel.clear_filters()
 
-    def _on_builder_result_selected(self: MTGDeckSelectionFrame, idx: int) -> None:
+    def _on_builder_result_selected(self: AppFrame, idx: int) -> None:
         """Handle result selection from builder panel."""
         meta = self.builder_panel.get_result_at_index(idx)
         if not meta:

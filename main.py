@@ -6,7 +6,7 @@ from __future__ import annotations
 import wx
 from loguru import logger
 
-from widgets.deck_selector import MTGDeckSelectionFrame
+from widgets.app_frame import AppFrame
 
 
 class MetagameWxApp(wx.App):
@@ -14,7 +14,7 @@ class MetagameWxApp(wx.App):
 
     def OnInit(self) -> bool:  # noqa: N802 - wx override
         logger.info("Starting MTGO Metagame Deck Builder (wx)")
-        frame = MTGDeckSelectionFrame(None)
+        frame = AppFrame(None)
         frame.Show()
         self.SetTopWindow(frame)
         wx.CallAfter(frame.ensure_card_data_loaded)

@@ -65,7 +65,7 @@ class BackgroundWorker:
             self.on_success(result)
 
 
-class DeckSelectorController:
+class AppController:
     """
     Application controller for the deck selector window.
 
@@ -517,14 +517,14 @@ class DeckSelectorController:
 
 
 # Singleton instance
-_controller_instance: DeckSelectorController | None = None
+_controller_instance: AppController | None = None
 
 
-def get_deck_selector_controller() -> DeckSelectorController:
+def get_deck_selector_controller() -> AppController:
     """Get or create the singleton deck selector controller instance."""
     global _controller_instance
     if _controller_instance is None:
-        _controller_instance = DeckSelectorController()
+        _controller_instance = AppController()
     return _controller_instance
 
 

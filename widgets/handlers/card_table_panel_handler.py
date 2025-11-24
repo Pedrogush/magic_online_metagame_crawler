@@ -10,13 +10,13 @@ import wx
 from utils.ui_constants import ZONE_TITLES
 
 if TYPE_CHECKING:
-    from widgets.deck_selector import MTGDeckSelectionFrame
+    from widgets.app_frame import AppFrame
 
 
 class CardTablePanelHandler:
     """Mixin containing zone editing and card focus handlers."""
 
-    def _handle_zone_delta(self: MTGDeckSelectionFrame, zone: str, name: str, delta: int) -> None:
+    def _handle_zone_delta(self: AppFrame, zone: str, name: str, delta: int) -> None:
         cards = self.zone_cards.get(zone, [])
         for entry in cards:
             if entry["name"].lower() == name.lower():
@@ -34,12 +34,12 @@ class CardTablePanelHandler:
         self.zone_cards[zone] = cards
         self._after_zone_change(zone)
 
-    def _handle_zone_remove(self: MTGDeckSelectionFrame, zone: str, name: str) -> None:
+    def _handle_zone_remove(self: AppFrame, zone: str, name: str) -> None:
         cards = self.zone_cards.get(zone, [])
         self.zone_cards[zone] = [entry for entry in cards if entry["name"].lower() != name.lower()]
         self._after_zone_change(zone)
 
-    def _handle_zone_add(self: MTGDeckSelectionFrame, zone: str) -> None:
+    def _handle_zone_add(self: AppFrame, zone: str) -> None:
         if zone == "out":
             main_cards = [entry["name"] for entry in self.zone_cards.get("main", [])]
             existing = {entry["name"].lower() for entry in self.zone_cards.get("out", [])}
@@ -90,7 +90,7 @@ class CardTablePanelHandler:
         self._after_zone_change(zone)
 
     def _handle_card_focus(
-        self: MTGDeckSelectionFrame, zone: str, card: dict[str, Any] | None
+        self: AppFrame, zone: str, card: dict[str, Any] | None
     ) -> None:
         if card is None:
             if self.card_inspector_panel.active_zone == zone:
