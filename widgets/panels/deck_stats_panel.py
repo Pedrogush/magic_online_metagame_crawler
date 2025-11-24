@@ -12,7 +12,7 @@ import wx.dataview as dv
 
 from services.deck_service import DeckService, get_deck_service
 from utils.card_data import CardDataManager
-from utils.ui_constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT
+from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT
 
 
 class DeckStatsPanel(wx.Panel):

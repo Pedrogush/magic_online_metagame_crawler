@@ -11,6 +11,7 @@ This module contains all the business logic for managing card collections:
 import json
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,10 +19,20 @@ from typing import Any
 from loguru import logger
 
 from repositories.card_repository import CardRepository, get_card_repository
-from utils.service_config import (
+from utils.constants import (
     COLLECTION_CACHE_MAX_AGE_SECONDS,
     ONE_HOUR_SECONDS,
 )
+
+
+@dataclass(frozen=True)
+class CollectionStatus:
+    """Display-friendly collection metadata."""
+
+    label: str
+    filepath: Path
+    card_count: int
+    age_hours: int
 
 
 class CollectionService:
@@ -177,6 +188,34 @@ class CollectionService:
             logger.warning(f"Failed to load cached collection {latest}: {exc}")
             self.clear_inventory()
             raise ValueError(f"Failed to parse collection file {latest.name}") from exc
+
+    def load_cached_status(
+        self, directory: Path, pattern: str = "collection_full_trade_*.json"
+    ) -> CollectionStatus:
+        """
+        Load cached collection info and return display-friendly metadata.
+
+        Args:
+            directory: Directory to search for collection files
+            pattern: Glob pattern for collection files
+
+        Returns:
+            CollectionStatus with formatted label and metadata
+
+        Raises:
+            FileNotFoundError: If no cached collection files found
+            ValueError: If file cannot be parsed or is invalid
+        """
+        info = self.load_from_cached_file(directory, pattern)
+        age_hours = info["age_hours"]
+        age_str = f"{age_hours}h ago" if age_hours > 0 else "recent"
+        label = f"Collection: {info['filepath'].name} ({info['card_count']} entries, {age_str})"
+        return CollectionStatus(
+            label=label,
+            filepath=info["filepath"],
+            card_count=info["card_count"],
+            age_hours=age_hours,
+        )
 
     def load_from_card_list(
         self, cards: list[dict[str, Any]], filepath: Path | None = None
@@ -654,3 +693,11 @@ def reset_collection_service() -> None:
     """
     global _default_service
     _default_service = None
+
+
+__all__ = [
+    "CollectionService",
+    "CollectionStatus",
+    "get_collection_service",
+    "reset_collection_service",
+]

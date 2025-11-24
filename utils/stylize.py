@@ -1,6 +1,6 @@
 import wx
 
-from utils.ui_constants import (
+from utils.constants import (
     DARK_ACCENT,
     DARK_ALT,
     DARK_BG,

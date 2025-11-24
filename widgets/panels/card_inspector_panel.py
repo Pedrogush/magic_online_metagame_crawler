@@ -11,9 +11,9 @@ from loguru import logger
 
 from utils.card_data import CardDataManager
 from utils.card_images import BULK_DATA_CACHE, get_cache, get_card_image
+from utils.constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT, ZONE_TITLES
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import stylize_button, stylize_textctrl
-from utils.ui_constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT, ZONE_TITLES
 from widgets.card_image_display import CardImageDisplay
 
 
@@ -45,6 +45,7 @@ class CardInspectorPanel(wx.Panel):
         self.inspector_printings: list[dict[str, Any]] = []
         self.inspector_current_printing: int = 0
         self.inspector_current_card_name: str | None = None
+        self.printing_label_width: int = 0
         self.image_cache = get_cache()
         self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
 
@@ -81,12 +82,23 @@ class CardInspectorPanel(wx.Panel):
         except AttributeError:
             nav_btn_size = wx.Size(38, 30)
 
+        # Keep the navigation rail aligned with the card image width so buttons don't jump
+        image_width = getattr(self.card_image_display, "image_width", 260)
+        self.nav_panel.SetMinSize((image_width, nav_btn_size.GetHeight() + 4))
+        self.nav_panel.SetMaxSize((image_width, -1))
+
         self.prev_btn = wx.Button(self.nav_panel, label="◀", size=nav_btn_size)
         stylize_button(self.prev_btn)
         self.prev_btn.Bind(wx.EVT_BUTTON, self._on_prev_printing)
         nav_sizer.Add(self.prev_btn, 0, wx.RIGHT, 4)
 
+        self.printing_label_width = max(
+            80,
+            image_width - (nav_btn_size.GetWidth() * 2) - 16,
+        )
         self.printing_label = wx.StaticText(self.nav_panel, label="")
+        self.printing_label.SetMinSize((self.printing_label_width, -1))
+        self.printing_label.SetMaxSize((self.printing_label_width, -1))
         self.printing_label.SetForegroundColour(SUBDUED_TEXT)
         nav_sizer.Add(self.printing_label, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER)
 
@@ -95,7 +107,7 @@ class CardInspectorPanel(wx.Panel):
         self.next_btn.Bind(wx.EVT_BUTTON, self._on_next_printing)
         nav_sizer.Add(self.next_btn, 0, wx.LEFT, 4)
 
-        image_column.Add(self.nav_panel, 0, wx.EXPAND | wx.TOP, 6)
+        image_column.Add(self.nav_panel, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.TOP, 6)
         self.nav_panel.Hide()  # Hidden by default
 
         # Right column: Card details
@@ -284,7 +296,7 @@ class CardInspectorPanel(wx.Panel):
                 printing_info += f" - {set_code}"
             if set_name:
                 printing_info += f" ({set_name})"
-            self.printing_label.SetLabel(printing_info)
+            self._set_printing_label(printing_info)
             self.prev_btn.Enable(self.inspector_current_printing > 0)
             self.next_btn.Enable(
                 self.inspector_current_printing < len(self.inspector_printings) - 1
@@ -306,3 +318,10 @@ class CardInspectorPanel(wx.Panel):
         if self.inspector_current_printing < len(self.inspector_printings) - 1:
             self.inspector_current_printing += 1
             self._load_current_printing_image()
+
+    def _set_printing_label(self, text: str) -> None:
+        """Update the printing label while keeping the navigation width stable."""
+        self.printing_label.SetLabel(text)
+        if self.printing_label_width:
+            self.printing_label.Wrap(self.printing_label_width)
+        self.nav_panel.Layout()

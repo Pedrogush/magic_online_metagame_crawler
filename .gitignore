@@ -15,6 +15,7 @@ __pycache__/
 *.md
 !README.md
 !ARCHITECTURE.md
+!CODEBASE_REVIEW.md
 !INSTALLATION.md
 !WORKFLOW.md
 !packaging/README.md
@@ -33,7 +34,7 @@ requirements*.txt
 !requirements-dev.txt
 collection.json
 .codex/
-
+.coverage
 # Installer build outputs
 dist/
 build/

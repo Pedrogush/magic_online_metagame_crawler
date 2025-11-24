@@ -14,15 +14,15 @@ from typing import Any, Final
 from loguru import logger
 
 from navigators.mtggoldfish import (
-    download_deck,
+    fetch_deck_text,
     get_archetype_decks,
     get_archetypes,
 )
-from utils.paths import (
+from utils.constants import (
+    ARCHETYPE_DECKS_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
-    DECK_CACHE_FILE,
+    METAGAME_CACHE_TTL_SECONDS,
 )
-from utils.service_config import METAGAME_CACHE_TTL_SECONDS
 
 _USE_DEFAULT_MAX_AGE: Final = object()
 
@@ -84,18 +84,19 @@ class MetagameRepository:
         Get deck lists for a specific archetype.
 
         Args:
-            archetype: Archetype dictionary with 'url' key
+            archetype: Archetype dictionary with 'href' or 'url' key
             force_refresh: If True, bypass cache and fetch fresh data
 
         Returns:
             List of deck dictionaries
         """
-        archetype_url = archetype.get("url", "")
+        # Support both 'href' (from get_archetypes) and 'url' for compatibility
+        archetype_href = archetype.get("href") or archetype.get("url", "")
         archetype_name = archetype.get("name", "Unknown")
 
         # Try cache first unless forced refresh
         if not force_refresh:
-            cached = self._load_cached_decks(archetype_url)
+            cached = self._load_cached_decks(archetype_href)
             if cached is not None:
                 logger.debug(f"Using cached decks for {archetype_name}")
                 return cached
@@ -103,14 +104,15 @@ class MetagameRepository:
         # Fetch fresh data
         logger.info(f"Fetching fresh decks for {archetype_name}")
         try:
-            decks = get_archetype_decks(archetype)
+            # get_archetype_decks expects just the href string, not the dict
+            decks = get_archetype_decks(archetype_href)
             # Cache the results
-            self._save_cached_decks(archetype_url, decks)
+            self._save_cached_decks(archetype_href, decks)
             return decks
         except Exception as exc:
             logger.error(f"Failed to fetch decks for {archetype_name}: {exc}")
             # Try to return stale cache if available
-            cached = self._load_cached_decks(archetype_url, max_age=None)
+            cached = self._load_cached_decks(archetype_href, max_age=None)
             if cached:
                 logger.warning(f"Returning stale cached decks for {archetype_name}")
                 return cached
@@ -121,7 +123,7 @@ class MetagameRepository:
         Download the actual deck list content.
 
         Args:
-            deck: Deck dictionary with 'url' key
+            deck: Deck dictionary with 'number' key (deck ID)
 
         Returns:
             Deck list as text string
@@ -130,10 +132,16 @@ class MetagameRepository:
             Exception: If download fails
         """
         deck_name = deck.get("name", "Unknown")
+        deck_number = deck.get("number", "")
+
+        if not deck_number:
+            raise ValueError(f"Deck {deck_name} has no 'number' field")
 
         logger.info(f"Downloading deck: {deck_name}")
         try:
-            deck_content = download_deck(deck)
+            # fetch_deck_text handles caching and returns the text directly
+            # This avoids unnecessary write-to-file and read-from-file operations
+            deck_content = fetch_deck_text(deck_number)
             return deck_content
         except Exception as exc:
             logger.error(f"Failed to download deck {deck_name}: {exc}")
@@ -226,11 +234,11 @@ class MetagameRepository:
             max_age = _USE_DEFAULT_MAX_AGE
         effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
-        if not DECK_CACHE_FILE.exists():
+        if not ARCHETYPE_DECKS_CACHE_FILE.exists():
             return None
 
         try:
-            with DECK_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except json.JSONDecodeError as exc:
             logger.warning(f"Cached deck list invalid: {exc}")
@@ -259,8 +267,8 @@ class MetagameRepository:
         """
         try:
             # Load existing cache
-            if DECK_CACHE_FILE.exists():
-                with DECK_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            if ARCHETYPE_DECKS_CACHE_FILE.exists():
+                with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
                     data = json.load(fh)
             else:
                 data = {}
@@ -269,8 +277,8 @@ class MetagameRepository:
             data[archetype_url] = {"timestamp": time.time(), "items": items}
 
             # Save back
-            DECK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with DECK_CACHE_FILE.open("w", encoding="utf-8") as fh:
+            ARCHETYPE_DECKS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with ARCHETYPE_DECKS_CACHE_FILE.open("w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
 
             logger.debug(f"Cached {len(items)} decks for archetype")
@@ -279,7 +287,7 @@ class MetagameRepository:
 
     def clear_cache(self) -> None:
         """Clear all metagame caches."""
-        for cache_file in [ARCHETYPE_LIST_CACHE_FILE, DECK_CACHE_FILE]:
+        for cache_file in [ARCHETYPE_LIST_CACHE_FILE, ARCHETYPE_DECKS_CACHE_FILE]:
             if cache_file.exists():
                 try:
                     cache_file.unlink()

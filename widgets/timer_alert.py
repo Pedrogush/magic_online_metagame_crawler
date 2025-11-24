@@ -266,9 +266,7 @@ class TimerAlertFrame(wx.Frame):
     def _remove_threshold_panel(self, panel: ThresholdPanel) -> None:
         """Remove a threshold input panel."""
         if len(self.threshold_panels) <= 1:
-            wx.MessageBox(
-                "At least one threshold is required.", "Timer Alert", wx.OK | wx.ICON_INFORMATION
-            )
+            self._set_status("At least one timer threshold is required.")
             return
         self.threshold_panels.remove(panel)
         self.threshold_container_sizer.Detach(panel)
@@ -312,17 +310,13 @@ class TimerAlertFrame(wx.Frame):
 
         thresholds = self._parse_thresholds()
         if not thresholds:
-            wx.MessageBox(
-                "Please enter at least one valid threshold (MM:SS format).",
-                "Timer Alert",
-                wx.OK | wx.ICON_INFORMATION,
-            )
+            self._set_status("No valid thresholds configured.")
             return
 
         try:
             poll_interval = max(250, int(self.poll_interval_ctrl.GetValue()))
         except (TypeError, ValueError):
-            wx.MessageBox("Invalid poll interval.", "Timer Alert", wx.OK | wx.ICON_WARNING)
+            self._set_status("Invalid poll interval.")
             return
 
         self._current_thresholds = thresholds

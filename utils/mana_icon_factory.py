@@ -4,17 +4,7 @@ from pathlib import Path
 import wx
 from loguru import logger
 
-from utils.paths_constants import MANA_RENDER_LOG
-from utils.ui_constants import DARK_ALT, SUBDUED_TEXT
-
-
-def _log_mana_event(*parts: str) -> None:  # pragma: no cover - debug helper
-    try:
-        MANA_RENDER_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with MANA_RENDER_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(" | ".join(parts) + "\n")
-    except OSError:
-        pass
+from utils.constants import DARK_ALT, SUBDUED_TEXT
 
 
 class ManaIconFactory:
@@ -30,10 +20,12 @@ class ManaIconFactory:
     _FONT_LOADED = False
     _FONT_NAME = "Mana"
 
-    def __init__(self) -> None:
+    def __init__(self, icon_size: int = 26) -> None:
         self._cache: dict[str, wx.Bitmap] = {}
+        self._cost_cache: dict[str, wx.Bitmap] = {}
         self._glyph_map, self._color_map = self._load_css_resources()
         self._ensure_font_loaded()
+        self._icon_size = max(8, icon_size)
 
     def render(self, parent: wx.Window, mana_cost: str) -> wx.Window:
         panel = wx.Panel(parent)
@@ -51,7 +43,8 @@ class ManaIconFactory:
             icon = wx.StaticBitmap(panel, bitmap=bmp)
             margin = 1 if idx < len(tokens) - 1 else 0
             sizer.Add(icon, 0, wx.RIGHT, margin)
-        panel.SetMinSize((max(28, len(tokens) * 28), 32))
+        icon_span = self._icon_size + 2
+        panel.SetMinSize((max(icon_span, len(tokens) * icon_span), self._icon_size + 6))
         return panel
 
     def bitmap_for_symbol(self, symbol: str) -> wx.Bitmap:
@@ -59,6 +52,45 @@ class ManaIconFactory:
         if token.startswith("{") and token.endswith("}"):
             token = token[1:-1]
         return self._get_bitmap(token or "")
+
+    def bitmap_for_cost(self, mana_cost: str) -> wx.Bitmap | None:
+        """
+        Render an entire mana cost into a single bitmap for compact display.
+
+        Args:
+            mana_cost: Mana cost string using curly-brace tokens (e.g., "{1}{G}{G}")
+
+        Returns:
+            wx.Bitmap with all mana symbols composed horizontally, or None if no symbols.
+        """
+        tokens = self._tokenize(mana_cost)
+        if not tokens:
+            return None
+        cache_key = "|".join(tokens)
+        if cache_key in self._cost_cache:
+            return self._cost_cache[cache_key]
+        bitmaps = [self._get_bitmap(token) for token in tokens]
+        height = max((bmp.GetHeight() for bmp in bitmaps), default=0)
+        width = sum(bmp.GetWidth() for bmp in bitmaps) + max(0, len(bitmaps) - 1) * 2
+        if width <= 0 or height <= 0:
+            return None
+        composed = wx.Bitmap(width, height)
+        dc = wx.MemoryDC(composed)
+        try:
+            dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0, 0)))
+        except TypeError:
+            dc.SetBackground(wx.Brush(wx.Colour(0, 0, 0)))
+        dc.Clear()
+        x = 0
+        for idx, bmp in enumerate(bitmaps):
+            y = (height - bmp.GetHeight()) // 2
+            dc.DrawBitmap(bmp, x, max(0, y), True)
+            x += bmp.GetWidth()
+            if idx < len(bitmaps) - 1:
+                x += 2
+        dc.SelectObject(wx.NullBitmap)
+        self._cost_cache[cache_key] = composed
+        return composed
 
     def _tokenize(self, cost: str) -> list[str]:
         tokens: list[str] = []
@@ -79,15 +111,8 @@ class ManaIconFactory:
         components = self._hybrid_components(key)
         second_color: tuple[int, int, int] | None = None
         glyph = self._glyph_map.get(key or "") if not components else ""
-        _log_mana_event(
-            "_get_bitmap",
-            f"symbol={symbol}",
-            f"key={key}",
-            f"glyph={'yes' if glyph else 'no'}",
-            f"components={components}",
-        )
         scale = 3
-        size = 26 * scale
+        size = self._icon_size * scale
         bmp = wx.Bitmap(size, size)
         dc = wx.MemoryDC(bmp)
         dc.SetBackground(wx.Brush(DARK_ALT))
@@ -101,7 +126,7 @@ class ManaIconFactory:
         gctx.SetBrush(wx.Brush(shadow_colour))
         gctx.DrawEllipse(cx - radius + scale, cy - radius + scale, radius * 2, radius * 2)
 
-        text_font = self._build_render_font(scale)
+        text_font = self._build_render_font(13 * scale)
         text_color = wx.Colour(20, 20, 20)
         if components:
             second_color = self._draw_hybrid_circle(gctx, cx, cy, radius, components)
@@ -126,22 +151,22 @@ class ManaIconFactory:
             dc.SelectObject(wx.NullBitmap)
         img = bmp.ConvertToImage()
         img = img.Blur(1)
-        img = img.Scale(26, 26, wx.IMAGE_QUALITY_HIGH)
+        img = img.Scale(self._icon_size, self._icon_size, wx.IMAGE_QUALITY_HIGH)
         final = wx.Bitmap(img)
         self._cache[symbol] = final
         return final
 
-    def _build_render_font(self, scale: int) -> wx.Font:
+    def _build_render_font(self, font_size: int) -> wx.Font:
         if self._FONT_LOADED:
             return wx.Font(
-                13 * scale,
+                font_size,
                 wx.FONTFAMILY_DEFAULT,
                 wx.FONTSTYLE_NORMAL,
                 wx.FONTWEIGHT_NORMAL,
                 False,
                 self._FONT_NAME,
             )
-        font = wx.Font(wx.FontInfo(13 * scale).Family(wx.FONTFAMILY_SWISS))
+        font = wx.Font(wx.FontInfo(font_size).Family(wx.FONTFAMILY_SWISS))
         font.MakeBold()
         return font
 
@@ -250,21 +275,17 @@ class ManaIconFactory:
             return ""
         glyph = self._glyph_map.get(key)
         if glyph:
-            _log_mana_event("_glyph_fallback", f"key={key}", "source=direct")
             return glyph
         compact = key.replace("/", "")
         glyph = self._glyph_map.get(compact)
         if glyph:
-            _log_mana_event("_glyph_fallback", f"key={key}", f"source=compact({compact})")
             return glyph
         if len(key) > 1:
             tail = key[-1]
             glyph = self._glyph_map.get(tail)
             if glyph:
-                _log_mana_event("_glyph_fallback", f"key={key}", f"source=tail({tail})")
                 return glyph
         fallback = key.upper()
-        _log_mana_event("_glyph_fallback", f"key={key}", f"source=default({fallback})")
         return fallback
 
     def _color_for_key(self, key: str | None) -> tuple[int, int, int]:
@@ -309,12 +330,9 @@ class ManaIconFactory:
         base = set("wubrg")
         first, second = key[0], key[1]
         if first in base.union({"c"}) and second in base:
-            _log_mana_event("_hybrid_components", f"key={key}", "match=two-color")
             return [first, second]
         if first == "2" and second in base:
-            _log_mana_event("_hybrid_components", f"key={key}", "match=two-hybrid")
             return ["c", second]
-        _log_mana_event("_hybrid_components", f"key={key}", "match=none")
         return None
 
     def _ensure_font_loaded(self) -> None:

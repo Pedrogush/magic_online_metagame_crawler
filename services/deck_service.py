@@ -6,14 +6,26 @@ This module contains all the business logic for working with decks including:
 - Deck averaging and aggregation
 - Deck validation
 - Format compliance checking
+- Zone management
 """
 
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
 
 from repositories.deck_repository import DeckRepository, get_deck_repository
 from repositories.metagame_repository import MetagameRepository, get_metagame_repository
+
+
+@dataclass(frozen=True)
+class ZoneUpdateResult:
+    """Result of updating deck zones."""
+
+    deck_text: str
+    has_loaded_deck: bool
 
 
 class DeckService:
@@ -424,6 +436,67 @@ class DeckService:
 
         return "\n".join(lines)
 
+    # ============= Zone Management =============
+
+    def handle_zone_change(self, zone_cards: dict[str, list[dict[str, Any]]]) -> ZoneUpdateResult:
+        """
+        Handle changes to zone cards (mainboard/sideboard).
+
+        Args:
+            zone_cards: Dictionary with 'main' and 'side' keys mapping to card lists
+
+        Returns:
+            ZoneUpdateResult with updated deck text and loaded state
+        """
+        deck_text = self.build_deck_text_from_zones(zone_cards)
+        self.deck_repo.set_current_deck_text(deck_text)
+        has_loaded_deck = bool(zone_cards.get("main") or zone_cards.get("side"))
+        return ZoneUpdateResult(deck_text=deck_text, has_loaded_deck=has_loaded_deck)
+
+    # ============= Daily Average Building =============
+
+    def filter_today_decks(
+        self, decks: list[dict[str, Any]], today: str | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Filter decks to only those from today.
+
+        Args:
+            decks: List of deck dictionaries
+            today: Date string (YYYY-MM-DD format), defaults to today
+
+        Returns:
+            Filtered list of decks from today
+        """
+        today = today or time.strftime("%Y-%m-%d").lower()
+        return [deck for deck in decks if today in str(deck.get("date", "")).lower()]
+
+    def build_average_text(
+        self,
+        todays_decks: list[dict[str, Any]],
+        download_deck: Callable[[str], None],
+        read_deck_file: Callable[[], str],
+    ) -> str:
+        """
+        Build average deck text from a list of decks.
+
+        Args:
+            todays_decks: List of deck dictionaries to average
+            download_deck: Function to download a deck by number
+            read_deck_file: Function to read the current deck file
+            progress_callback: Optional callback for progress updates (current, total)
+
+        Returns:
+            Averaged deck text
+        """
+        buffer = self.deck_repo.build_daily_average_deck(
+            todays_decks,
+            download_deck,
+            read_deck_file,
+            self.add_deck_to_buffer,
+        )
+        return self.render_average_deck(buffer, len(todays_decks))
+
 
 # Global instance for backward compatibility
 _default_service = None
@@ -446,3 +519,11 @@ def reset_deck_service() -> None:
     """
     global _default_service
     _default_service = None
+
+
+__all__ = [
+    "DeckService",
+    "ZoneUpdateResult",
+    "get_deck_service",
+    "reset_deck_service",
+]

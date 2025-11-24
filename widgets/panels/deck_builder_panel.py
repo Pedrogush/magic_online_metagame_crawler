@@ -1,23 +1,34 @@
+from __future__ import annotations
+
 from collections.abc import Callable
 from typing import Any
 
 import wx
+import wx.dataview as dv
 
-from utils.game_constants import FORMAT_OPTIONS
+from services.radar_service import RadarData
+from utils.constants import DARK_ALT, DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import (
     stylize_button,
     stylize_choice,
     stylize_label,
-    stylize_listctrl,
     stylize_textctrl,
 )
-from utils.ui_constants import DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
 from widgets.buttons.mana_button import create_mana_button
+
+
+class _SearchResultsView(dv.DataViewListCtrl):
+    """DataViewListCtrl with legacy ListCtrl helpers used by tests."""
+
+    def GetItemText(self, row: int, col: int = 0) -> str:
+        return self.GetTextValue(row, col)
 
 
 class DeckBuilderPanel(wx.Panel):
     """Panel for searching and filtering MTG cards by various properties."""
+
+    _MANA_ICON_SCALE = 1  # deck search display needs icons reduced by 70%
 
     def __init__(
         self,
@@ -29,6 +40,7 @@ class DeckBuilderPanel(wx.Panel):
         on_search: Callable[[], None],
         on_clear: Callable[[], None],
         on_result_selected: Callable[[int], None],
+        on_open_radar_dialog: Callable[[], RadarData | None] | None = None,
     ) -> None:
         super().__init__(parent)
 
@@ -40,6 +52,7 @@ class DeckBuilderPanel(wx.Panel):
         self._on_search_callback = on_search
         self._on_clear_callback = on_clear
         self._on_result_selected_callback = on_result_selected
+        self._on_open_radar_dialog = on_open_radar_dialog
 
         # State variables
         self.inputs: dict[str, wx.TextCtrl] = {}
@@ -49,9 +62,15 @@ class DeckBuilderPanel(wx.Panel):
         self.format_checks: list[wx.CheckBox] = []
         self.color_checks: dict[str, wx.CheckBox] = {}
         self.color_mode_choice: wx.Choice | None = None
-        self.results_ctrl: wx.ListCtrl | None = None
+        self.results_ctrl: dv.DataViewListCtrl | None = None
         self.status_label: wx.StaticText | None = None
         self.results_cache: list[dict[str, Any]] = []
+        self._mana_icon_cache: dict[str, dv.DataViewIconText] = {}
+
+        # Radar state
+        self.active_radar: RadarData | None = None
+        self.radar_enabled: bool = False
+        self.radar_zone: str = "both"  # "mainboard", "sideboard", or "both"
 
         # Build the UI
         self._build_ui()
@@ -186,16 +205,39 @@ class DeckBuilderPanel(wx.Panel):
         clear_btn = wx.Button(self, label="Clear Filters")
         stylize_button(clear_btn)
         clear_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_clear())
-        controls.Add(clear_btn, 0)
+        controls.Add(clear_btn, 0, wx.RIGHT, 6)
+
+        # Radar toggle checkbox
+        self.radar_cb = wx.CheckBox(self, label="Use Radar Filter")
+        self.radar_cb.SetForegroundColour(LIGHT_TEXT)
+        self.radar_cb.SetBackgroundColour(DARK_PANEL)
+        self.radar_cb.Bind(wx.EVT_CHECKBOX, self._on_radar_toggle)
+        controls.Add(self.radar_cb, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+
+        # Radar zone choice
+        self.radar_zone_choice = wx.Choice(self, choices=["Both", "Mainboard", "Sideboard"])
+        self.radar_zone_choice.SetSelection(0)
+        stylize_choice(self.radar_zone_choice)
+        self.radar_zone_choice.Enable(False)
+        self.radar_zone_choice.Bind(wx.EVT_CHOICE, self._on_radar_zone_changed)
+        controls.Add(self.radar_zone_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+
+        # Open Radar button
+        self.open_radar_btn = wx.Button(self, label="Open Radar...")
+        stylize_button(self.open_radar_btn)
+        self.open_radar_btn.Bind(wx.EVT_BUTTON, self._on_open_radar)
+        controls.Add(self.open_radar_btn, 0)
+
         controls.AddStretchSpacer(1)
         sizer.Add(controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         # Results list
-        results = wx.ListCtrl(self, style=wx.LC_REPORT | wx.BORDER_NONE)
-        results.InsertColumn(0, "Name", width=220)
-        results.InsertColumn(1, "Mana", width=110)
-        stylize_listctrl(results)
-        results.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_result_item_selected)
+        results = _SearchResultsView(self, style=dv.DV_ROW_LINES | dv.DV_SINGLE)
+        results.AppendTextColumn("Name", width=230)
+        results.AppendIconTextColumn("Mana", width=120)
+        results.SetBackgroundColour(DARK_ALT)
+        results.SetForegroundColour(LIGHT_TEXT)
+        results.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self._on_result_item_selected)
         sizer.Add(results, 1, wx.EXPAND | wx.ALL, 6)
         self.results_ctrl = results
 
@@ -209,9 +251,16 @@ class DeckBuilderPanel(wx.Panel):
         """Handle back button click."""
         self._on_switch_to_research()
 
-    def _on_result_item_selected(self, event: wx.ListEvent) -> None:
+    def _on_result_item_selected(self, event: dv.DataViewEvent) -> None:
         """Handle result list item selection."""
-        idx = event.GetIndex()
+        if not self.results_ctrl:
+            return
+        item = event.GetItem()
+        if not item.IsOk():
+            return
+        idx = self.results_ctrl.ItemToRow(item)
+        if idx == wx.NOT_FOUND:
+            return
         self._on_result_selected(idx)
 
     def _append_mana_symbol(self, token: str) -> None:
@@ -242,6 +291,19 @@ class DeckBuilderPanel(wx.Panel):
         filters["selected_colors"] = [
             code for code, cb in self.color_checks.items() if cb.IsChecked()
         ]
+
+        # Add radar filter if enabled
+        filters["radar_enabled"] = self.radar_enabled
+        if self.radar_enabled and self.active_radar:
+            from services.radar_service import get_radar_service
+
+            radar_service = get_radar_service()
+            filters["radar_cards"] = radar_service.get_radar_card_names(
+                self.active_radar, self.radar_zone
+            )
+        else:
+            filters["radar_cards"] = set()
+
         return filters
 
     def clear_filters(self) -> None:
@@ -249,6 +311,7 @@ class DeckBuilderPanel(wx.Panel):
         for ctrl in self.inputs.values():
             ctrl.ChangeValue("")
         self.results_cache = []
+        self._mana_icon_cache.clear()
 
         if self.status_label:
             self.status_label.SetLabel("Filters cleared.")
@@ -265,17 +328,24 @@ class DeckBuilderPanel(wx.Panel):
         for cb in self.color_checks.values():
             cb.SetValue(False)
 
+        # Clear radar filter
+        self.radar_enabled = False
+        self.active_radar = None
+        if hasattr(self, "radar_cb"):
+            self.radar_cb.SetValue(False)
+            self.radar_zone_choice.Enable(False)
+
     def update_results(self, results: list[dict[str, Any]]) -> None:
         """Update the results list with search results."""
         self.results_cache = results
         if not self.results_ctrl:
             return
         self.results_ctrl.DeleteAllItems()
-        for idx, card in enumerate(results):
+        for _idx, card in enumerate(results):
             name = card.get("name", "Unknown")
-            mana = card.get("mana_cost") or "—"
-            item_index = self.results_ctrl.InsertItem(idx, name)
-            self.results_ctrl.SetItem(item_index, 1, mana)
+            mana_cost = card.get("mana_cost") or ""
+            icon_text = self._get_mana_icon_text(mana_cost)
+            self.results_ctrl.AppendItem([name, icon_text])
         if self.status_label:
             count = len(results)
             self.status_label.SetLabel(f"Showing {count} card{'s' if count != 1 else ''}.")
@@ -297,3 +367,80 @@ class DeckBuilderPanel(wx.Panel):
     def _on_result_selected(self, idx: int) -> None:
         """Handle result list item selection."""
         self._on_result_selected_callback(idx)
+
+    def _get_mana_icon_text(self, mana_cost: str) -> dv.DataViewIconText:
+        """Return cached icon text object for a mana cost."""
+        cost_key = mana_cost.strip()
+        cache_key = f"{cost_key}|{self._MANA_ICON_SCALE}"
+        if cache_key in self._mana_icon_cache:
+            return self._mana_icon_cache[cache_key]
+        bitmap = self.mana_icons.bitmap_for_cost(cost_key)
+        if bitmap:
+            bitmap = self._scale_bitmap(bitmap, self._MANA_ICON_SCALE)
+            icon = wx.Icon()
+            icon.CopyFromBitmap(bitmap)
+            value = dv.DataViewIconText("", icon)
+        else:
+            value = dv.DataViewIconText("—", wx.NullIcon)
+        self._mana_icon_cache[cache_key] = value
+        return value
+
+    def _scale_bitmap(self, bitmap: wx.Bitmap, scale: float) -> wx.Bitmap:
+        """Return a bitmap scaled by the provided factor."""
+        if scale <= 0:
+            return bitmap
+        width = max(1, int(bitmap.GetWidth() * scale))
+        height = max(1, int(bitmap.GetHeight() * scale))
+        if width == bitmap.GetWidth() and height == bitmap.GetHeight():
+            return bitmap
+        image = bitmap.ConvertToImage()
+        scaled = image.Scale(width, height, wx.IMAGE_QUALITY_HIGH)
+        return wx.Bitmap(scaled)
+
+    # ============= Radar Integration =============
+
+    def _on_radar_toggle(self, event: wx.Event) -> None:
+        """Handle radar filter checkbox toggle."""
+        self.radar_enabled = self.radar_cb.IsChecked()
+        self.radar_zone_choice.Enable(self.radar_enabled)
+
+        if self.radar_enabled and not self.active_radar:
+            wx.MessageBox(
+                "Please open a radar using the 'Open Radar...' button.",
+                "No Radar Loaded",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            self.radar_cb.SetValue(False)
+            self.radar_enabled = False
+            self.radar_zone_choice.Enable(False)
+
+    def _on_radar_zone_changed(self, event: wx.Event) -> None:
+        """Handle radar zone selection change."""
+        selection = self.radar_zone_choice.GetSelection()
+        zone_map = {0: "both", 1: "mainboard", 2: "sideboard"}
+        self.radar_zone = zone_map.get(selection, "both")
+
+    def _on_open_radar(self, event: wx.Event) -> None:
+        """Handle open radar button click."""
+        if self._on_open_radar_dialog:
+            radar = self._on_open_radar_dialog()
+            if radar:
+                self.set_active_radar(radar)
+
+    def set_active_radar(self, radar: RadarData) -> None:
+        """
+        Set the active radar for filtering.
+
+        Args:
+            radar: RadarData to use for filtering
+        """
+        self.active_radar = radar
+        self.radar_enabled = True
+        self.radar_cb.SetValue(True)
+        self.radar_zone_choice.Enable(True)
+
+        if self.status_label:
+            self.status_label.SetLabel(
+                f"Radar active: {radar.archetype_name} "
+                f"({len(radar.mainboard_cards)} MB, {len(radar.sideboard_cards)} SB cards)"
+            )

@@ -16,12 +16,12 @@ from typing import Any
 import pymongo
 from loguru import logger
 
-from utils.deck import sanitize_filename
-from utils.paths import (
+from utils.constants import (
     CACHE_DIR,
     CURR_DECK_FILE,
     DECKS_DIR,
 )
+from utils.deck import sanitize_filename
 
 # Legacy file paths for migration
 LEGACY_CURR_DECK_CACHE = Path("cache") / "curr_deck.txt"
@@ -419,6 +419,32 @@ class DeckRepository:
             return current_deck.get("href") or current_deck.get("name", "manual").lower()
         return "manual"
 
+    def get_current_decklist_hash(self) -> str:
+        """
+        Return a hash of the current decklist (75 cards) for sideboard guide storage.
+
+        This ensures each unique 75-card configuration gets its own guide,
+        while the same exact deck loaded multiple times retains its guide.
+
+        Returns:
+            Hash string based on sorted mainboard + sideboard card names and quantities
+        """
+        import hashlib
+
+        deck_text = self.get_current_deck_text()
+        if not deck_text:
+            return "empty"
+
+        # Create a stable hash from the deck text (sorted to ensure consistency)
+        # Normalize the text by sorting lines and removing whitespace variations
+        lines = [line.strip() for line in deck_text.strip().split("\n") if line.strip()]
+        lines.sort()
+        normalized_text = "\n".join(lines)
+
+        # Generate SHA256 hash and take first 16 characters for readability
+        hash_obj = hashlib.sha256(normalized_text.encode("utf-8"))
+        return hash_obj.hexdigest()[:16]
+
     def set_current_deck(self, deck: dict[str, Any] | None) -> None:
         """Set the currently selected deck."""
         self._current_deck = deck
@@ -458,7 +484,6 @@ class DeckRepository:
         download_func,
         read_func,
         add_to_buffer_func,
-        progress_callback=None,
     ) -> dict[str, float]:
         """
         Build daily average deck by downloading and averaging multiple decks.
@@ -476,13 +501,10 @@ class DeckRepository:
             Buffer dictionary with averaged card counts
         """
         buffer: dict[str, float] = {}
-        total = len(decks)
-        for index, deck in enumerate(decks, start=1):
+        for deck in decks:
             download_func(deck["number"])
             deck_content = read_func()
             buffer = add_to_buffer_func(buffer, deck_content)
-            if progress_callback:
-                progress_callback(index, total)
         return buffer
 
     # ============= Private Helper Methods =============

@@ -14,7 +14,7 @@ from loguru import logger
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
 from utils.archetype_classifier import ArchetypeClassifier
-from utils.paths import MTGO_DECK_CACHE_FILE
+from utils.constants import MTGO_DECK_CACHE_FILE
 
 try:
     from datetime import UTC
