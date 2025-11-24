@@ -463,9 +463,17 @@ class AppController:
             on_status("Downloading card image database...")
 
             # Download in background
+            def _on_download_complete(msg: str) -> None:
+                on_download_complete(msg)
+                self._load_bulk_data_into_memory(on_status, force=True)
+
+            def _on_download_failed(msg: str) -> None:
+                on_download_failed(msg)
+                on_status("Ready")
+
             self.image_service.download_bulk_metadata_async(
-                on_success=on_download_complete,
-                on_error=on_download_failed,
+                on_success=_on_download_complete,
+                on_error=_on_download_failed,
             )
 
         def error_handler(exc: Exception):
