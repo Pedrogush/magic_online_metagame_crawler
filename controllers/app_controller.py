@@ -32,7 +32,7 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
-from utils.deck import read_curr_deck_file, sanitize_zone_cards
+from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
 from utils.game_constants import FORMAT_OPTIONS
 from utils.paths import CACHE_DIR, CONFIG_FILE, DECK_SELECTOR_SETTINGS_FILE, DECKS_DIR
 from utils.service_config import (
@@ -138,6 +138,7 @@ class AppController:
 
         self._bulk_check_worker_active = False
         self.frame = self.create_frame()
+
     # ============= Card Data Management =============
 
     def ensure_card_data_loaded(
@@ -268,6 +269,59 @@ class AppController:
             return read_curr_deck_file()
 
         BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+
+    def build_deck_text(self, zone_cards: dict[str, list[dict[str, Any]]] | None = None) -> str:
+        deck_text = self.deck_repo.get_current_deck_text()
+        if deck_text:
+            return deck_text
+
+        zones = zone_cards if zone_cards is not None else self.zone_cards
+        if zones:
+            try:
+                deck_text = self.deck_service.build_deck_text_from_zones(zones)
+            except Exception as exc:  # pragma: no cover - defensive log
+                logger.debug(f"Failed to build deck text from zones: {exc}")
+            else:
+                if deck_text:
+                    return deck_text
+
+        current_deck = self.deck_repo.get_current_deck() or {}
+        for key in ("deck_text", "content", "text"):
+            value = current_deck.get(key)
+            if value:
+                return value
+
+        return ""
+
+    def save_deck(
+        self,
+        deck_name: str,
+        deck_content: str,
+        format_name: str,
+        deck: dict[str, Any] | None = None,
+    ) -> tuple[Path, int | None]:
+        safe_name = sanitize_filename(deck_name or "saved_deck") or "saved_deck"
+        file_path = self.deck_save_dir / f"{safe_name}.txt"
+        with file_path.open("w", encoding="utf-8") as fh:
+            fh.write(deck_content)
+
+        deck_id = None
+        try:
+            deck_id = self.deck_repo.save_to_db(
+                deck_name=deck_name,
+                deck_content=deck_content,
+                format_type=format_name,
+                archetype=deck.get("name") if deck else None,
+                player=deck.get("player") if deck else None,
+                source="mtggoldfish" if deck else "manual",
+                metadata=deck or {},
+            )
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.warning(f"Deck saved to file but not database: {exc}")
+        else:
+            logger.info(f"Deck saved to database: {deck_name} (ID: {deck_id})")
+
+        return file_path, deck_id
 
     def build_daily_average_deck(
         self,

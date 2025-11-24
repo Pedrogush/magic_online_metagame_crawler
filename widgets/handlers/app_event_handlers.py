@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import threading
 import wx
 from loguru import logger
+
+from utils.card_data import CardDataManager
+from utils.ui_helpers import open_child_window, widget_exists
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.match_history import MatchHistoryFrame
 from widgets.metagame_analysis import MetagameAnalysisFrame
 from widgets.timer_alert import TimerAlertFrame
-from utils.card_data import CardDataManager
-from utils.ui_helpers import open_child_window, widget_exists
 
 if TYPE_CHECKING:
     from widgets.app_frame import AppFrame
@@ -155,7 +156,7 @@ class AppEventHandlers:
         self._start_daily_average_build()
 
     def on_copy_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
-        deck_content = self._build_deck_text().strip()
+        deck_content = self.controller.build_deck_text(self.zone_cards).strip()
         if not deck_content:
             wx.MessageBox("No deck to copy.", "Copy Deck", wx.OK | wx.ICON_INFORMATION)
             return
@@ -169,9 +170,7 @@ class AppEventHandlers:
             wx.MessageBox("Could not access clipboard.", "Copy Deck", wx.OK | wx.ICON_WARNING)
 
     def on_save_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
-        from utils.deck import sanitize_filename
-
-        deck_content = self._build_deck_text().strip()
+        deck_content = self.controller.build_deck_text(self.zone_cards).strip()
         if not deck_content:
             wx.MessageBox("Load a deck first.", "Save Deck", wx.OK | wx.ICON_INFORMATION)
             return
@@ -186,29 +185,16 @@ class AppEventHandlers:
         deck_name = dlg.GetValue().strip() or default_name
         dlg.Destroy()
 
-        safe_name = sanitize_filename(deck_name)
-        file_path = self.controller.deck_save_dir / f"{safe_name}.txt"
         try:
-            with file_path.open("w", encoding="utf-8") as fh:
-                fh.write(deck_content)
+            file_path, deck_id = self.controller.save_deck(
+                deck_name=deck_name,
+                deck_content=deck_content,
+                format_name=self.current_format,
+                deck=current_deck,
+            )
         except OSError as exc:  # pragma: no cover
             wx.MessageBox(f"Failed to write deck file:\n{exc}", "Save Deck", wx.OK | wx.ICON_ERROR)
             return
-
-        try:
-            deck_id = self.controller.deck_repo.save_to_db(
-                deck_name=deck_name,
-                deck_content=deck_content,
-                format_type=self.current_format,
-                archetype=current_deck.get("name") if current_deck else None,
-                player=current_deck.get("player") if current_deck else None,
-                source="mtggoldfish" if current_deck else "manual",
-                metadata=(current_deck or {}),
-            )
-            logger.info(f"Deck saved to database: {deck_name} (ID: {deck_id})")
-        except Exception as exc:  # pragma: no cover
-            logger.warning(f"Deck saved to file but not database: {exc}")
-            deck_id = None
 
         message = f"Deck saved to {file_path}"
         if deck_id:
@@ -233,30 +219,6 @@ class AppEventHandlers:
             self.mana_keyboard_window.Destroy()
             self.mana_keyboard_window = None
         event.Skip()
-
-    # Helpers
-    def _build_deck_text(self: AppFrame) -> str:
-        deck_text = self.controller.deck_repo.get_current_deck_text()
-        if deck_text:
-            return deck_text
-
-        zone_cards: dict[str, list[dict[str, Any]]] | None = getattr(self, "zone_cards", None)
-        if zone_cards:
-            try:
-                deck_text = self.controller.deck_service.build_deck_text_from_zones(zone_cards)
-            except Exception as exc:  # pragma: no cover - defensive log
-                logger.debug(f"Failed to build deck text from zones: {exc}")
-            else:
-                if deck_text:
-                    return deck_text
-
-        current_deck = self.controller.deck_repo.get_current_deck() or {}
-        for key in ("deck_text", "content", "text"):
-            value = current_deck.get(key)
-            if value:
-                return value
-
-        return ""
 
     # Async Callback Handlers
     def _on_archetypes_loaded(self: AppFrame, items: list[dict[str, Any]]) -> None:
