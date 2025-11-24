@@ -53,11 +53,13 @@ class CardDataManager:
         if not needs_refresh and remote_meta:
             for key, value in remote_meta.items():
                 if local_meta.get(key) != value:
+                    logger.warning(f"Local metadata differs from remote for key: {key}")
+                    logger.warning("Forcing a refresh")
                     needs_refresh = True
                     break
 
         if needs_refresh:
-            logger.warning("curl_cffi missing; continuing with cached MTGJSON data")
+            logger.warning("No atomic card index found or force refresh requested")
             try:
                 if remote_meta:
                     logger.info("Refreshing MTGJSON AtomicCards dataset")

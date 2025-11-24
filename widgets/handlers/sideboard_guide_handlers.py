@@ -183,9 +183,7 @@ class SideboardGuideHandlers:
     def _on_edit_guide_entry(self: MTGDeckSelectionFrame) -> None:
         index = self.sideboard_guide_panel.get_selected_index()
         if index is None:
-            wx.MessageBox(
-                "Select an entry to edit.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
-            )
+            self._set_status("Select an entry to edit.")
             return
         data = self.sideboard_guide_entries[index]
         names = [item.get("name", "") for item in self.archetypes]
@@ -204,9 +202,7 @@ class SideboardGuideHandlers:
     def _on_remove_guide_entry(self: MTGDeckSelectionFrame) -> None:
         index = self.sideboard_guide_panel.get_selected_index()
         if index is None:
-            wx.MessageBox(
-                "Select an entry to remove.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
-            )
+            self._set_status("Select an entry to remove.")
             return
         del self.sideboard_guide_entries[index]
         self._persist_guide_for_current()
@@ -236,9 +232,7 @@ class SideboardGuideHandlers:
     def _on_export_guide_csv(self: MTGDeckSelectionFrame) -> None:
         """Export sideboard guide to CSV format."""
         if not self.sideboard_guide_entries:
-            wx.MessageBox(
-                "No sideboard guide entries to export.", "Export CSV", wx.OK | wx.ICON_INFORMATION
-            )
+            self._set_status("No guide entries to export.")
             return
 
         # Ask user for save location
@@ -258,13 +252,12 @@ class SideboardGuideHandlers:
 
         try:
             self._export_guide_to_csv(file_path)
-            wx.MessageBox(
-                f"Sideboard guide exported successfully to:\n{file_path}",
-                "Export CSV",
-                wx.OK | wx.ICON_INFORMATION,
-            )
+            self._set_status("Sideboard guide exported successfully.")
         except Exception as e:
-            wx.MessageBox(f"Error exporting CSV:\n{e}", "Export CSV", wx.OK | wx.ICON_ERROR)
+            self._set_status("Error exporting sideboard guide to CSV.")
+            from loguru import logger
+
+            logger.exception(f"Error exporting sideboard guide to CSV: {e}")
 
     def _on_import_guide_csv(self: MTGDeckSelectionFrame) -> None:
         """Import sideboard guide from CSV format."""
@@ -323,11 +316,7 @@ class SideboardGuideHandlers:
             imported_entries, warnings = self._import_guide_from_csv(file_path)
 
             if not imported_entries:
-                wx.MessageBox(
-                    "No valid guide entries found in CSV.",
-                    "Import CSV",
-                    wx.OK | wx.ICON_INFORMATION,
-                )
+                self._set_status("No valid guide entries found in CSV.")
                 return
 
             # Handle duplicate archetypes based on enable_double_entries setting
@@ -362,14 +351,13 @@ class SideboardGuideHandlers:
                 self.sideboard_guide_panel.set_warning(warning_msg)
             else:
                 # Show success message briefly then clear
-                wx.MessageBox(
-                    f"Successfully imported {len(imported_entries)} guide entries.",
-                    "Import CSV",
-                    wx.OK | wx.ICON_INFORMATION,
-                )
+                self._set_status(f"Successfully imported {len(imported_entries)} guide entries.")
 
         except Exception as e:
-            wx.MessageBox(f"Error importing CSV:\n{e}", "Import CSV", wx.OK | wx.ICON_ERROR)
+            self._set_status("Error importing sideboard guide from CSV.")
+            from loguru import logger
+
+            logger.exception(f"Error importing sideboard guide from CSV: {e}")
 
     def _export_guide_to_csv(self: MTGDeckSelectionFrame, file_path: str) -> None:
         """

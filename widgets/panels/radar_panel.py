@@ -12,6 +12,7 @@ from typing import Any
 
 import wx
 import wx.dataview as dv
+from loguru import logger
 
 from services.radar_service import RadarData, RadarService, get_radar_service
 from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT
@@ -290,21 +291,13 @@ class RadarDialog(wx.Dialog):
                 self.archetype_choice.SetSelection(0)
 
         except Exception as exc:
-            wx.MessageBox(
-                f"Failed to load archetypes: {exc}",
-                "Error",
-                wx.OK | wx.ICON_ERROR,
-            )
+            logger.exception(f"Failed to load archetypes: {exc}")
 
     def _on_generate_clicked(self, event: wx.Event) -> None:
         """Handle generate radar button click."""
         selection = self.archetype_choice.GetSelection()
         if selection == wx.NOT_FOUND:
-            wx.MessageBox(
-                "Please select an archetype.",
-                "No Archetype Selected",
-                wx.OK | wx.ICON_WARNING,
-            )
+            logger.error("No archetype selected for radar generation")
             return
 
         archetype = self.archetypes[selection]
@@ -372,12 +365,7 @@ class RadarDialog(wx.Dialog):
 
         except Exception as exc:
             # Error occurred
-            wx.CallAfter(
-                wx.MessageBox,
-                f"Failed to generate radar: {exc}",
-                "Error",
-                wx.OK | wx.ICON_ERROR,
-            )
+            logger.exception(f"Failed to generate radar: {exc}")
             wx.CallAfter(self.progress_label.SetLabel, "Failed to generate radar.")
             wx.CallAfter(self.progress.SetValue, 0)
 
@@ -425,18 +413,10 @@ class RadarDialog(wx.Dialog):
                         path = fileDialog.GetPath()
                         with open(path, "w", encoding="utf-8") as f:
                             f.write(decklist)
-                        wx.MessageBox(
-                            f"Radar exported to {path}",
-                            "Export Successful",
-                            wx.OK | wx.ICON_INFORMATION,
-                        )
+                        logger.info(f"Radar exported to {path}")
 
             except ValueError as exc:
-                wx.MessageBox(
-                    f"Invalid saturation value: {exc}",
-                    "Error",
-                    wx.OK | wx.ICON_ERROR,
-                )
+                logger.exception(f"Invalid saturation value: {exc}")
 
         dlg.Destroy()
 
@@ -447,12 +427,7 @@ class RadarDialog(wx.Dialog):
         Args:
             radar: RadarData to use
         """
-        # Close the dialog - the radar will be picked up by the main window
-        wx.MessageBox(
-            "Radar search filter applied!",
-            "Search Filter",
-            wx.OK | wx.ICON_INFORMATION,
-        )
+        logger.info("Radar used as search filter")
         if self.IsModal():
             self.EndModal(wx.ID_OK)
         else:
