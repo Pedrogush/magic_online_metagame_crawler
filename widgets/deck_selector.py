@@ -8,15 +8,8 @@ from typing import Any
 import wx
 from loguru import logger
 
+from controllers.deck_selector_controller import get_deck_selector_controller
 from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
-from repositories.card_repository import get_card_repository
-from repositories.deck_repository import get_deck_repository
-from repositories.metagame_repository import get_metagame_repository
-from services.collection_service import get_collection_service
-from services.deck_service import get_deck_service
-from services.image_service import get_image_service
-from services.search_service import get_search_service
-from services.store_service import get_store_service
 from utils.card_data import CardDataManager
 from utils.deck import (
     read_curr_deck_file,
@@ -170,15 +163,18 @@ class MTGDeckSelectionFrame(
     def __init__(self, parent: wx.Window | None = None):
         super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
 
-        # Initialize repositories and services
-        self.deck_repo = get_deck_repository()
-        self.metagame_repo = get_metagame_repository()
-        self.card_repo = get_card_repository()
-        self.deck_service = get_deck_service()
-        self.search_service = get_search_service()
-        self.collection_service = get_collection_service()
-        self.image_service = get_image_service()
-        self.store_service = get_store_service()
+        # Initialize controller (handles business logic and service coordination)
+        self.controller = get_deck_selector_controller()
+
+        # Keep references to services/repos for UI operations (will be refactored gradually)
+        self.deck_repo = self.controller.deck_repo
+        self.metagame_repo = self.controller.metagame_repo
+        self.card_repo = self.controller.card_repo
+        self.deck_service = self.controller.deck_service
+        self.search_service = self.controller.search_service
+        self.collection_service = self.controller.collection_service
+        self.image_service = self.controller.image_service
+        self.store_service = self.controller.store_service
         self.card_data_dialogs_disabled = False
 
         self.settings = self._load_window_settings()
@@ -1054,34 +1050,29 @@ class MTGDeckSelectionFrame(
 
     def ensure_card_data_loaded(self) -> None:
         """Ensure card data is loaded in background if not already loading/loaded."""
-        if self.card_repo.get_card_manager() or self.card_repo.is_card_data_loading():
-            return
-        self.card_repo.set_card_data_loading(True)
-        self._set_status("Loading card database...")
-
-        def worker():
-            return self.card_repo.ensure_card_data_loaded()
 
         def on_success(manager: CardDataManager):
-            self.card_repo.set_card_manager(manager)
-            # Update panels with card manager
-            self.card_inspector_panel.set_card_manager(manager)
-            self.deck_stats_panel.set_card_manager(manager)
-            self.card_repo.set_card_data_loading(False)
-            self.card_repo.set_card_data_ready(True)
-            self._set_status("Card database loaded")
+            # Update UI panels with card manager (marshalled to UI thread by controller)
+            wx.CallAfter(self.card_inspector_panel.set_card_manager, manager)
+            wx.CallAfter(self.deck_stats_panel.set_card_manager, manager)
 
         def on_error(error: Exception):
-            self.card_repo.set_card_data_loading(False)
-            logger.error(f"Failed to load card data: {error}")
-            self._set_status(f"Card database load failed: {error}")
-            wx.MessageBox(
+            # Show error dialog on UI thread
+            wx.CallAfter(
+                wx.MessageBox,
                 f"Failed to load card database:\n{error}",
                 "Card Data Error",
                 wx.OK | wx.ICON_ERROR,
             )
 
-        _Worker(worker, on_success=on_success, on_error=on_error).start()
+        def on_status(message: str):
+            # Update status bar on UI thread
+            wx.CallAfter(self._set_status, message)
+
+        # Delegate business logic to controller
+        self.controller.ensure_card_data_loaded(
+            on_success=on_success, on_error=on_error, on_status=on_status
+        )
 
     # ------------------------------------------------------------------ Helpers --------------------------------------------------------------
     def open_opponent_tracker(self) -> None:
