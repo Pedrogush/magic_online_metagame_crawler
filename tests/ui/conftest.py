@@ -15,6 +15,10 @@ import utils.card_images as card_images
 import utils.constants as constants
 import widgets.app_frame as app_frame
 import widgets.identify_opponent as identify_opponent
+from controllers.app_controller import (
+    get_deck_selector_controller,
+    reset_deck_selector_controller,
+)
 from utils.card_data import CardDataManager
 from utils.constants import METAGAME_CACHE_TTL_SECONDS
 from widgets.app_frame import AppFrame
@@ -271,7 +275,9 @@ def pump_ui_events(app: wx.App, *, max_passes: int = 25) -> None:
 @pytest.fixture
 def deck_selector_factory(wx_app) -> AppFrame:
     def _factory() -> AppFrame:
-        return AppFrame()
+        reset_deck_selector_controller()
+        controller = get_deck_selector_controller()
+        return controller.frame
 
     return _factory
 
