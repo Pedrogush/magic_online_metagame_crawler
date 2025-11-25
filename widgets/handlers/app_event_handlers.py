@@ -405,6 +405,15 @@ class AppEventHandlers:
         if event:
             event.Skip()
 
+    def _on_deck_source_changed(self: AppFrame, _event: wx.CommandEvent | None) -> None:
+        if not self.deck_source_choice:
+            return
+        selection = self.deck_source_choice.GetSelection()
+        source_map = {0: "both", 1: "mtggoldfish", 2: "mtgo"}
+        source = source_map.get(selection, "both")
+        self.controller.set_deck_data_source(source)
+        self._schedule_settings_save()
+
     def _on_daily_average_success(
         self, buffer: dict[str, float], deck_count: int, progress_dialog: wx.ProgressDialog
     ) -> None:

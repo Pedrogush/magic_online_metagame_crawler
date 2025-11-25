@@ -117,6 +117,12 @@ class AppController:
         self.settings.setdefault("force_cached_bulk_data", self._bulk_cache_force)
         self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
 
+        # Deck data source preference
+        self._deck_data_source = self.settings.get("deck_data_source", "both")
+        if self._deck_data_source not in ("mtggoldfish", "mtgo", "both"):
+            self._deck_data_source = "both"
+        self.settings.setdefault("deck_data_source", self._deck_data_source)
+
         # Application state
         self.archetypes: list[dict[str, Any]] = []
         self.filtered_archetypes: list[dict[str, Any]] = []
@@ -271,8 +277,10 @@ class AppController:
 
         on_status("Downloading deck…")
 
+        source_filter = self.get_deck_data_source()
+
         def worker(number: str):
-            download_deck(number)
+            download_deck(number, source_filter=source_filter)
             return read_curr_deck_file()
 
         BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
@@ -352,14 +360,19 @@ class AppController:
 
         on_status("Building daily average deck…")
 
+        source_filter = self.get_deck_data_source()
+
         def worker(rows: list[dict[str, Any]]):
             def progress_callback(index: int, total: int) -> None:
                 if on_progress:
                     on_progress(index, total)
 
+            def download_with_filter(deck_num: str) -> None:
+                download_deck(deck_num, source_filter=source_filter)
+
             return self.deck_repo.build_daily_average_deck(
                 rows,
-                download_deck,
+                download_with_filter,
                 read_curr_deck_file,
                 self.deck_service.add_deck_to_buffer,
                 progress_callback=progress_callback,
@@ -560,6 +573,7 @@ class AppController:
                 "left_mode": self.left_mode,
                 "force_cached_bulk_data": self._bulk_cache_force,
                 "bulk_data_max_age_days": self._bulk_data_age_days,
+                "deck_data_source": self._deck_data_source,
                 "saved_deck_text": self.deck_repo.get_current_deck_text(),
                 "saved_zone_cards": self._serialize_zone_cards(),
             }
@@ -619,6 +633,18 @@ class AppController:
             return
         self._bulk_data_age_days = clamped
         self.settings["bulk_data_max_age_days"] = clamped
+
+    def get_deck_data_source(self) -> str:
+        return self._deck_data_source
+
+    def set_deck_data_source(self, source: str) -> None:
+        if source not in ("mtggoldfish", "mtgo", "both"):
+            logger.warning(f"Invalid deck data source: {source}, defaulting to 'both'")
+            source = "both"
+        if self._deck_data_source == source:
+            return
+        self._deck_data_source = source
+        self.settings["deck_data_source"] = source
 
     def restore_session_state(self) -> dict[str, Any]:
         result: dict[str, Any] = {"left_mode": self.left_mode}

@@ -118,12 +118,13 @@ class MetagameRepository:
                 return cached
             raise
 
-    def download_deck_content(self, deck: dict[str, Any]) -> str:
+    def download_deck_content(self, deck: dict[str, Any], source_filter: str | None = None) -> str:
         """
         Download the actual deck list content.
 
         Args:
             deck: Deck dictionary with 'number' key (deck ID)
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
 
         Returns:
             Deck list as text string
@@ -141,7 +142,7 @@ class MetagameRepository:
         try:
             # fetch_deck_text handles caching and returns the text directly
             # This avoids unnecessary write-to-file and read-from-file operations
-            deck_content = fetch_deck_text(deck_number)
+            deck_content = fetch_deck_text(deck_number, source_filter=source_filter)
             return deck_content
         except Exception as exc:
             logger.error(f"Failed to download deck {deck_name}: {exc}")

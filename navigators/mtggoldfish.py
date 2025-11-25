@@ -290,7 +290,7 @@ def _ensure_cache_migration():
                 logger.warning(f"Could not backup old JSON cache: {exc}")
 
 
-def fetch_deck_text(deck_num: str) -> str:
+def fetch_deck_text(deck_num: str, source_filter: str | None = None) -> str:
     """
     Return a deck list as text, using the SQLite cache when available.
 
@@ -299,6 +299,7 @@ def fetch_deck_text(deck_num: str) -> str:
 
     Args:
         deck_num: MTGGoldfish deck number
+        source_filter: Optional source filter ('mtggoldfish', 'mtgo', or None for both)
 
     Returns:
         Deck text content
@@ -312,8 +313,10 @@ def fetch_deck_text(deck_num: str) -> str:
     # Get SQLite cache instance
     cache = get_deck_cache()
 
-    # Check cache first
-    cached_text = cache.get(deck_num)
+    # Check cache first, applying source filter
+    # source_filter="both" means None (any source), otherwise use specific source
+    cache_source = None if source_filter == "both" else source_filter
+    cached_text = cache.get(deck_num, source=cache_source)
     if cached_text is not None:
         return cached_text
 
@@ -328,17 +331,21 @@ def fetch_deck_text(deck_num: str) -> str:
     encoded_deck = match.group(1)
     deck_text = unquote(encoded_deck)
 
-    # Store in cache
-    cache.set(deck_num, deck_text)
+    # Store in cache with mtggoldfish source
+    cache.set(deck_num, deck_text, source="mtggoldfish")
 
     return deck_text
 
 
-def download_deck(deck_num: str):
+def download_deck(deck_num: str, source_filter: str | None = None):
     """
     Downloads a deck list and writes it to CURR_DECK_FILE while maintaining cache compatibility.
+
+    Args:
+        deck_num: MTGGoldfish deck number
+        source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
     """
-    deck_text = fetch_deck_text(deck_num)
+    deck_text = fetch_deck_text(deck_num, source_filter=source_filter)
 
     CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
     with CURR_DECK_FILE.open("w", encoding="utf-8") as f:
