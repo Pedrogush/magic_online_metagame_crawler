@@ -173,13 +173,6 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     }.items():
         monkeypatch.setattr(mtggoldfish, attr, value, raising=False)
 
-    monkeypatch.setattr(
-        app_frame._Worker,
-        "start",
-        lambda self: self._run(),
-        raising=False,
-    )
-
     def fake_download(number: str) -> None:
         (decks / "curr_deck.txt").write_text(
             "4 Mountain\n4 Island\nSideboard\n2 Dispel\n", encoding="utf-8"
