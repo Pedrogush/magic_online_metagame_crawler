@@ -1,531 +1,83 @@
-# Architecture Overview
+# Architecture (Updated)
 
-This document describes the architecture and design patterns used in the MTGO Metagame Tools project.
+This document reflects the current refactored codebase (controller-driven UI, consolidated constants, radar and sideboard guide features).
 
-## Table of Contents
+## High-Level Shape
 
-- [Design Philosophy](#design-philosophy)
-- [Layered Architecture](#layered-architecture)
-- [Module Organization](#module-organization)
-- [Design Patterns](#design-patterns)
-- [Data Flow](#data-flow)
-- [State Management](#state-management)
-- [Threading Model](#threading-model)
-- [External Dependencies](#external-dependencies)
+- **Entry**: `main.py` → `controllers/app_controller.AppController` → `widgets/app_frame.AppFrame` (UI).
+- **Presentation**: `widgets/` (frame + panels) with event-handler mixins under `widgets/handlers/`.
+- **Business Logic**: `services/` (deck, collection, image, search, radar, state, deck_research).
+- **Persistence/State**: `repositories/` (deck, card, metagame), stores on disk (notes/outboard/guide), Mongo optional.
+- **Utilities**: `utils/` (constants.py, card_images, card_data, deck utilities, search filters, background worker, deck_text_cache, mana icons, etc.).
+- **External**: `navigators/` (mtggoldfish, mtgo_decklists), `dotnet/MTGOBridge/`.
 
-## Design Philosophy
-
-The project follows these core principles:
-
-1. **Separation of Concerns**: Business logic is separated from UI code
-2. **Layered Architecture**: Clear boundaries between presentation, business, and data layers
-3. **Testability**: Services and repositories are designed to be easily testable
-4. **Singleton Services**: Service and repository instances are shared across the application
-5. **Event-Driven UI**: wxPython event system for responsive user interface
-6. **Controller-Oriented UI**: `AppController` owns state and wiring; frames/panels stay thin
-
-## Layered Architecture
-
-The application is organized into four main layers:
+## Current Directory Map
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Presentation Layer                        │
-│            (widgets/, main.py)                              │
-│   - UI Components (wxPython)                                │
-│   - Event Handlers                                          │
-│   - View Logic                                              │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                     Service Layer                            │
-│                   (services/)                               │
-│   - Business Logic                                          │
-│   - Workflow Orchestration                                  │
-│   - Data Transformation                                     │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                   Repository Layer                           │
-│                 (repositories/)                             │
-│   - Data Access                                             │
-│   - Caching                                                 │
-│   - File I/O                                                │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│              External Services & Data Sources                │
-│         (navigators/, utils/, dotnet/MTGOBridge)           │
-│   - MTGGoldfish API                                         │
-│   - Scryfall API                                            │
-│   - MTGO Bridge                                             │
-│   - Local File System                                       │
-└─────────────────────────────────────────────────────────────┘
+controllers/
+  app_controller.py        # Owns services/repos, creates AppFrame, runs initial loads
+widgets/
+  app_frame.py             # Thin frame; uses handler mixins
+  handlers/
+    app_event_handlers.py
+    card_table_panel_handler.py
+    sideboard_guide_handlers.py
+  panels/
+    deck_builder_panel.py  # Radar-aware search UI
+    deck_research_panel.py
+    deck_stats_panel.py
+    sideboard_guide_panel.py
+    card_inspector_panel.py
+    radar_panel.py
+    deck_notes_panel.py
+    card_table_panel.py
+    card_box_panel.py
+  dialogs/
+    guide_entry_dialog.py
+    image_download_dialog.py
+  buttons/ (toolbar, deck actions, mana)
+  identify_opponent.py, match_history.py, metagame_analysis.py, timer_alert.py
+services/
+  deck_service.py, deck_research_service.py, collection_service.py,
+  search_service.py, image_service.py, radar_service.py, state_service.py
+repositories/
+  deck_repository.py (decklist hash), card_repository.py, metagame_repository.py
+utils/
+  constants.py (all paths/constants), card_images.py, card_data.py,
+  deck.py, search_filters.py, mana_icon_factory.py, background_worker.py,
+  deck_text_cache.py, etc.
+navigators/
+  mtggoldfish.py, mtgo_decklists.py
+ dotnet/MTGOBridge/        # External bridge
+ tests/                    # Unit + UI (UI builds AppFrame via controller)
 ```
 
-### Layer Responsibilities
-
-#### Presentation Layer (`widgets/`, `controllers/`, `main.py`)
-- **Purpose**: User interface and interaction
-- **Key Components**:
-  - `main.py`: Application entry point
-  - `controllers/app_controller.py`: Coordinates services/repos and instantiates `AppFrame`
-  - `widgets/app_frame.py`: Main window (thin view) with handler mixins under `widgets/handlers/`
-  - `widgets/panels/`: Reusable panels (deck builder, stats, sideboard guide, radar, etc.)
-  - `widgets/dialogs/`: Modal dialogs (guide entry, image download, radar export/import)
-  - `widgets/buttons/`: Custom button widgets
-- **Responsibilities**:
-  - Render UI components
-  - Handle user events
-  - Delegate business logic to services
-  - Display data returned from services
-- **Anti-patterns to avoid**:
-  - ❌ Direct database/file access
-  - ❌ Business logic in event handlers
-  - ❌ Direct API calls to external services
-
-#### Service Layer (`services/`)
-- **Purpose**: Business logic and workflow orchestration
-- **Components**:
-  - `deck_service.py`: Deck analysis, validation, and manipulation
-  - `collection_service.py`: Collection management and ownership analysis
-  - `search_service.py`: Card search and filtering logic
-  - `image_service.py`: Card image management and downloads
-- **Responsibilities**:
-  - Implement business rules
-  - Coordinate between repositories
-  - Transform data for presentation
-  - Validation and error handling
-- **Pattern**: Singleton instances accessed via `get_*_service()` functions
-
-#### Repository Layer (`repositories/`)
-- **Purpose**: Data access and persistence
-- **Components**:
-  - `deck_repository.py`: Deck file I/O and MongoDB operations
-  - `card_repository.py`: Card data and image management
-  - `metagame_repository.py`: Cached metagame data access
-- **Responsibilities**:
-  - Abstract data storage mechanisms
-  - Implement caching strategies
-  - Handle file I/O operations
-  - Manage data freshness and TTL
-- **Pattern**: Singleton instances accessed via `get_*_repository()` functions
-
-#### External Services (`navigators/`, `utils/`)
-- **Purpose**: Integration with external systems and utilities
-- **Components**:
-  - `navigators/mtggoldfish.py`: Web scraping for metagame data
-  - `navigators/mtgo_decklists.py`: Official MTGO decklist parsing
-  - `utils/gamelog_parser.py`: Match history extraction
-  - `utils/card_data.py`: Scryfall API integration
-  - `dotnet/MTGOBridge/`: .NET bridge for MTGO integration
-- **Responsibilities**:
-  - HTTP requests to external APIs
-  - Web scraping and HTML parsing
-  - MTGO SDK integration
-  - File format parsing
-
-## Module Organization
-
-### Directory Structure
-
-```
-magic_online_metagame_crawler/
-├── main.py                          # Entry point
-├── controllers/                     # Controller layer
-│   └── app_controller.py            # AppController wiring services/repos to AppFrame
-├── widgets/                         # Presentation layer
-│   ├── app_frame.py                 # Main frame (thin view)
-│   ├── handlers/                    # Event handler mixins (app_event_handlers, sideboard_guide_handlers, card_table_panel_handler, etc.)
-│   ├── panels/                      # Reusable panels (deck_builder_panel, radar_panel, deck_stats_panel, sideboard_guide_panel, card_inspector_panel, etc.)
-│   ├── dialogs/                     # Dialogs (guide_entry_dialog, image_download_dialog, radar in radar_panel)
-│   ├── buttons/                     # Custom buttons
-│   └── other widgets (identify_opponent, match_history, metagame_analysis, timer_alert, etc.)
-├── services/                        # Service layer
-│   ├── deck_service.py              # Deck analysis/manipulation
-│   ├── deck_research_service.py     # Archetype/deck aggregation
-│   ├── collection_service.py        # Collection management
-│   ├── search_service.py            # Card search logic (supports radar filters)
-│   ├── image_service.py             # Card image/bulk data
-│   ├── radar_service.py             # Archetype radar calculations
-│   └── state_service.py             # Window/state persistence
-├── repositories/                    # Repository layer
-│   ├── deck_repository.py           # Deck persistence + decklist hashing
-│   ├── card_repository.py           # Card data access
-│   └── metagame_repository.py       # Cached metagame data
-├── navigators/                      # External API Integration (mtggoldfish, mtgo_decklists)
-├── utils/                           # Utilities (constants.py, card_images.py, card_data.py, deck.py, search_filters.py, mana_icon_factory.py, background_worker.py, deck_text_cache.py, etc.)
-├── tests/                           # Unit/UI tests (UI tests construct AppFrame via controller)
-└── dotnet/MTGOBridge/               # .NET MTGO Integration
-```
-
-## Design Patterns
-
-### 1. Singleton Pattern (Services & Repositories)
-
-All services and repositories use the singleton pattern to ensure single instances across the application:
-
-```python
-# services/deck_service.py
-_deck_service: DeckService | None = None
-
-def get_deck_service() -> DeckService:
-    global _deck_service
-    if _deck_service is None:
-        _deck_service = DeckService()
-    return _deck_service
-```
-
-**Benefits**:
-- Shared state across application
-- Single source of truth for cached data
-- Easy to reset in tests
-
-**Testing**: Tests use `reset_all_globals()` fixture to clear singletons between tests.
-
-### 2. Repository Pattern
-
-Data access is abstracted through repository classes:
-
-```python
-class DeckRepository:
-    def save_to_file(self, deck_text: str, filename: str) -> Path:
-        """Save deck to file system"""
-
-    def load_from_file(self, filepath: Path) -> str:
-        """Load deck from file system"""
-
-    def save_to_db(self, deck_name: str, deck_text: str):
-        """Save deck to MongoDB"""
-```
-
-**Benefits**:
-- Abstract storage mechanism
-- Easy to mock in tests
-- Centralized caching logic
-
-### 3. Service Pattern
-
-Business logic is encapsulated in service classes:
-
-```python
-class DeckService:
-    def analyze_deck(self, deck_text: str) -> dict:
-        """Analyze deck and return statistics"""
-
-    def validate_deck_format(self, deck_text: str, format: str) -> tuple[bool, str]:
-        """Validate deck for format legality"""
-```
-
-**Benefits**:
-- Reusable business logic
-- Testable without UI
-- Clear separation from presentation
-
-### 4. Event-Driven Architecture (UI)
-
-wxPython widgets communicate via events and callbacks:
-
-```python
-class DeckBuilderPanel(wx.Panel):
-    def __init__(self, parent, on_search_callback=None):
-        self.on_search = on_search_callback
-
-    def _on_search_button(self, event):
-        if self.on_search:
-            self.on_search()  # Notify parent
-```
-
-**Benefits**:
-- Loose coupling between widgets
-- Parent controls workflow
-- Easy to test panels in isolation
-
-### 5. Panel Composition
-
-The main window (`deck_selector.py`) is composed of reusable panels:
-
-```python
-class MTGDeckSelectionFrame(wx.Frame):
-    def __init__(self, parent):
-        # Compose panels
-        self.research_panel = DeckResearchPanel(notebook, ...)
-        self.builder_panel = DeckBuilderPanel(notebook, ...)
-        self.stats_panel = DeckStatsPanel(notebook, ...)
-        self.guide_panel = SideboardGuidePanel(notebook, ...)
-        self.notes_panel = DeckNotesPanel(notebook, ...)
-```
-
-**Benefits**:
-- Reusable components
-- Easier testing
-- Better organization
-
-### 6. Lazy Loading
-
-Card data and images are loaded on demand:
-
-```python
-class CardDataManager:
-    def __init__(self):
-        self._cards = None  # Not loaded yet
-
-    def get_all_cards(self) -> list[dict]:
-        if self._cards is None:
-            self._load_from_scryfall()  # Load on first access
-        return self._cards
-```
-
-**Benefits**:
-- Faster startup time
-- Reduced memory usage
-- Load only what's needed
-
-## Data Flow
-
-### Example: Loading a Deck
-
-```
-User clicks "Load Deck"
-         ↓
-[deck_selector.py]
-  _on_load_deck()
-         ↓
-[deck_repository.py]
-  load_from_file(path) → deck_text
-         ↓
-[deck_service.py]
-  analyze_deck(deck_text) → stats
-         ↓
-[deck_selector.py]
-  _on_deck_content_ready(deck_text, stats)
-  ├→ Update card lists
-  ├→ Update stats panel
-  └→ Refresh UI
-```
-
-### Example: Searching Cards
-
-```
-User enters search query
-         ↓
-[deck_builder_panel.py]
-  _on_search_button()
-         ↓
-[deck_selector.py]
-  _on_builder_search()
-         ↓
-[search_service.py]
-  search_with_builder_filters(filters, cards)
-  ├→ Apply name filter
-  ├→ Apply color filter
-  ├→ Apply mana value filter
-  └→ Return filtered results
-         ↓
-[DeckBuilderPanel]
-  Update search results table (supports radar filters)
-```
-
-### Example: Importing Collection
-
-```
-User clicks "Refresh from Bridge"
-         ↓
-[app_frame.py] toolbar → controller.refresh_collection_from_bridge()
-         ↓
-[controllers/app_controller.py] delegates to collection_service.refresh_from_bridge_async
-         ↓
-[collection_service.py]
-  ├→ Run bridge.exe in subprocess
-  ├→ Parse JSON output
-  ├→ Save to cache file
-  └→ Return collection data
-         ↓
-[AppFrame]
-  Update collection status, card tables, ownership indicators
-```
-
-## State Management
-
-### Application State
-
-State is managed at multiple levels:
-
-1. **Singleton Services**: Shared state like card data, collection
-2. **Widget State**: Local UI state (selected deck, search filters)
-3. **File-Based Persistence**: Deck notes, sideboard guides, settings
-4. **Database**: Saved decks (MongoDB, optional)
-
-### Global Singletons
-
-```python
-# These maintain state across the application:
-- CardDataManager: Card metadata from Scryfall
-- CollectionService: User's MTGO collection
-- DeckService: Current deck being edited
-- MetagameRepository: Cached metagame data
-```
-
-### Resetting State (Testing)
-
-Tests use fixtures to reset global state:
-
-```python
-# tests/conftest.py
-@pytest.fixture(autouse=True)
-def reset_global_state():
-    reset_all_services()
-    reset_all_repositories()
-```
-
-## Threading Model
-
-### Main Thread (UI Thread)
-- All wxPython UI operations run on main thread
-- Event handlers execute on main thread
-
-### Background Workers
-Used for long-running operations to keep UI responsive:
-
-```python
-def _download_deck_async(self, deck_number: int):
-    def worker():
-        deck_text = download_deck(deck_number)  # Slow I/O
-        wx.CallAfter(self._on_deck_ready, deck_text)  # Back to UI thread
-
-    threading.Thread(target=worker, daemon=True).start()
-```
-
-**Operations using background threads**:
-- Deck downloads from MTGGoldfish
-- Metagame data fetching
-- Image downloads
-- Collection imports from MTGO Bridge
-- Match history parsing
-
-**Pattern**: `wx.CallAfter()` to marshal results back to UI thread
-
-## External Dependencies
-
-### Python Libraries
-
-| Library | Purpose | Layer |
-|---------|---------|-------|
-| wxPython | GUI framework | Presentation |
-| requests | HTTP client | Navigators |
-| beautifulsoup4 | HTML parsing | Navigators |
-| pymongo | MongoDB client | Repository |
-| Pillow | Image processing | Utils |
-| loguru | Logging | All layers |
-| pytest | Testing | Tests |
-
-### External Services
-
-| Service | Purpose | Used By |
-|---------|---------|---------|
-| MTGGoldfish | Metagame data | `navigators/mtggoldfish.py` |
-| Scryfall API | Card metadata | `utils/card_data.py` |
-| MTGO Bridge | Collection data | `services/collection_service.py` |
-
-### Data Files
-
-| File | Purpose | Location |
-|------|---------|----------|
-| Card bulk data | Scryfall card JSON | `cache/oracle-cards.json` |
-| Collection export | MTGO collection | `cache/collection.json` |
-| Deck files | Saved decks | `decks/*.txt` |
-| Notes | Deck notes | `cache/deck_notes.json` |
-| Sideboard guides | Boarding plans | `cache/deck_sbguides.json` |
-
-## Known Technical Debt
-
-**For comprehensive analysis, see**: `docs/reviews/CODEBASE_AUDIT_2025-11-14.md`
-
-### Critical Issues (Fix Immediately)
-
-1. **Service with UI Dependencies**: `services/collection_service.py`
-   - **Problem**: Imports wxPython, returns wx.Colour objects, violates layering
-   - **Impact**: Cannot test service without UI, cannot reuse in non-UI contexts
-   - **Plan**: Extract color logic to presentation layer
-
-2. **Undefined Method Bug**: `widgets/handlers/deck_selector_handlers.py:84, 102`
-   - **Problem**: Calls `self._build_deck_text()` which doesn't exist
-   - **Impact**: Production bug - AttributeError when copying/saving decks
-   - **Plan**: Replace with `self.deck_service.build_deck_text_from_zones()`
-
-3. **Duplicate Functions**: Two `analyze_deck()` with different logic
-   - **Problem**: `utils/deck.py:73` vs `services/deck_service.py:95` - conflicting implementations
-   - **Impact**: Data correctness issues, developer confusion
-   - **Plan**: Consolidate to single implementation
-
-### High Priority Issues
-
-4. **God Class**: `deck_selector.py` (~1000 lines)
-   - **Problem**: Too many responsibilities (UI, state, I/O, threading)
-   - **Plan**: Extract into focused controllers
-
-5. **UI/Business Logic Mixing**: Widgets contain business logic
-   - **Problem**: Hard to test, tight coupling
-   - **Locations**: Event handlers, panels with direct file I/O
-   - **Plan**: Extract to services
-
-6. **Test Coverage**: ~15-18% overall
-   - **Problem**: Low confidence in refactoring, bugs reach production
-   - **Gap**: ~2,500 lines of untested critical logic
-   - **Plan**: Target 65-70% coverage (see `docs/TEST_COVERAGE_GAPS.md`)
-
-### Medium Priority Issues
-
-7. **Code Duplication**:
-   - Cache management duplicated across 2 modules (~130 lines)
-   - Singleton boilerplate across 5 services (~100 lines)
-   - Locking pattern repeated 8+ times
-   - **Plan**: Create shared `CacheManager`, singleton decorator
-
-8. **Dead/Unused Code**:
-   - `utils/mtgo_bridge.py`: Stub functions, redundant wrappers
-   - `utils/paths_constants.py`: Could merge into `paths.py`
-   - Test code in production modules
-   - **Plan**: Remove dead code, consolidate modules
-
-### Refactoring Opportunities
-
-- Extract `MetagameService` from `metagame_analysis.py`
-- Extract `MatchHistoryService` from `match_history.py`
-- Extract `OpponentTrackingService` from `identify_opponent.py`
-- Standardize service access patterns (choose one: DI vs. service locator)
-- Standardize error handling strategy
-- Add thread safety to loading flags
-
-### Documentation References
-
-Detailed analysis available in:
-- **`docs/reviews/CODEBASE_AUDIT_2025-11-14.md`**: Comprehensive audit with priorities
-- **`docs/TEST_COVERAGE_GAPS.md`**: Detailed test coverage analysis and roadmap
-- **`docs/reviews/CLAUDE_REVIEW_2025-11-13.md`**: Refactoring review
-- **`docs/reviews/CODEX_REVIEW_2025-11-13.md`**: Branch-specific issues
-
-## Future Architecture Improvements
-
-### Planned Enhancements
-
-1. **Dependency Injection**: Replace singleton pattern with DI container
-2. **Event Bus**: Centralized event system for widget communication
-3. **State Management**: Introduce proper state management (Redux-like)
-4. **Async/Await**: Replace threading with asyncio for I/O operations
-5. **Plugin System**: Allow extending functionality via plugins
-
-### Migration Path
-
-The architecture is designed to support incremental improvements:
-- Services can be refactored without changing UI
-- Repositories can change storage mechanism transparently
-- Panels can be redesigned independently
-
----
-
-**Last Updated**: November 14, 2025
-**Document Version**: 1.1
-**Changelog**:
-- v1.1 (2025-11-14): Updated technical debt section, added handler modules, fixed line counts
-- v1.0 (2025-11-13): Initial version
+## Key Flows (Controller-Centric)
+
+- **Startup**: main.py → AppController() → AppFrame; controller.run_initial_loads triggers archetypes fetch, collection cache load, bulk image check; callbacks marshal via wx.CallAfter.
+- **Bulk Images**: controller.check_and_download_bulk_data → image_service.check/download → controller.load_bulk_data_into_memory → AppFrame _on_bulk_data_loaded → card inspector gets printings.
+- **Collection**: AppFrame toolbar → controller.refresh_collection_from_bridge → collection_service.refresh_from_bridge_async → UI updates status + ownership tables.
+- **Deck Download**: AppFrame delegates to controller.download_and_display_deck → navigators.mtggoldfish.download_deck/read_curr_deck_file → AppFrame updates tables/stats.
+- **Sideboard Guide**: Stored by decklist hash (guide_store/outboard_store). CSV import/export supported; guide_entry_dialog takes main/side cards; Save & Continue supported.
+- **Radar**: DeckBuilderPanel opens RadarDialog (widgets/panels/radar_panel.py) → radar_service.calculate_radar → results can export as decklist or feed builder filters.
+- **Deck Builder**: search_service.search_with_builder_filters, optional radar filters; results table drives card inspector.
+
+## Constants & Paths
+
+All paths/constants live in `utils/constants.py` (CONFIG_DIR, CACHE_DIR, DECKS_DIR, settings files, cache files, UI colors, formats, service thresholds). Legacy `paths.py`, `service_config.py`, `game_constants.py`, `ui_constants.py` are removed.
+
+## Technical Debt / Risks
+
+- **Docs Drift**: Keep this file in sync when adding/removing modules (controllers, services, handler mixins).
+- **Single-Threaded UI**: Background threads marshal via wx.CallAfter; no asyncio. Long tasks still at risk if callbacks misused.
+- **Singletons**: Services/repos are global; tests reset via controller resets, but concurrency/user state should be monitored.
+- **Partial Migrations**: Some UI code still does light business logic; continue moving logic into services/controller.
+- **Platform Assumptions**: UI tests gated to Windows/wx display; MTGOBridge is Windows-only.
+
+## Update Checklist (when changing architecture)
+- Update directory map above.
+- Note new services or removed modules.
+- Refresh key flows if controller/wiring changes.
+- Verify constants live in `utils/constants.py` and nowhere else.
+
+_Last updated: refactor-separate-ui-business-logic branch._
