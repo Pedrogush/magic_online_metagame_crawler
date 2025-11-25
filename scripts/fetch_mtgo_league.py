@@ -100,11 +100,20 @@ def parse_mtgo_league_to_archetype_format(url: str) -> dict:
 
 def fetch_latest_modern_league():
     """Fetch the latest Modern League from MTGO."""
-    now = datetime.utcnow()
+    now = datetime.now()
     entries = fetch_decklist_index(now.year, now.month)
 
+    print(f"\nDebug: Found {len(entries)} total entries for {now.year}-{now.month:02d}")
+    print("Looking for Modern League events...\n")
+
     for entry in entries:
-        if entry.get("format", "").lower() == "modern" and entry.get("event_type") == "league":
+        entry_format = entry.get("format", "")
+        entry_type = entry.get("event_type", "")
+
+        print(f"Entry: {entry.get('title', 'N/A')}")
+        print(f"  Format: '{entry_format}' | Event Type: '{entry_type}'")
+
+        if entry_format and "modern" in entry_format.lower() and entry_type == "league":
             print(f"Found Modern League: {entry['title']}")
             print(f"URL: {entry['url']}")
             print(f"Date: {entry['publish_date']}")
