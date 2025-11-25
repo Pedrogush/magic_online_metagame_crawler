@@ -311,6 +311,12 @@ def deck_selector_factory(wx_app) -> AppFrame:
 
         frame.fetch_archetypes = fetch_archetypes_sync  # type: ignore[assignment]
         frame._load_decks_for_archetype = load_decks_sync  # type: ignore[assignment]
+        controller.fetch_archetypes = lambda **kwargs: kwargs["on_success"](local_archetypes)  # type: ignore[assignment]
+        controller.load_decks_for_archetype = lambda archetype, on_success, **_: on_success(
+            archetype.get("name", "Unknown"), fake_archetype_decks(archetype.get("href", ""))
+        )  # type: ignore[assignment]
+        controller.check_and_download_bulk_data = lambda *_, **__: None  # type: ignore[assignment]
+        controller.run_initial_loads = lambda *_, **__: None  # type: ignore[assignment]
         return frame
 
     return _factory
