@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
+from utils.constants import ARCHETYPE_CACHE_FILE
+from utils.deck_text_cache import get_deck_cache
 
 
 def infer_archetype_from_deck(deck: dict) -> str:
@@ -62,6 +64,29 @@ def infer_archetype_from_deck(deck: dict) -> str:
     return "Unknown"
 
 
+def deck_to_text(deck: dict) -> str:
+    """Convert MTGO deck data to text format matching MTGGoldfish."""
+    lines = []
+
+    # Main deck
+    main_deck = deck.get("main_deck", [])
+    for card in main_deck:
+        if card.get("sideboard") == "false":
+            qty = card.get("qty", "1")
+            name = card.get("card_attributes", {}).get("card_name", "Unknown")
+            lines.append(f"{qty} {name}")
+
+    # Sideboard
+    lines.append("sideboard")
+    sideboard = deck.get("sideboard_deck", [])
+    for card in sideboard:
+        qty = card.get("qty", "1")
+        name = card.get("card_attributes", {}).get("card_name", "Unknown")
+        lines.append(f"{qty} {name}")
+
+    return "\n".join(lines) + "\n"
+
+
 def parse_mtgo_challenge_to_archetype_format(url: str) -> dict:
     """
     Parse an MTGO challenge page and return data in mtggoldfish archetype format.
@@ -71,24 +96,31 @@ def parse_mtgo_challenge_to_archetype_format(url: str) -> dict:
     payload = fetch_deck_event(url)
 
     archetypes = {}
-    event_date = payload.get("eventDate", datetime.utcnow().isoformat()[:10])
+    event_date = payload.get("publish_date", datetime.now().isoformat()[:10])
+    deck_cache = get_deck_cache()
 
-    for deck in payload.get("decklists", []):
+    # Get event name for result field
+    event_name = payload.get("name", "Modern Challenge")
+
+    for idx, deck in enumerate(payload.get("decklists", []), 1):
         archetype_name = infer_archetype_from_deck(deck)
         player = deck.get("player") or deck.get("pilot") or "Unknown"
-        standing = deck.get("standing") or deck.get("finish") or ""
-        record = deck.get("record") or deck.get("winLoss") or ""
-        deck_id = deck.get("mtgoId") or deck.get("identifier") or ""
+        deck_id = deck.get("loginplayeventcourseid") or str(hash(player + event_date + str(idx)))
+
+        # Store deck text in cache
+        deck_text = deck_to_text(deck)
+        deck_cache.set(deck_id, deck_text)
 
         if archetype_name not in archetypes:
             archetypes[archetype_name] = {"decks": [], "results": {event_date: 0}}
 
+        # Use placement (1st, 2nd, 3rd, etc.) for challenges
         deck_entry = {
             "date": event_date,
             "number": str(deck_id),
             "player": player,
-            "event": "Modern Challenge",
-            "result": f"{standing} {record}".strip(),
+            "event": event_name,
+            "result": f"{idx}{'st' if idx == 1 else 'nd' if idx == 2 else 'rd' if idx == 3 else 'th'}",
             "name": archetype_name,
         }
 
@@ -122,16 +154,46 @@ def fetch_latest_modern_challenge():
 
     archetypes = parse_mtgo_challenge_to_archetype_format(entry["url"])
 
-    output = {"modern": {"timestamp": datetime.now().timestamp(), **archetypes}}
+    # Load existing archetype cache or create new
+    if ARCHETYPE_CACHE_FILE.exists():
+        with ARCHETYPE_CACHE_FILE.open("r", encoding="utf-8") as f:
+            cache_data = json.load(f)
+    else:
+        cache_data = {}
 
-    output_file = Path("cache") / "mtgo_modern_challenge.json"
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    with output_file.open("w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2)
+    # Update/create modern section
+    if "modern" not in cache_data:
+        cache_data["modern"] = {"timestamp": datetime.now().timestamp()}
+    else:
+        cache_data["modern"]["timestamp"] = datetime.now().timestamp()
 
-    print(f"\nSaved {len(archetypes)} archetypes to {output_file}")
+    # Merge archetypes
+    for archetype_name, archetype_data in archetypes.items():
+        if archetype_name not in cache_data["modern"]:
+            cache_data["modern"][archetype_name] = archetype_data
+        else:
+            # Merge decks
+            existing_deck_nums = {
+                d["number"] for d in cache_data["modern"][archetype_name]["decks"]
+            }
+            new_decks = [
+                d for d in archetype_data["decks"] if d["number"] not in existing_deck_nums
+            ]
+            cache_data["modern"][archetype_name]["decks"].extend(new_decks)
+
+            # Merge results
+            for date, count in archetype_data["results"].items():
+                if date not in cache_data["modern"][archetype_name]["results"]:
+                    cache_data["modern"][archetype_name]["results"][date] = count
+
+    # Save to archetype cache
+    ARCHETYPE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ARCHETYPE_CACHE_FILE.open("w", encoding="utf-8") as f:
+        json.dump(cache_data, f, indent=4)
+
+    print(f"\nSaved {len(archetypes)} archetypes to {ARCHETYPE_CACHE_FILE}")
     print(f"Total decks: {sum(len(a['decks']) for a in archetypes.values())}")
-    return output
+    return cache_data
 
 
 if __name__ == "__main__":
