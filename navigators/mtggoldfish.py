@@ -320,7 +320,12 @@ def fetch_deck_text(deck_num: str, source_filter: str | None = None) -> str:
     if cached_text is not None:
         return cached_text
 
-    # Cache miss - download from MTGGoldfish
+    # Cache miss - only download from MTGGoldfish if source allows it
+    if source_filter == "mtgo":
+        logger.warning(f"Deck {deck_num} not found in MTGO cache and source filter blocks MTGGoldfish")
+        raise ValueError(f"Deck {deck_num} not available from MTGO source")
+
+    # Download from MTGGoldfish
     logger.info(f"Downloading deck {deck_num} from MTGGoldfish")
     page = requests.get(f"https://www.mtggoldfish.com/deck/{deck_num}", impersonate="chrome")
     match = re.search(r'initializeDeckComponents\([^,]+,\s*[^,]+,\s*"([^"]+)"', page.text)
