@@ -10,39 +10,18 @@ from utils.constants import ARCHETYPE_CACHE_FILE
 from utils.deck_text_cache import get_deck_cache
 
 
-def parse_mtgo_cards(cards: list[dict], is_sideboard: bool = False) -> list[dict]:
+def parse_mtgo_deck(raw_deck: dict) -> dict:
     """
-    Parse MTGO card list into simplified format.
+    Parse raw MTGO deck into clean simplified format.
 
-    Returns list of dicts with only: card_name, qty, sideboard
+    Strips all unnecessary fields and flattens card_attributes.
+    Returns dict with clean structure: deck_id, mainboard, sideboard, player
     """
-    parsed = []
-    for card in cards:
-        card_name = card.get("card_attributes", {}).get("card_name", "")
-        if not card_name:
-            continue
-
-        qty = int(card.get("qty", "1"))
-        sideboard = "true" if is_sideboard else card.get("sideboard", "false")
-
-        parsed.append({
-            "card_name": card_name,
-            "qty": qty,
-            "sideboard": sideboard
-        })
-    return parsed
-
-
-def parse_mtgo_deck(deck: dict) -> dict:
-    """
-    Parse MTGO deck into simplified format.
-
-    Returns dict with: deck_id, mainboard (list of cards), sideboard (list of cards)
-    """
-    deck_id = deck.get("loginplayeventcourseid")
+    deck_id = raw_deck.get("loginplayeventcourseid") or raw_deck.get("decktournamentid")
+    player = raw_deck.get("player") or raw_deck.get("pilot") or "Unknown"
 
     mainboard = []
-    for card in deck.get("main_deck", []):
+    for card in raw_deck.get("main_deck", []):
         if card.get("sideboard") == "false":
             card_name = card.get("card_attributes", {}).get("card_name", "")
             if card_name:
@@ -53,7 +32,7 @@ def parse_mtgo_deck(deck: dict) -> dict:
                 })
 
     sideboard = []
-    for card in deck.get("sideboard_deck", []):
+    for card in raw_deck.get("sideboard_deck", []):
         card_name = card.get("card_attributes", {}).get("card_name", "")
         if card_name:
             sideboard.append({
@@ -64,28 +43,22 @@ def parse_mtgo_deck(deck: dict) -> dict:
 
     return {
         "deck_id": deck_id,
+        "player": player,
         "mainboard": mainboard,
         "sideboard": sideboard
     }
 
 
-def convert_mtgo_deck_to_classifier_format(deck: dict) -> dict:
-    """Convert MTGO deck format to the format expected by ArchetypeClassifier."""
-    mainboard = []
-    sideboard = []
-
-    for card in deck.get("main_deck", []):
-        if card.get("sideboard") == "false":
-            card_name = card.get("card_attributes", {}).get("card_name", "")
-            qty = int(card.get("qty", "1"))
-            if card_name:
-                mainboard.append({"name": card_name, "count": qty})
-
-    for card in deck.get("sideboard_deck", []):
-        card_name = card.get("card_attributes", {}).get("card_name", "")
-        qty = int(card.get("qty", "1"))
-        if card_name:
-            sideboard.append({"name": card_name, "count": qty})
+def convert_deck_to_classifier_format(clean_deck: dict) -> dict:
+    """Convert clean deck format to ArchetypeClassifier format."""
+    mainboard = [
+        {"name": card["card_name"], "count": card["qty"]}
+        for card in clean_deck["mainboard"]
+    ]
+    sideboard = [
+        {"name": card["card_name"], "count": card["qty"]}
+        for card in clean_deck["sideboard"]
+    ]
 
     return {
         "mainboard": mainboard,
@@ -94,23 +67,17 @@ def convert_mtgo_deck_to_classifier_format(deck: dict) -> dict:
     }
 
 
-def deck_to_text(deck: dict) -> str:
-    """Convert MTGO deck data to text format matching MTGGoldfish."""
+def deck_to_text(clean_deck: dict) -> str:
+    """Convert clean deck format to text format matching MTGGoldfish."""
     lines = []
 
-    main_deck = deck.get("main_deck", [])
-    for card in main_deck:
-        if card.get("sideboard") == "false":
-            qty = card.get("qty", "1")
-            name = card.get("card_attributes", {}).get("card_name", "Unknown")
-            lines.append(f"{qty} {name}")
+    for card in clean_deck["mainboard"]:
+        lines.append(f"{card['qty']} {card['card_name']}")
 
     lines.append("sideboard")
-    sideboard = deck.get("sideboard_deck", [])
-    for card in sideboard:
-        qty = card.get("qty", "1")
-        name = card.get("card_attributes", {}).get("card_name", "Unknown")
-        lines.append(f"{qty} {name}")
+
+    for card in clean_deck["sideboard"]:
+        lines.append(f"{card['qty']} {card['card_name']}")
 
     return "\n".join(lines) + "\n"
 
@@ -130,19 +97,17 @@ def parse_mtgo_challenge_to_archetype_format(url: str) -> dict:
 
     event_name = payload.get("name", "Modern Challenge")
 
-    classifier_decks = []
-    for deck in payload.get("decklists", []):
-        classifier_deck = convert_mtgo_deck_to_classifier_format(deck)
-        classifier_decks.append(classifier_deck)
+    clean_decks = [parse_mtgo_deck(raw_deck) for raw_deck in payload.get("decklists", [])]
+    classifier_decks = [convert_deck_to_classifier_format(deck) for deck in clean_decks]
 
     classifier.assign_archetypes(classifier_decks, "modern")
 
-    for idx, (deck, classifier_deck) in enumerate(zip(payload.get("decklists", []), classifier_decks), 1):
+    for idx, (clean_deck, classifier_deck) in enumerate(zip(clean_decks, classifier_decks), 1):
         archetype_name = classifier_deck.get("archetype", "Unknown")
-        player = deck.get("player") or deck.get("pilot") or "Unknown"
-        deck_id = deck.get("loginplayeventcourseid") or str(hash(player + event_date + str(idx)))
+        player = clean_deck["player"]
+        deck_id = clean_deck["deck_id"] or str(hash(player + event_date + str(idx)))
 
-        deck_text = deck_to_text(deck)
+        deck_text = deck_to_text(clean_deck)
         deck_cache.set(deck_id, deck_text)
 
         if archetype_name not in archetypes:
