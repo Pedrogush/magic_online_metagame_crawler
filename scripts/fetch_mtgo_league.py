@@ -136,10 +136,37 @@ def fetch_latest_modern_league():
 
 
 if __name__ == "__main__":
-    result = fetch_latest_modern_league()
-    if result:
+    import sys
+
+    if len(sys.argv) > 1:
+        url = sys.argv[1]
+        print(f"Fetching Modern League from URL: {url}")
+        archetypes = parse_mtgo_league_to_archetype_format(url)
+
+        output = {"modern": {"timestamp": datetime.now().timestamp(), **archetypes}}
+
+        output_file = Path("cache") / "mtgo_modern_league.json"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with output_file.open("w", encoding="utf-8") as f:
+            json.dump(output, f, indent=2)
+
+        print(f"\nSaved {len(archetypes)} archetypes to {output_file}")
+        print(f"Total decks: {sum(len(a['decks']) for a in archetypes.values())}")
+
         print("\nArchetypes found:")
-        for archetype_name in result["modern"]:
-            if archetype_name != "timestamp":
-                deck_count = len(result["modern"][archetype_name]["decks"])
-                print(f"  {archetype_name}: {deck_count} decks")
+        for archetype_name in archetypes:
+            deck_count = len(archetypes[archetype_name]["decks"])
+            print(f"  {archetype_name}: {deck_count} decks")
+    else:
+        result = fetch_latest_modern_league()
+        if result:
+            print("\nArchetypes found:")
+            for archetype_name in result["modern"]:
+                if archetype_name != "timestamp":
+                    deck_count = len(result["modern"][archetype_name]["decks"])
+                    print(f"  {archetype_name}: {deck_count} decks")
+        else:
+            print("\nUsage: python fetch_mtgo_league.py [URL]")
+            print(
+                "Example: python fetch_mtgo_league.py https://www.mtgo.com/decklist/modern-league-2025-11-259979"
+            )
