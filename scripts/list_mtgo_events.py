@@ -20,7 +20,7 @@ def list_events(year: int = None, month: int = None, format_filter: str = None):
     month = month or now.month
 
     print(f"\nFetching events for {year}-{month:02d}...")
-    entries = fetch_decklist_index(year, month)
+    entries = fetch_decklist_index(year, month, force_refresh=True)
 
     if not entries:
         print("No events found.")

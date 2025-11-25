@@ -101,7 +101,7 @@ def parse_mtgo_challenge_to_archetype_format(url: str) -> dict:
 def fetch_latest_modern_challenge():
     """Fetch the latest Modern Challenge from MTGO."""
     now = datetime.now()
-    entries = fetch_decklist_index(now.year, now.month)
+    entries = fetch_decklist_index(now.year, now.month, force_refresh=True)
 
     modern_challenges = [
         e
