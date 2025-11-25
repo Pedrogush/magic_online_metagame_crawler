@@ -64,7 +64,12 @@ class SideboardGuideHandlers:
 
     def _on_add_guide_entry(self: AppFrame) -> None:
         names = [item.get("name", "") for item in self.archetypes]
-        dlg = GuideEntryDialog(self, names)
+        dlg = GuideEntryDialog(
+            self,
+            names,
+            mainboard_cards=self.zone_cards.get("main", []),
+            sideboard_cards=self.zone_cards.get("side", []),
+        )
         if dlg.ShowModal() == wx.ID_OK:
             data = dlg.get_data()
             if data.get("archetype"):
@@ -82,7 +87,13 @@ class SideboardGuideHandlers:
             return
         data = self.sideboard_guide_entries[index]
         names = [item.get("name", "") for item in self.archetypes]
-        dlg = GuideEntryDialog(self, names, data=data)
+        dlg = GuideEntryDialog(
+            self,
+            names,
+            mainboard_cards=self.zone_cards.get("main", []),
+            sideboard_cards=self.zone_cards.get("side", []),
+            data=data,
+        )
         if dlg.ShowModal() == wx.ID_OK:
             updated = dlg.get_data()
             if updated.get("archetype"):
