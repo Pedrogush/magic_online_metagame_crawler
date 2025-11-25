@@ -40,16 +40,41 @@ class SideboardGuideHandlers:
         return cleaned
 
     def _load_guide_for_current(self: AppFrame) -> None:
-        key = self.controller.deck_repo.get_current_deck_key()
+        # Use decklist hash so each unique 75 has its own guide
+        key = self.controller.deck_repo.get_current_decklist_hash()
         payload = self.controller.guide_store.get(key) or {}
-        self.sideboard_guide_entries = payload.get("entries", [])
+        entries = payload.get("entries", [])
+
+        migrated_entries = []
+        for entry in entries:
+            if "cards_in" in entry or "cards_out" in entry:
+                play_out = self._parse_card_text(entry.get("cards_out", ""))
+                play_in = self._parse_card_text(entry.get("cards_in", ""))
+                migrated_entries.append(
+                    {
+                        "archetype": entry.get("archetype", ""),
+                        "play_out": play_out,
+                        "play_in": play_in,
+                        "draw_out": play_out.copy(),
+                        "draw_in": play_in.copy(),
+                        "notes": entry.get("notes", ""),
+                    }
+                )
+            else:
+                migrated = entry.copy()
+                for field in ["play_out", "play_in", "draw_out", "draw_in"]:
+                    if field in migrated and isinstance(migrated[field], str):
+                        migrated[field] = self._parse_card_text(migrated[field])
+                migrated_entries.append(migrated)
+
+        self.sideboard_guide_entries = migrated_entries
         self.sideboard_exclusions = payload.get("exclusions", [])
         self.sideboard_guide_panel.set_entries(
             self.sideboard_guide_entries, self.sideboard_exclusions
         )
 
     def _persist_guide_for_current(self: AppFrame) -> None:
-        key = self.controller.deck_repo.get_current_deck_key()
+        key = self.controller.deck_repo.get_current_decklist_hash()
         self.controller.guide_store[key] = {
             "entries": self.sideboard_guide_entries,
             "exclusions": self.sideboard_exclusions,
@@ -65,18 +90,43 @@ class SideboardGuideHandlers:
 
     def _on_add_guide_entry(self: AppFrame) -> None:
         names = [item.get("name", "") for item in self.archetypes]
-        dlg = GuideEntryDialog(
-            self,
-            names,
-            mainboard_cards=self.zone_cards.get("main", []),
-            sideboard_cards=self.zone_cards.get("side", []),
-        )
-        if dlg.ShowModal() == wx.ID_OK:
+        mainboard = self.zone_cards.get("main", [])
+        sideboard = self.zone_cards.get("side", [])
+
+        dlg = GuideEntryDialog(self, names, mainboard_cards=mainboard, sideboard_cards=sideboard)
+
+        while True:
+            result = dlg.ShowModal()
+            if result == wx.ID_CANCEL:
+                break
+
             data = dlg.get_data()
             if data.get("archetype"):
-                self.sideboard_guide_entries.append(data)
+                archetype_name = data.get("archetype")
+                enable_double = data.get("enable_double_entries", False)
+
+                entry_data = {k: v for k, v in data.items() if k != "enable_double_entries"}
+
+                if not enable_double:
+                    existing_index = None
+                    for i, entry in enumerate(self.sideboard_guide_entries):
+                        if entry.get("archetype") == archetype_name:
+                            existing_index = i
+                            break
+
+                    if existing_index is not None:
+                        self.sideboard_guide_entries[existing_index] = entry_data
+                    else:
+                        self.sideboard_guide_entries.append(entry_data)
+                else:
+                    self.sideboard_guide_entries.append(entry_data)
+
                 self._persist_guide_for_current()
                 self._refresh_guide_view()
+
+            if result == wx.ID_OK:
+                break
+
         dlg.Destroy()
 
     def _on_edit_guide_entry(self: AppFrame) -> None:
@@ -414,3 +464,27 @@ class SideboardGuideHandlers:
             warnings.append(f"Cards not in deck: {', '.join(sorted(missing_cards))}")
 
         return imported_entries, warnings
+
+    def _parse_card_text(self: AppFrame, text: str) -> dict[str, int]:
+        """Parse text like '2x Lightning Bolt, 1x Mountain' into a dict."""
+        if not text or not isinstance(text, str):
+            return {}
+
+        result: dict[str, int] = {}
+        lines = text.replace(",", "\n").split("\n")
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                qty_str, name = parts
+                qty_str = qty_str.rstrip("x")
+                try:
+                    qty = int(qty_str)
+                    result[name.strip()] = qty
+                    continue
+                except ValueError:
+                    pass
+            result[line] = 1
+        return result
