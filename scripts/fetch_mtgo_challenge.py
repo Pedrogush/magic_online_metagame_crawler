@@ -10,6 +10,65 @@ from utils.constants import ARCHETYPE_CACHE_FILE
 from utils.deck_text_cache import get_deck_cache
 
 
+def parse_mtgo_cards(cards: list[dict], is_sideboard: bool = False) -> list[dict]:
+    """
+    Parse MTGO card list into simplified format.
+
+    Returns list of dicts with only: card_name, qty, sideboard
+    """
+    parsed = []
+    for card in cards:
+        card_name = card.get("card_attributes", {}).get("card_name", "")
+        if not card_name:
+            continue
+
+        qty = int(card.get("qty", "1"))
+        sideboard = "true" if is_sideboard else card.get("sideboard", "false")
+
+        parsed.append({
+            "card_name": card_name,
+            "qty": qty,
+            "sideboard": sideboard
+        })
+    return parsed
+
+
+def parse_mtgo_deck(deck: dict) -> dict:
+    """
+    Parse MTGO deck into simplified format.
+
+    Returns dict with: deck_id, mainboard (list of cards), sideboard (list of cards)
+    """
+    deck_id = deck.get("loginplayeventcourseid")
+
+    mainboard = []
+    for card in deck.get("main_deck", []):
+        if card.get("sideboard") == "false":
+            card_name = card.get("card_attributes", {}).get("card_name", "")
+            if card_name:
+                mainboard.append({
+                    "card_name": card_name,
+                    "qty": int(card.get("qty", "1")),
+                    "sideboard": "false"
+                })
+
+    sideboard = []
+    for card in deck.get("sideboard_deck", []):
+        card_name = card.get("card_attributes", {}).get("card_name", "")
+        if card_name:
+            sideboard.append({
+                "card_name": card_name,
+                "qty": int(card.get("qty", "1")),
+                "sideboard": "true"
+            })
+
+    return {
+        "deck_id": deck_id,
+        "mainboard": mainboard,
+        "sideboard": sideboard
+    }
+
+
 def convert_mtgo_deck_to_classifier_format(deck: dict) -> dict:
     """Convert MTGO deck format to the format expected by ArchetypeClassifier."""
     mainboard = []
