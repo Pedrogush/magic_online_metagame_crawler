@@ -166,6 +166,7 @@ def get_archetype_decks(archetype: str):
                 "event": tds[3].text.strip(),
                 "result": tds[4].text.strip(),
                 "name": archetype,
+                "source": "mtggoldfish",
             }
         )
     # Save to cache

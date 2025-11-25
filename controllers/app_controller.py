@@ -239,8 +239,10 @@ class AppController:
         href = archetype.get("href")
         on_status(f"Loading decks for {name}…")
 
-        def loader(identifier: str):
-            return get_archetype_decks(identifier)
+        source_filter = self.get_deck_data_source()
+
+        def loader(arch: dict[str, Any]):
+            return self.metagame_repo.get_decks_for_archetype(arch, source_filter=source_filter)
 
         def success_handler(decks: list[dict[str, Any]]):
             with self._loading_lock:
@@ -256,7 +258,7 @@ class AppController:
 
         BackgroundWorker(
             loader,
-            href,
+            archetype,
             on_success=success_handler,
             on_error=error_handler,
         ).start()

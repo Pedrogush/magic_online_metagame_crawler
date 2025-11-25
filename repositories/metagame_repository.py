@@ -78,7 +78,7 @@ class MetagameRepository:
             raise
 
     def get_decks_for_archetype(
-        self, archetype: dict[str, Any], force_refresh: bool = False
+        self, archetype: dict[str, Any], force_refresh: bool = False, source_filter: str | None = None
     ) -> list[dict[str, Any]]:
         """
         Get deck lists for a specific archetype.
@@ -86,6 +86,7 @@ class MetagameRepository:
         Args:
             archetype: Archetype dictionary with 'href' or 'url' key
             force_refresh: If True, bypass cache and fetch fresh data
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
 
         Returns:
             List of deck dictionaries
@@ -99,7 +100,7 @@ class MetagameRepository:
             cached = self._load_cached_decks(archetype_href)
             if cached is not None:
                 logger.debug(f"Using cached decks for {archetype_name}")
-                return cached
+                return self._filter_decks_by_source(cached, source_filter)
 
         # Fetch fresh data
         logger.info(f"Fetching fresh decks for {archetype_name}")
@@ -108,14 +109,14 @@ class MetagameRepository:
             decks = get_archetype_decks(archetype_href)
             # Cache the results
             self._save_cached_decks(archetype_href, decks)
-            return decks
+            return self._filter_decks_by_source(decks, source_filter)
         except Exception as exc:
             logger.error(f"Failed to fetch decks for {archetype_name}: {exc}")
             # Try to return stale cache if available
             cached = self._load_cached_decks(archetype_href, max_age=None)
             if cached:
                 logger.warning(f"Returning stale cached decks for {archetype_name}")
-                return cached
+                return self._filter_decks_by_source(cached, source_filter)
             raise
 
     def download_deck_content(self, deck: dict[str, Any], source_filter: str | None = None) -> str:
@@ -285,6 +286,24 @@ class MetagameRepository:
             logger.debug(f"Cached {len(items)} decks for archetype")
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(f"Failed to cache decks: {exc}")
+
+    def _filter_decks_by_source(
+        self, decks: list[dict[str, Any]], source_filter: str | None
+    ) -> list[dict[str, Any]]:
+        """
+        Filter decks by source.
+
+        Args:
+            decks: List of deck dictionaries
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
+
+        Returns:
+            Filtered list of decks
+        """
+        if not source_filter or source_filter == "both":
+            return decks
+
+        return [deck for deck in decks if deck.get("source") == source_filter]
 
     def clear_cache(self) -> None:
         """Clear all metagame caches."""

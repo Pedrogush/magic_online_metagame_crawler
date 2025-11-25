@@ -130,6 +130,7 @@ def parse_mtgo_league_to_archetype_format(url: str) -> dict:
             "event": "Modern League",
             "result": f"{wins}-{losses}",
             "name": archetype_name,
+            "source": "mtgo",
         }
 
         archetypes[archetype_name]["decks"].append(deck_entry)

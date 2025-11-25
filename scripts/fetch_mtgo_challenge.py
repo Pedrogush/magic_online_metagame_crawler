@@ -120,6 +120,7 @@ def parse_mtgo_challenge_to_archetype_format(url: str) -> dict:
             "event": event_name,
             "result": f"{idx}{'st' if idx == 1 else 'nd' if idx == 2 else 'rd' if idx == 3 else 'th'}",
             "name": archetype_name,
+            "source": "mtgo",
         }
 
         archetypes[archetype_name]["decks"].append(deck_entry)

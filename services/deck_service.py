@@ -285,7 +285,9 @@ class DeckService:
         """
         try:
             # Fetch recent decks for archetype
-            decks = self.metagame_repo.get_decks_for_archetype(archetype, force_refresh=True)
+            decks = self.metagame_repo.get_decks_for_archetype(
+                archetype, force_refresh=True, source_filter=source_filter
+            )
 
             if not decks:
                 logger.warning(f"No decks found for archetype: {archetype.get('name')}")
