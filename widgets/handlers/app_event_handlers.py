@@ -433,8 +433,12 @@ class AppEventHandlers:
     def ensure_card_data_loaded(self) -> None:
         def on_success(manager: CardDataManager):
             # Update UI panels with card manager (marshalled to UI thread by controller)
-            wx.CallAfter(self.card_inspector_panel.set_card_manager, manager)
-            wx.CallAfter(self.deck_stats_panel.set_card_manager, manager)
+            inspector = getattr(self, "card_inspector_panel", None)
+            stats = getattr(self, "deck_stats_panel", None)
+            if inspector:
+                wx.CallAfter(inspector.set_card_manager, manager)
+            if stats:
+                wx.CallAfter(stats.set_card_manager, manager)
 
         def on_error(error: Exception):
             # Show error dialog on UI thread

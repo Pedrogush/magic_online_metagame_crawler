@@ -22,6 +22,7 @@ The project follows these core principles:
 3. **Testability**: Services and repositories are designed to be easily testable
 4. **Singleton Services**: Service and repository instances are shared across the application
 5. **Event-Driven UI**: wxPython event system for responsive user interface
+6. **Controller-Oriented UI**: `AppController` owns state and wiring; frames/panels stay thin
 
 ## Layered Architecture
 
@@ -64,14 +65,15 @@ The application is organized into four main layers:
 
 ### Layer Responsibilities
 
-#### Presentation Layer (`widgets/`, `main.py`)
+#### Presentation Layer (`widgets/`, `controllers/`, `main.py`)
 - **Purpose**: User interface and interaction
 - **Key Components**:
   - `main.py`: Application entry point
-  - `deck_selector.py`: Main application window
-  - `panels/`: Reusable UI panels (deck builder, stats, sideboard guide, etc.)
-  - `dialogs/`: Modal dialogs
-  - `buttons/`: Custom button widgets
+  - `controllers/app_controller.py`: Coordinates services/repos and instantiates `AppFrame`
+  - `widgets/app_frame.py`: Main window (thin view) with handler mixins under `widgets/handlers/`
+  - `widgets/panels/`: Reusable panels (deck builder, stats, sideboard guide, radar, etc.)
+  - `widgets/dialogs/`: Modal dialogs (guide entry, image download, radar export/import)
+  - `widgets/buttons/`: Custom button widgets
 - **Responsibilities**:
   - Render UI components
   - Handle user events
@@ -129,83 +131,32 @@ The application is organized into four main layers:
 
 ```
 magic_online_metagame_crawler/
-│
-├── main.py                          # Application entry point
-│
-├── widgets/                         # Presentation Layer
-│   ├── deck_selector.py              # Main window (~1000 lines - God Class antipattern)
-│   ├── identify_opponent.py          # Opponent tracking widget
-│   ├── match_history.py              # Match history viewer
-│   ├── metagame_analysis.py          # Meta statistics viewer
-│   ├── timer_alert.py                # Challenge timer alerts
-│   ├── card_image_display.py         # Card image viewer
-│   │
-│   ├── panels/                       # Reusable panel components
-│   │   ├── deck_builder_panel.py     # Card search and deck building
-│   │   ├── deck_stats_panel.py       # Mana curve and statistics
-│   │   ├── deck_research_panel.py    # Archetype browser
-│   │   ├── sideboard_guide_panel.py  # Sideboard guide management
-│   │   ├── deck_notes_panel.py       # Deck notes editor
-│   │   ├── card_inspector_panel.py   # Card image viewer
-│   │   ├── card_table_panel.py       # Card list display
-│   │   └── card_box_panel.py         # Card grid display
-│   │
-│   ├── dialogs/                      # Modal dialogs
-│   │   └── image_download_dialog.py  # Bulk image download
-│   │
-│   ├── handlers/                     # Event handler classes
-│   │   ├── deck_selector_handlers.py # Main window event handlers
-│   │   ├── card_table_panel_handler.py # Card table events
-│   │   └── sideboard_guide_handlers.py # Sideboard guide events
-│   │
-│   └── buttons/                      # Custom buttons
-│       ├── deck_action_buttons.py    # Deck operation buttons
-│       └── mana_button.py            # Mana symbol buttons
-│
-├── services/                        # Service Layer
-│   ├── deck_service.py               # Deck business logic
-│   ├── collection_service.py         # Collection management
-│   ├── search_service.py             # Card search logic
-│   └── image_service.py              # Image management
-│
-├── repositories/                    # Repository Layer
-│   ├── deck_repository.py            # Deck persistence
-│   ├── card_repository.py            # Card data access
-│   └── metagame_repository.py        # Cached metagame data
-│
-├── navigators/                      # External API Integration
-│   ├── mtggoldfish.py                # MTGGoldfish scraper
-│   └── mtgo_decklists.py             # MTGO.com parser
-│
-├── utils/                           # Utility Modules
-│   ├── card_data.py                  # Card metadata manager
-│   ├── gamelog_parser.py             # Match log parser
-│   ├── archetype_classifier.py       # Deck archetype detection
-│   ├── mana_icon_factory.py          # Mana symbol rendering
-│   ├── card_images.py                # Card image utilities
-│   ├── search_filters.py             # Search filter functions
-│   ├── deck.py                       # Deck parsing utilities
-│   ├── metagame_stats.py             # Meta statistics
-│   ├── constants.py                  # Application constants
-│   └── paths.py                      # Path management
-│
-├── dotnet/MTGOBridge/               # .NET MTGO Integration
-│   ├── Program.cs                    # Bridge implementation
-│   └── MTGOBridge.csproj             # .NET project file
-│
-├── tests/                           # Test Suite
-│   ├── conftest.py                   # Pytest configuration
-│   ├── test_helpers.py               # Test utilities
-│   ├── test_*.py                     # Unit tests
-│   └── ui/                           # UI tests
-│       ├── conftest.py               # UI test fixtures
-│       └── test_deck_selector.py     # Widget tests
-│
-└── scripts/                         # Utility Scripts
-    ├── dump_collection.py            # Collection export
-    ├── monitor_currency.py           # Currency monitoring
-    ├── fetch_mana_assets.py          # Asset download
-    └── update_vendor_data.py         # Vendor data update
+├── main.py                          # Entry point
+├── controllers/                     # Controller layer
+│   └── app_controller.py            # AppController wiring services/repos to AppFrame
+├── widgets/                         # Presentation layer
+│   ├── app_frame.py                 # Main frame (thin view)
+│   ├── handlers/                    # Event handler mixins (app_event_handlers, sideboard_guide_handlers, card_table_panel_handler, etc.)
+│   ├── panels/                      # Reusable panels (deck_builder_panel, radar_panel, deck_stats_panel, sideboard_guide_panel, card_inspector_panel, etc.)
+│   ├── dialogs/                     # Dialogs (guide_entry_dialog, image_download_dialog, radar in radar_panel)
+│   ├── buttons/                     # Custom buttons
+│   └── other widgets (identify_opponent, match_history, metagame_analysis, timer_alert, etc.)
+├── services/                        # Service layer
+│   ├── deck_service.py              # Deck analysis/manipulation
+│   ├── deck_research_service.py     # Archetype/deck aggregation
+│   ├── collection_service.py        # Collection management
+│   ├── search_service.py            # Card search logic (supports radar filters)
+│   ├── image_service.py             # Card image/bulk data
+│   ├── radar_service.py             # Archetype radar calculations
+│   └── state_service.py             # Window/state persistence
+├── repositories/                    # Repository layer
+│   ├── deck_repository.py           # Deck persistence + decklist hashing
+│   ├── card_repository.py           # Card data access
+│   └── metagame_repository.py       # Cached metagame data
+├── navigators/                      # External API Integration (mtggoldfish, mtgo_decklists)
+├── utils/                           # Utilities (constants.py, card_images.py, card_data.py, deck.py, search_filters.py, mana_icon_factory.py, background_worker.py, deck_text_cache.py, etc.)
+├── tests/                           # Unit/UI tests (UI tests construct AppFrame via controller)
+└── dotnet/MTGOBridge/               # .NET MTGO Integration
 ```
 
 ## Design Patterns
@@ -371,8 +322,8 @@ User enters search query
   ├→ Apply mana value filter
   └→ Return filtered results
          ↓
-[deck_selector.py]
-  Update search results table
+[DeckBuilderPanel]
+  Update search results table (supports radar filters)
 ```
 
 ### Example: Importing Collection
@@ -380,19 +331,18 @@ User enters search query
 ```
 User clicks "Refresh from Bridge"
          ↓
-[app_frame.py]
-  controller.refresh_collection_from_bridge(force=True)
+[app_frame.py] toolbar → controller.refresh_collection_from_bridge()
+         ↓
+[controllers/app_controller.py] delegates to collection_service.refresh_from_bridge_async
          ↓
 [collection_service.py]
-  refresh_from_bridge_async()
   ├→ Run bridge.exe in subprocess
   ├→ Parse JSON output
   ├→ Save to cache file
   └→ Return collection data
          ↓
-[deck_selector.py]
-  Update collection status
-  Update card ownership indicators
+[AppFrame]
+  Update collection status, card tables, ownership indicators
 ```
 
 ## State Management
