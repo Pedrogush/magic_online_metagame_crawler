@@ -317,6 +317,14 @@ def deck_selector_factory(wx_app) -> AppFrame:
         )  # type: ignore[assignment]
         controller.check_and_download_bulk_data = lambda *_, **__: None  # type: ignore[assignment]
         controller.run_initial_loads = lambda *_, **__: None  # type: ignore[assignment]
+
+        fake_deck_text = "4 Mountain\n4 Island\nSideboard\n2 Dispel\n"
+
+        def fake_download_and_display_deck(deck, on_success, on_error, on_status):
+            on_status("Downloading deck…")
+            on_success(fake_deck_text)
+
+        controller.download_and_display_deck = fake_download_and_display_deck  # type: ignore[assignment]
         return frame
 
     return _factory
