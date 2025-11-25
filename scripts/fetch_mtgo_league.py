@@ -5,9 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
+from utils.archetype_classifier import ArchetypeClassifier
 from utils.constants import ARCHETYPE_CACHE_FILE
 from utils.deck_text_cache import get_deck_cache
-from utils.simple_archetype_detector import detect_modern_archetype
 
 
 def convert_mtgo_deck_to_classifier_format(deck: dict) -> dict:
@@ -64,13 +64,20 @@ def parse_mtgo_league_to_archetype_format(url: str) -> dict:
     """
     payload = fetch_deck_event(url)
 
+    classifier = ArchetypeClassifier()
     archetypes = {}
     event_date = payload.get("publish_date", datetime.now().isoformat()[:10])
     deck_cache = get_deck_cache()
 
+    classifier_decks = []
     for deck in payload.get("decklists", []):
         classifier_deck = convert_mtgo_deck_to_classifier_format(deck)
-        archetype_name = detect_modern_archetype(classifier_deck["mainboard"])
+        classifier_decks.append(classifier_deck)
+
+    classifier.assign_archetypes(classifier_decks, "modern")
+
+    for deck, classifier_deck in zip(payload.get("decklists", []), classifier_decks):
+        archetype_name = classifier_deck.get("archetype", "Unknown")
         player = deck.get("player") or deck.get("pilot") or "Unknown"
 
         wins_data = deck.get("wins", {})

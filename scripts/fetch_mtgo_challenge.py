@@ -5,9 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
+from utils.archetype_classifier import ArchetypeClassifier
 from utils.constants import ARCHETYPE_CACHE_FILE
 from utils.deck_text_cache import get_deck_cache
-from utils.simple_archetype_detector import detect_modern_archetype
 
 
 def convert_mtgo_deck_to_classifier_format(deck: dict) -> dict:
@@ -64,15 +64,22 @@ def parse_mtgo_challenge_to_archetype_format(url: str) -> dict:
     """
     payload = fetch_deck_event(url)
 
+    classifier = ArchetypeClassifier()
     archetypes = {}
     event_date = payload.get("publish_date", datetime.now().isoformat()[:10])
     deck_cache = get_deck_cache()
 
     event_name = payload.get("name", "Modern Challenge")
 
-    for idx, deck in enumerate(payload.get("decklists", []), 1):
+    classifier_decks = []
+    for deck in payload.get("decklists", []):
         classifier_deck = convert_mtgo_deck_to_classifier_format(deck)
-        archetype_name = detect_modern_archetype(classifier_deck["mainboard"])
+        classifier_decks.append(classifier_deck)
+
+    classifier.assign_archetypes(classifier_decks, "modern")
+
+    for idx, (deck, classifier_deck) in enumerate(zip(payload.get("decklists", []), classifier_decks), 1):
+        archetype_name = classifier_deck.get("archetype", "Unknown")
         player = deck.get("player") or deck.get("pilot") or "Unknown"
         deck_id = deck.get("loginplayeventcourseid") or str(hash(player + event_date + str(idx)))
 
