@@ -64,19 +64,31 @@ def _classify_event(title: str) -> tuple[str | None, str | None]:
     return fmt, event_type
 
 
-def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
+def fetch_decklist_index(
+    year: int, month: int, force_refresh: bool = False
+) -> list[dict[str, Any]]:
     """Return decklist entries for the given year/month."""
     cache = _load_cache()
     index_cache = cache.setdefault("index", {})
     key = f"{year}-{month:02d}"
-    if key in index_cache:
+    if key in index_cache and not force_refresh:
+        logger.debug(f"Using cached index for {key}")
         return index_cache[key]["entries"]
 
     url = DECKLIST_INDEX_URL.format(year=year, month=month)
-    html = _fetch_html(url)
+    logger.info(f"Fetching decklist index for {year}/{month:02d}")
+    try:
+        html = _fetch_html(url)
+    except Exception as exc:
+        logger.error(f"Failed to fetch {url}: {exc}")
+        raise
+
     soup = BeautifulSoup(html, "lxml")
+    items = soup.select("li.decklists-item")
+    logger.info(f"Found {len(items)} decklist items on page")
+
     entries: list[dict[str, Any]] = []
-    for li in soup.select("li.decklists-item"):
+    for li in items:
         link = li.find("a", class_="decklists-link")
         if not link or not link.get("href"):
             continue
@@ -105,7 +117,8 @@ def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
             }
         )
 
-    index_cache[key] = {"entries": entries, "fetched_at": datetime.utcnow().isoformat()}
+    logger.info(f"Parsed {len(entries)} valid entries")
+    index_cache[key] = {"entries": entries, "fetched_at": datetime.now().isoformat()}
     _save_cache(cache)
     return entries
 
@@ -155,7 +168,7 @@ __all__ = [
 
 def fetch_recent_event_history(limit: int = 10) -> list[dict[str, Any]]:
     """Return recent MTGO event results in the history format expected by the UI."""
-    now = datetime.utcnow()
+    now = datetime.now()
     entries = fetch_decklist_index(now.year, now.month)
     history: list[dict[str, Any]] = []
     for entry, payload in iter_deck_events(entries):

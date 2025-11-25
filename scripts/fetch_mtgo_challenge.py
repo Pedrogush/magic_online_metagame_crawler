@@ -103,36 +103,35 @@ def fetch_latest_modern_challenge():
     now = datetime.now()
     entries = fetch_decklist_index(now.year, now.month)
 
-    print(f"\nDebug: Found {len(entries)} total entries for {now.year}-{now.month:02d}")
-    print("Looking for Modern Challenge events...\n")
+    modern_challenges = [
+        e
+        for e in entries
+        if e.get("format")
+        and "modern" in e["format"].lower()
+        and e.get("event_type") == "challenge"
+    ]
 
-    for entry in entries:
-        entry_format = entry.get("format", "")
-        entry_type = entry.get("event_type", "")
+    if not modern_challenges:
+        print("No Modern Challenge found in current month")
+        return None
 
-        print(f"Entry: {entry.get('title', 'N/A')}")
-        print(f"  Format: '{entry_format}' | Event Type: '{entry_type}'")
+    entry = modern_challenges[0]
+    print(f"Found Modern Challenge: {entry['title']}")
+    print(f"URL: {entry['url']}")
+    print(f"Date: {entry['publish_date']}")
 
-        if entry_format and "modern" in entry_format.lower() and entry_type == "challenge":
-            print(f"Found Modern Challenge: {entry['title']}")
-            print(f"URL: {entry['url']}")
-            print(f"Date: {entry['publish_date']}")
+    archetypes = parse_mtgo_challenge_to_archetype_format(entry["url"])
 
-            archetypes = parse_mtgo_challenge_to_archetype_format(entry["url"])
+    output = {"modern": {"timestamp": datetime.now().timestamp(), **archetypes}}
 
-            output = {"modern": {"timestamp": datetime.utcnow().timestamp(), **archetypes}}
+    output_file = Path("cache") / "mtgo_modern_challenge.json"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    with output_file.open("w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2)
 
-            output_file = Path("cache") / "mtgo_modern_challenge.json"
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            with output_file.open("w", encoding="utf-8") as f:
-                json.dump(output, f, indent=2)
-
-            print(f"\nSaved {len(archetypes)} archetypes to {output_file}")
-            print(f"Total decks: {sum(len(a['decks']) for a in archetypes.values())}")
-            return output
-
-    print("No Modern Challenge found in current month")
-    return None
+    print(f"\nSaved {len(archetypes)} archetypes to {output_file}")
+    print(f"Total decks: {sum(len(a['decks']) for a in archetypes.values())}")
+    return output
 
 
 if __name__ == "__main__":
