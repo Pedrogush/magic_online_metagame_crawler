@@ -64,17 +64,13 @@ def _classify_event(title: str) -> tuple[str | None, str | None]:
     return fmt, event_type
 
 
-def fetch_decklist_index(
-    year: int, month: int, force_refresh: bool = False
-) -> list[dict[str, Any]]:
-    """Return decklist entries for the given year/month."""
-    cache = _load_cache()
-    index_cache = cache.setdefault("index", {})
-    key = f"{year}-{month:02d}"
-    if key in index_cache and not force_refresh:
-        logger.debug(f"Using cached index for {key}")
-        return index_cache[key]["entries"]
+def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
+    """
+    Return decklist entries for the given year/month.
 
+    Note: This always fetches fresh data since the index updates frequently (hourly/daily).
+    Individual event pages are still cached since those are static.
+    """
     url = DECKLIST_INDEX_URL.format(year=year, month=month)
     logger.info(f"Fetching decklist index for {year}/{month:02d}")
     try:
@@ -118,8 +114,6 @@ def fetch_decklist_index(
         )
 
     logger.info(f"Parsed {len(entries)} valid entries")
-    index_cache[key] = {"entries": entries, "fetched_at": datetime.now().isoformat()}
-    _save_cache(cache)
     return entries
 
 

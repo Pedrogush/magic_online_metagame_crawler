@@ -101,7 +101,7 @@ def parse_mtgo_league_to_archetype_format(url: str) -> dict:
 def fetch_latest_modern_league():
     """Fetch the latest Modern League from MTGO."""
     now = datetime.now()
-    entries = fetch_decklist_index(now.year, now.month, force_refresh=True)
+    entries = fetch_decklist_index(now.year, now.month)
 
     modern_leagues = [
         e
