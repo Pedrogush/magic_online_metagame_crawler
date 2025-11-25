@@ -108,7 +108,7 @@ def parse_mtgo_challenge_to_archetype_format(url: str) -> dict:
         deck_id = clean_deck["deck_id"] or str(hash(player + event_date + str(idx)))
 
         deck_text = deck_to_text(clean_deck)
-        deck_cache.set(deck_id, deck_text)
+        deck_cache.set(deck_id, deck_text, source="mtgo")
 
         if archetype_name not in archetypes:
             archetypes[archetype_name] = {"decks": [], "results": {event_date: 0}}

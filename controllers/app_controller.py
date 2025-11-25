@@ -143,6 +143,9 @@ class AppController:
         self._ui_callbacks: dict[str, Callable[..., Any]] = {}
         self.frame = self.create_frame()
 
+        # Start background MTGO data fetch
+        self._start_mtgo_background_fetch()
+
     # ============= Card Data Management =============
 
     def ensure_card_data_loaded(
@@ -814,6 +817,24 @@ class AppController:
         )
 
         return frame
+
+    # ============= MTGO Background Fetch =============
+
+    def _start_mtgo_background_fetch(self) -> None:
+        """Start background thread to fetch MTGO data for the past 7 days."""
+        from services.mtgo_background_service import fetch_mtgo_data_background
+
+        def mtgo_fetch_task():
+            """Background task to fetch MTGO data."""
+            try:
+                logger.info("Starting MTGO background fetch...")
+                stats = fetch_mtgo_data_background(days=7, mtg_format="modern", delay=2.0)
+                logger.info(f"MTGO fetch complete: {stats['total_decks_cached']} decks cached")
+            except Exception as exc:
+                logger.error(f"MTGO background fetch failed: {exc}")
+
+        # Start the background thread
+        BackgroundWorker(mtgo_fetch_task).start()
 
 
 # Singleton instance

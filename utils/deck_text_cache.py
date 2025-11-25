@@ -45,12 +45,22 @@ class DeckTextCache:
                 CREATE TABLE IF NOT EXISTS deck_cache (
                     deck_number TEXT PRIMARY KEY,
                     deck_text TEXT NOT NULL,
+                    source TEXT DEFAULT 'mtggoldfish',
                     cached_at REAL NOT NULL,
                     access_count INTEGER DEFAULT 0,
                     last_accessed REAL NOT NULL
                 )
             """
             )
+
+            # Add source column to existing tables (migration)
+            try:
+                cursor.execute("ALTER TABLE deck_cache ADD COLUMN source TEXT DEFAULT 'mtggoldfish'")
+                conn.commit()
+                logger.info("Added source column to deck_cache table")
+            except sqlite3.OperationalError:
+                # Column already exists
+                pass
 
             # Create index on last_accessed for efficient LRU operations
             cursor.execute(
@@ -71,12 +81,13 @@ class DeckTextCache:
             conn.commit()
             logger.debug(f"Deck cache schema initialized at {self.db_path}")
 
-    def get(self, deck_number: str) -> str | None:
+    def get(self, deck_number: str, source: str | None = None) -> str | None:
         """
         Get deck text from cache.
 
         Args:
-            deck_number: MTGGoldfish deck number
+            deck_number: Deck number/ID
+            source: Optional source filter ('mtggoldfish' or 'mtgo')
 
         Returns:
             Deck text if found, None otherwise
@@ -86,13 +97,22 @@ class DeckTextCache:
                 cursor = conn.cursor()
 
                 # Get deck text and update access statistics
-                cursor.execute(
-                    """
-                    SELECT deck_text FROM deck_cache
-                    WHERE deck_number = ?
-                    """,
-                    (deck_number,),
-                )
+                if source:
+                    cursor.execute(
+                        """
+                        SELECT deck_text FROM deck_cache
+                        WHERE deck_number = ? AND source = ?
+                        """,
+                        (deck_number, source),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT deck_text FROM deck_cache
+                        WHERE deck_number = ?
+                        """,
+                        (deck_number,),
+                    )
 
                 row = cursor.fetchone()
 
@@ -121,13 +141,14 @@ class DeckTextCache:
             logger.error(f"Error reading from deck cache: {exc}")
             return None
 
-    def set(self, deck_number: str, deck_text: str) -> bool:
+    def set(self, deck_number: str, deck_text: str, source: str = "mtggoldfish") -> bool:
         """
         Store deck text in cache.
 
         Args:
-            deck_number: MTGGoldfish deck number
+            deck_number: Deck number/ID
             deck_text: Deck list as text
+            source: Data source ('mtggoldfish' or 'mtgo')
 
         Returns:
             True if successful, False otherwise
@@ -142,14 +163,14 @@ class DeckTextCache:
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO deck_cache
-                    (deck_number, deck_text, cached_at, access_count, last_accessed)
-                    VALUES (?, ?, ?, COALESCE((SELECT access_count FROM deck_cache WHERE deck_number = ?), 0), ?)
+                    (deck_number, deck_text, source, cached_at, access_count, last_accessed)
+                    VALUES (?, ?, ?, ?, COALESCE((SELECT access_count FROM deck_cache WHERE deck_number = ?), 0), ?)
                     """,
-                    (deck_number, deck_text, now, deck_number, now),
+                    (deck_number, deck_text, source, now, deck_number, now),
                 )
 
                 conn.commit()
-                logger.debug(f"Cached deck {deck_number}")
+                logger.debug(f"Cached deck {deck_number} from {source}")
                 return True
 
         except sqlite3.Error as exc:
