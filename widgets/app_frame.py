@@ -27,6 +27,7 @@ from widgets.panels.deck_builder_panel import DeckBuilderPanel
 from widgets.panels.deck_notes_panel import DeckNotesPanel
 from widgets.panels.deck_research_panel import DeckResearchPanel
 from widgets.panels.deck_stats_panel import DeckStatsPanel
+from widgets.panels.radar_panel import RadarDialog
 from widgets.panels.sideboard_guide_panel import SideboardGuidePanel
 from widgets.timer_alert import TimerAlertFrame
 
@@ -125,6 +126,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_search=self._on_builder_search,
             on_clear=self._on_builder_clear,
             on_result_selected=self._on_builder_result_selected,
+            on_open_radar_dialog=self._open_radar_dialog,
         )
         self.left_stack.AddPage(self.builder_panel, "Builder")
         self._show_left_panel(self.left_mode, force=True)
@@ -377,6 +379,22 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.mana_keyboard_window = open_mana_keyboard(
             self, self.mana_icons, self.mana_keyboard_window, self._on_mana_keyboard_closed
         )
+
+    def _open_radar_dialog(self):
+        """Open the Radar dialog for archetype card frequency analysis."""
+        dialog = RadarDialog(
+            parent=self,
+            metagame_repo=self.controller.metagame_repo,
+            format_name=self.current_format,
+        )
+
+        if dialog.ShowModal() == wx.ID_OK:
+            radar = dialog.get_current_radar()
+            dialog.Destroy()
+            return radar
+
+        dialog.Destroy()
+        return None
 
     def _restore_session_state(self) -> None:
         state = self.controller.restore_session_state()
