@@ -277,7 +277,13 @@ def deck_selector_factory(wx_app) -> AppFrame:
     def _factory() -> AppFrame:
         reset_deck_selector_controller()
         controller = get_deck_selector_controller()
-        return controller.frame
+        frame = controller.frame
+        # Expose controller-backed repos/services for legacy tests
+        frame.card_repo = controller.card_repo
+        frame.deck_repo = controller.deck_repo
+        frame.metagame_repo = controller.metagame_repo
+        frame.deck_action_buttons = getattr(frame, "deck_action_buttons", None)
+        return frame
 
     return _factory
 
