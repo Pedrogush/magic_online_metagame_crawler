@@ -32,13 +32,16 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils.card_data import CardDataManager
-from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
-from utils.game_constants import FORMAT_OPTIONS
-from utils.paths import CACHE_DIR, CONFIG_FILE, DECK_SELECTOR_SETTINGS_FILE, DECKS_DIR
-from utils.service_config import (
+from utils.constants import (
+    CACHE_DIR,
     COLLECTION_CACHE_MAX_AGE_SECONDS,
+    CONFIG_FILE,
+    DECK_SELECTOR_SETTINGS_FILE,
+    DECKS_DIR,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
+    FORMAT_OPTIONS,
 )
+from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"

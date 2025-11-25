@@ -12,11 +12,11 @@ if sys.platform != "win32":
 
 import navigators.mtggoldfish as mtggoldfish
 import utils.card_images as card_images
-import utils.paths as paths
+import utils.constants as constants
 import widgets.app_frame as app_frame
 import widgets.identify_opponent as identify_opponent
 from utils.card_data import CardDataManager
-from utils.service_config import METAGAME_CACHE_TTL_SECONDS
+from utils.constants import METAGAME_CACHE_TTL_SECONDS
 from widgets.app_frame import AppFrame
 
 wx = pytest.importorskip("wx")
@@ -101,11 +101,13 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "ARCHETYPE_LIST_CACHE_FILE": cache / "archetype_list.json",
         "MTGO_ARTICLES_CACHE_FILE": cache / "mtgo_articles.json",
         "MTGO_DECK_CACHE_FILE": cache / "mtgo_decks.json",
+        "DECK_TEXT_CACHE_FILE": cache / "deck_text_cache.json",
+        "ARCHETYPE_DECKS_CACHE_FILE": cache / "archetype_decks_cache.json",
         "DECK_CACHE_FILE": cache / "deck_cache.json",
         "CURR_DECK_FILE": decks / "curr_deck.txt",
     }
     for attr, value in replacements.items():
-        monkeypatch.setattr(paths, attr, value, raising=False)
+        monkeypatch.setattr(constants, attr, value, raising=False)
 
     monkeypatch.setattr(card_images, "IMAGE_CACHE_DIR", image_cache, raising=False)
     monkeypatch.setattr(card_images, "IMAGE_DB_PATH", image_cache / "images.db", raising=False)

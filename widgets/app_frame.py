@@ -8,15 +8,9 @@ from controllers.app_controller import get_deck_selector_controller
 if TYPE_CHECKING:
     from controllers.app_controller import AppController
 
-from utils.game_constants import FORMAT_OPTIONS
+from utils.constants import DARK_BG, DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import stylize_listbox, stylize_textctrl
-from utils.ui_constants import (
-    DARK_BG,
-    DARK_PANEL,
-    LIGHT_TEXT,
-    SUBDUED_TEXT,
-)
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.toolbar_buttons import ToolbarButtons
 from widgets.dialogs.image_download_dialog import show_image_download_dialog
