@@ -283,6 +283,34 @@ def deck_selector_factory(wx_app) -> AppFrame:
         frame.deck_repo = controller.deck_repo
         frame.metagame_repo = controller.metagame_repo
         frame.deck_action_buttons = getattr(frame, "deck_action_buttons", None)
+
+        # Make archetype/deck loading synchronous for tests
+        local_archetypes = [
+            {"name": "Mono Red Aggro", "href": "mono-red-aggro"},
+            {"name": "Azorius Control", "href": "azorius-control"},
+        ]
+
+        def fake_archetype_decks(archetype: str):
+            return [
+                {
+                    "name": archetype,
+                    "number": "1",
+                    "player": "TestPilot",
+                    "event": "Test Event",
+                    "result": "2-1",
+                    "date": "2024-10-01",
+                },
+            ]
+
+        def fetch_archetypes_sync(force: bool = False) -> None:  # noqa: ARG001
+            frame._on_archetypes_loaded(local_archetypes)
+
+        def load_decks_sync(archetype: dict[str, Any]) -> None:
+            decks = fake_archetype_decks(archetype.get("href", ""))
+            frame._on_decks_loaded(archetype.get("name", "Unknown"), decks)
+
+        frame.fetch_archetypes = fetch_archetypes_sync  # type: ignore[assignment]
+        frame._load_decks_for_archetype = load_decks_sync  # type: ignore[assignment]
         return frame
 
     return _factory
