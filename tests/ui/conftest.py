@@ -12,13 +12,16 @@ if sys.platform != "win32":
 
 import navigators.mtggoldfish as mtggoldfish
 import utils.card_images as card_images
-import utils.constants as paths
-import widgets.deck_selector as deck_selector
+import utils.constants as constants
+import widgets.app_frame as app_frame
 import widgets.identify_opponent as identify_opponent
-from services import deck_research_service
+from controllers.app_controller import (
+    get_deck_selector_controller,
+    reset_deck_selector_controller,
+)
 from utils.card_data import CardDataManager
 from utils.constants import METAGAME_CACHE_TTL_SECONDS
-from widgets.deck_selector import MTGDeckSelectionFrame
+from widgets.app_frame import AppFrame
 
 wx = pytest.importorskip("wx")
 
@@ -102,11 +105,13 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "ARCHETYPE_LIST_CACHE_FILE": cache / "archetype_list.json",
         "MTGO_ARTICLES_CACHE_FILE": cache / "mtgo_articles.json",
         "MTGO_DECK_CACHE_FILE": cache / "mtgo_decks.json",
+        "DECK_TEXT_CACHE_FILE": cache / "deck_text_cache.json",
+        "ARCHETYPE_DECKS_CACHE_FILE": cache / "archetype_decks_cache.json",
         "DECK_CACHE_FILE": cache / "deck_cache.json",
         "CURR_DECK_FILE": decks / "curr_deck.txt",
     }
     for attr, value in replacements.items():
-        monkeypatch.setattr(paths, attr, value, raising=False)
+        monkeypatch.setattr(constants, attr, value, raising=False)
 
     monkeypatch.setattr(card_images, "IMAGE_CACHE_DIR", image_cache, raising=False)
     monkeypatch.setattr(card_images, "IMAGE_DB_PATH", image_cache / "images.db", raising=False)
@@ -137,93 +142,9 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(CardDataManager, "search_cards", fake_search_cards, raising=False)
 
     monkeypatch.setattr(
-        deck_selector,
-        "CONFIG_FILE",
-        replacements["CONFIG_FILE"],
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "DECK_SELECTOR_SETTINGS_FILE",
-        replacements["DECK_SELECTOR_SETTINGS_FILE"],
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "NOTES_STORE",
-        cache / "deck_notes.json",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "OUTBOARD_STORE",
-        cache / "deck_outboard.json",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "GUIDE_STORE",
-        cache / "deck_sbguides.json",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "LEGACY_NOTES_STORE",
-        cache / "deck_notes_wx.json",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "LEGACY_OUTBOARD_STORE",
-        cache / "deck_outboard_wx.json",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "LEGACY_GUIDE_STORE",
-        cache / "deck_sbguides_wx.json",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
+        app_frame,
         "MANA_RENDER_LOG",
         cache / "mana_render.log",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "CARD_INSPECTOR_LOG",
-        cache / "card_inspector_debug.log",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "LEGACY_CONFIG_FILE",
-        config / "legacy_config.json",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "LEGACY_CURR_DECK_CACHE",
-        cache / "curr_deck.txt",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "LEGACY_CURR_DECK_ROOT",
-        decks / "curr_deck.txt",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "CURR_DECK_FILE",
-        replacements["CURR_DECK_FILE"],
-        raising=False,
-    )
-    monkeypatch.setattr(
-        deck_selector,
-        "DECKS_DIR",
-        replacements["DECKS_DIR"],
         raising=False,
     )
 
@@ -256,13 +177,6 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     }.items():
         monkeypatch.setattr(mtggoldfish, attr, value, raising=False)
 
-    monkeypatch.setattr(
-        deck_selector.BackgroundWorker,
-        "start",
-        lambda self: self._run(),
-        raising=False,
-    )
-
     def fake_download(number: str) -> None:
         (decks / "curr_deck.txt").write_text(
             "4 Mountain\n4 Island\nSideboard\n2 Dispel\n", encoding="utf-8"
@@ -292,16 +206,10 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(mtggoldfish, "get_archetypes", fake_archetypes, raising=False)
     monkeypatch.setattr(mtggoldfish, "get_archetype_decks", fake_archetype_decks, raising=False)
-    monkeypatch.setattr(deck_selector, "get_archetypes", fake_archetypes, raising=False)
-    monkeypatch.setattr(deck_selector, "get_archetype_decks", fake_archetype_decks, raising=False)
+    monkeypatch.setattr(app_frame, "get_archetypes", fake_archetypes, raising=False)
+    monkeypatch.setattr(app_frame, "get_archetype_decks", fake_archetype_decks, raising=False)
     monkeypatch.setattr(mtggoldfish, "download_deck", fake_download, raising=False)
-    monkeypatch.setattr(deck_selector, "download_deck", fake_download, raising=False)
-    # Patch DeckResearchService imports
-    monkeypatch.setattr(deck_research_service, "get_archetypes", fake_archetypes, raising=False)
-    monkeypatch.setattr(
-        deck_research_service, "get_archetype_decks", fake_archetype_decks, raising=False
-    )
-    monkeypatch.setattr(deck_research_service, "download_deck", fake_download, raising=False)
+    monkeypatch.setattr(app_frame, "download_deck", fake_download, raising=False)
 
     payload_data: dict[str, list[dict[str, Any]]] = {}
     for card in SAMPLE_CARDS:
@@ -365,14 +273,64 @@ def pump_ui_events(app: wx.App, *, max_passes: int = 25) -> None:
 
 
 @pytest.fixture
-def deck_selector_factory(wx_app) -> MTGDeckSelectionFrame:
-    def _factory() -> MTGDeckSelectionFrame:
-        return MTGDeckSelectionFrame()
+def deck_selector_factory(wx_app) -> AppFrame:
+    def _factory() -> AppFrame:
+        reset_deck_selector_controller()
+        controller = get_deck_selector_controller()
+        frame = controller.frame
+        # Expose controller-backed repos/services for legacy tests
+        frame.card_repo = controller.card_repo
+        frame.deck_repo = controller.deck_repo
+        frame.metagame_repo = controller.metagame_repo
+        frame.deck_action_buttons = getattr(frame, "deck_action_buttons", None)
+
+        # Make archetype/deck loading synchronous for tests
+        local_archetypes = [
+            {"name": "Mono Red Aggro", "href": "mono-red-aggro"},
+            {"name": "Azorius Control", "href": "azorius-control"},
+        ]
+
+        def fake_archetype_decks(archetype: str):
+            return [
+                {
+                    "name": archetype,
+                    "number": "1",
+                    "player": "TestPilot",
+                    "event": "Test Event",
+                    "result": "2-1",
+                    "date": "2024-10-01",
+                },
+            ]
+
+        def fetch_archetypes_sync(force: bool = False) -> None:  # noqa: ARG001
+            frame._on_archetypes_loaded(local_archetypes)
+
+        def load_decks_sync(archetype: dict[str, Any]) -> None:
+            decks = fake_archetype_decks(archetype.get("href", ""))
+            frame._on_decks_loaded(archetype.get("name", "Unknown"), decks)
+
+        frame.fetch_archetypes = fetch_archetypes_sync  # type: ignore[assignment]
+        frame._load_decks_for_archetype = load_decks_sync  # type: ignore[assignment]
+        controller.fetch_archetypes = lambda **kwargs: kwargs["on_success"](local_archetypes)  # type: ignore[assignment]
+        controller.load_decks_for_archetype = lambda archetype, on_success, **_: on_success(
+            archetype.get("name", "Unknown"), fake_archetype_decks(archetype.get("href", ""))
+        )  # type: ignore[assignment]
+        controller.check_and_download_bulk_data = lambda *_, **__: None  # type: ignore[assignment]
+        controller.run_initial_loads = lambda *_, **__: None  # type: ignore[assignment]
+
+        fake_deck_text = "4 Mountain\n4 Island\nSideboard\n2 Dispel\n"
+
+        def fake_download_and_display_deck(deck, on_success, on_error, on_status):
+            on_status("Downloading deck…")
+            on_success(fake_deck_text)
+
+        controller.download_and_display_deck = fake_download_and_display_deck  # type: ignore[assignment]
+        return frame
 
     return _factory
 
 
-def prepare_card_manager(frame: MTGDeckSelectionFrame) -> None:
+def prepare_card_manager(frame: AppFrame) -> None:
     manager = CardDataManager()
     manager._cards = SAMPLE_CARDS
     manager._cards_by_name = {card["name_lower"]: card for card in SAMPLE_CARDS}

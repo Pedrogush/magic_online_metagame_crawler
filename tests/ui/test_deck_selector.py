@@ -46,6 +46,7 @@ def test_builder_search_populates_results(
         frame._on_builder_search()
         pump_ui_events(wx.GetApp())
 
+        assert frame.builder_panel.results_ctrl is not None
         assert frame.builder_panel.results_ctrl.GetItemCount() >= 1
         assert "Mountain" in frame.builder_panel.results_ctrl.GetItemText(0)
     finally:

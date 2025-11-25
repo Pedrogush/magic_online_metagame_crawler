@@ -10,13 +10,28 @@ import wx
 from utils.constants import ZONE_TITLES
 
 if TYPE_CHECKING:
-    from widgets.deck_selector import MTGDeckSelectionFrame
+    from widgets.app_frame import AppFrame
 
 
 class CardTablePanelHandler:
     """Mixin containing zone editing and card focus handlers."""
 
-    def _handle_zone_delta(self: MTGDeckSelectionFrame, zone: str, name: str, delta: int) -> None:
+    def _after_zone_change(self, zone: str) -> None:
+        if zone == "main":
+            self.main_table.set_cards(self.zone_cards["main"])
+        elif zone == "side":
+            self.side_table.set_cards(self.zone_cards["side"])
+        else:
+            self.out_table.set_cards(self.zone_cards["out"])
+            self._persist_outboard_for_current()
+        deck_text = self.controller.deck_service.build_deck_text_from_zones(self.zone_cards)
+        self.controller.deck_repo.set_current_deck_text(deck_text)
+        self._update_stats(deck_text)
+        self.copy_button.Enable(self._has_deck_loaded())
+        self.save_button.Enable(self._has_deck_loaded())
+        self._schedule_settings_save()
+
+    def _handle_zone_delta(self: AppFrame, zone: str, name: str, delta: int) -> None:
         cards = self.zone_cards.get(zone, [])
         for entry in cards:
             if entry["name"].lower() == name.lower():
@@ -34,13 +49,39 @@ class CardTablePanelHandler:
         self.zone_cards[zone] = cards
         self._after_zone_change(zone)
 
-    def _handle_zone_remove(self: MTGDeckSelectionFrame, zone: str, name: str) -> None:
+    def _handle_zone_remove(self: AppFrame, zone: str, name: str) -> None:
         cards = self.zone_cards.get(zone, [])
         self.zone_cards[zone] = [entry for entry in cards if entry["name"].lower() != name.lower()]
         self._after_zone_change(zone)
 
-    def _handle_zone_add(self: MTGDeckSelectionFrame, zone: str) -> None:
-        # Outboard zone removed - standard add dialog for all zones
+    def _handle_zone_add(self: AppFrame, zone: str) -> None:
+        if zone == "out":
+            main_cards = [entry["name"] for entry in self.zone_cards.get("main", [])]
+            existing = {entry["name"].lower() for entry in self.zone_cards.get("out", [])}
+            candidates = [name for name in main_cards if name.lower() not in existing]
+            if not candidates:
+                wx.MessageBox(
+                    "All mainboard cards are already in the outboard list.",
+                    "Outboard",
+                    wx.OK | wx.ICON_INFORMATION,
+                )
+                return
+            dlg = wx.SingleChoiceDialog(
+                self, "Select a mainboard card eligible for sideboarding.", "Outboard", candidates
+            )
+            if dlg.ShowModal() != wx.ID_OK:
+                dlg.Destroy()
+                return
+            selection = dlg.GetStringSelection()
+            dlg.Destroy()
+            qty = next(
+                (entry["qty"] for entry in self.zone_cards["main"] if entry["name"] == selection), 1
+            )
+            self.zone_cards.setdefault("out", []).append({"name": selection, "qty": qty})
+            self.zone_cards["out"].sort(key=lambda item: item["name"].lower())
+            self._after_zone_change("out")
+            return
+
         dlg = wx.TextEntryDialog(
             self, f"Add card to {ZONE_TITLES.get(zone, zone)} (format: 'Qty Card Name')", "Add Card"
         )
@@ -63,13 +104,22 @@ class CardTablePanelHandler:
         self.zone_cards[zone].sort(key=lambda item: item["name"].lower())
         self._after_zone_change(zone)
 
-    def _handle_card_focus(
-        self: MTGDeckSelectionFrame, zone: str, card: dict[str, Any] | None
-    ) -> None:
+    def _collapse_other_zone_tables(self, active_zone: str) -> None:
+        tables = {
+            "main": self.main_table,
+            "side": self.side_table,
+            "out": self.out_table,
+        }
+        for zone, table in tables.items():
+            if zone == active_zone:
+                continue
+            table.collapse_active()
+
+    def _handle_card_focus(self: AppFrame, zone: str, card: dict[str, Any] | None) -> None:
         if card is None:
             if self.card_inspector_panel.active_zone == zone:
                 self.card_inspector_panel.reset()
             return
         self._collapse_other_zone_tables(zone)
-        meta = self.card_repo.get_card_metadata(card["name"])
+        meta = self.controller.card_repo.get_card_metadata(card["name"])
         self.card_inspector_panel.update_card(card, zone=zone, meta=meta)

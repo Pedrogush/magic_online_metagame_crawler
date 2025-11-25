@@ -22,12 +22,10 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-try:  # Python 3.10 fallback for datetime.UTC
+try:  # Python 3.11+ has UTC
     from datetime import UTC
-except ImportError:  # pragma: no cover - compatibility shim
-    from datetime import timezone as _timezone
-
-    UTC = _timezone.utc  # noqa: UP017
+except ImportError:  # pragma: no cover - compatibility shim for Python 3.10
+    UTC = UTC
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -792,6 +790,7 @@ def ensure_printing_index_cache(force: bool = False) -> dict[str, Any]:
 
     if bulk_mtime is None:
         raise FileNotFoundError("Bulk data cache not found; cannot build printings index")
+
     logger.info("Building card printings index from bulk data…")
     with BULK_DATA_CACHE.open("r", encoding="utf-8") as fh:
         cards = json.load(fh)

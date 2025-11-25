@@ -1,5 +1,10 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = UTC
 
 from utils.metagame_stats import (
     _filter_decks,
