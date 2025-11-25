@@ -122,3 +122,17 @@ class SideboardGuideHandlers:
             self._persist_guide_for_current()
             self._refresh_guide_view()
         dlg.Destroy()
+
+    def _on_export_guide(self: AppFrame) -> None:
+        wx.MessageBox(
+            "Guide export is not yet implemented on this branch.",
+            "Sideboard Guide",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+
+    def _on_import_guide(self: AppFrame) -> None:
+        wx.MessageBox(
+            "Guide import is not yet implemented on this branch.",
+            "Sideboard Guide",
+            wx.OK | wx.ICON_INFORMATION,
+        )

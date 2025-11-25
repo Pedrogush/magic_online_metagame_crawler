@@ -302,6 +302,8 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_edit_entry=self._on_edit_guide_entry,
             on_remove_entry=self._on_remove_guide_entry,
             on_edit_exclusions=self._on_edit_exclusions,
+            on_export_csv=self._on_export_guide,
+            on_import_csv=self._on_import_guide,
         )
         self.deck_tabs.AddPage(self.sideboard_guide_panel, "Sideboard Guide")
 
