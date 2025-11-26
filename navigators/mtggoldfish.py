@@ -91,8 +91,21 @@ def get_archetypes(
         }
         for tag in archetypes
     ]
-    _save_cached_archetypes(mtg_format, items)
-    return items
+
+    # Deduplicate by archetype name (MTGGoldfish sometimes returns duplicate names with different hrefs)
+    # Keep first occurrence which typically has the cleaner/shorter href
+    seen_names = set()
+    unique_items = []
+    for item in items:
+        name_lower = item["name"].lower()
+        if name_lower not in seen_names:
+            seen_names.add(name_lower)
+            unique_items.append(item)
+        else:
+            logger.debug(f"Skipping duplicate archetype: {item['name']} (href: {item['href']})")
+
+    _save_cached_archetypes(mtg_format, unique_items)
+    return unique_items
 
 
 def _load_cached_archetype_decks(archetype: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):
