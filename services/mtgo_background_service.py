@@ -233,8 +233,6 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
         event_title = payload.get("title", "MTGO Event")
 
         raw_decklists = payload.get("decklists", [])
-        logger.debug(f"Found {len(raw_decklists)} decklists in event")
-
         if not raw_decklists:
             logger.warning(f"No decklists found in event {event_url}")
             return 0
@@ -245,7 +243,6 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
         clean_decks = [parse_mtgo_deck(raw_deck) for raw_deck in raw_decklists]
         classifier_decks = [convert_deck_to_classifier_format(deck) for deck in clean_decks]
 
-        logger.debug(f"Assigning archetypes for {len(classifier_decks)} decks using format: {mtg_format}")
         classifier.assign_archetypes(classifier_decks, mtg_format)
 
         cached_count = 0
@@ -256,12 +253,9 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
                 continue
 
             deck_text = deck_to_text(clean_deck)
-            logger.debug(f"Caching deck {idx}/{len(clean_decks)}: deck_id={deck_id}, len={len(deck_text)} chars")
-
             success = deck_cache.set(deck_id, deck_text, source="mtgo")
             if success:
                 cached_count += 1
-                logger.debug(f"Successfully cached deck {deck_id}")
             else:
                 logger.warning(f"Failed to cache deck {deck_id}")
                 continue
@@ -286,7 +280,6 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
 
             try:
                 save_mtgo_deck_metadata(archetype, mtg_format, deck_metadata)
-                logger.debug(f"Saved MTGO deck metadata for {deck_id} (archetype: {archetype})")
             except Exception as meta_exc:
                 logger.warning(f"Failed to save MTGO deck metadata for {deck_id}: {meta_exc}")
 
