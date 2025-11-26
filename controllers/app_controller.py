@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
     from widgets.app_frame import AppFrame
 
-from navigators.mtggoldfish import download_deck, get_archetype_decks, get_archetypes
+from navigators.mtggoldfish import download_deck, get_archetypes
 from repositories.card_repository import get_card_repository
 from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
@@ -236,7 +236,6 @@ class AppController:
             self.loading_decks = True
 
         name = archetype.get("name", "Unknown")
-        href = archetype.get("href")
         on_status(f"Loading decks for {name}…")
 
         source_filter = self.get_deck_data_source()
@@ -868,10 +867,14 @@ class AppController:
                             f"{stats['events_processed']}/{stats['events_found']} events"
                         )
                     except Exception as exc:
-                        logger.error(f"MTGO background fetch failed for {mtg_format}: {exc}", exc_info=True)
+                        logger.error(
+                            f"MTGO background fetch failed for {mtg_format}: {exc}", exc_info=True
+                        )
 
                 # Wait 1 hour before fetching again
-                logger.info("MTGO background fetch cycle complete. Waiting 1 hour before next cycle...")
+                logger.info(
+                    "MTGO background fetch cycle complete. Waiting 1 hour before next cycle..."
+                )
                 time.sleep(3600)
 
         # Start the background thread

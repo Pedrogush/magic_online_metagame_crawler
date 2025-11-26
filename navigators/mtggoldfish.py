@@ -336,7 +336,9 @@ def fetch_deck_text(deck_num: str, source_filter: str | None = None) -> str:
 
     # Cache miss - only download from MTGGoldfish if source allows it
     if source_filter == "mtgo":
-        logger.warning(f"Deck {deck_num} not found in MTGO cache and source filter blocks MTGGoldfish")
+        logger.warning(
+            f"Deck {deck_num} not found in MTGO cache and source filter blocks MTGGoldfish"
+        )
         raise ValueError(f"Deck {deck_num} not available from MTGO source")
 
     # Download from MTGGoldfish

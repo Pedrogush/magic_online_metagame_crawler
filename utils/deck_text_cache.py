@@ -59,7 +59,9 @@ class DeckTextCache:
 
             # Add source column to existing tables (migration)
             try:
-                cursor.execute("ALTER TABLE deck_cache ADD COLUMN source TEXT DEFAULT 'mtggoldfish'")
+                cursor.execute(
+                    "ALTER TABLE deck_cache ADD COLUMN source TEXT DEFAULT 'mtggoldfish'"
+                )
                 conn.commit()
                 logger.info("Added source column to deck_cache table")
             except sqlite3.OperationalError:
@@ -182,7 +184,9 @@ class DeckTextCache:
 
             except sqlite3.OperationalError as exc:
                 if "database is locked" in str(exc) and attempt < max_retries - 1:
-                    logger.warning(f"Database locked, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                    logger.warning(
+                        f"Database locked, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                     continue

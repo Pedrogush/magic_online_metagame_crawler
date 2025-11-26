@@ -33,21 +33,17 @@ def parse_mtgo_deck(raw_deck: dict) -> dict:
         if card.get("sideboard") == "false":
             card_name = card.get("card_attributes", {}).get("card_name", "")
             if card_name:
-                mainboard.append({
-                    "card_name": card_name,
-                    "qty": int(card.get("qty", "1")),
-                    "sideboard": "false"
-                })
+                mainboard.append(
+                    {"card_name": card_name, "qty": int(card.get("qty", "1")), "sideboard": "false"}
+                )
 
     sideboard = []
     for card in raw_deck.get("sideboard_deck", []):
         card_name = card.get("card_attributes", {}).get("card_name", "")
         if card_name:
-            sideboard.append({
-                "card_name": card_name,
-                "qty": int(card.get("qty", "1")),
-                "sideboard": "true"
-            })
+            sideboard.append(
+                {"card_name": card_name, "qty": int(card.get("qty", "1")), "sideboard": "true"}
+            )
 
     return {
         "deck_id": deck_id,
@@ -55,26 +51,20 @@ def parse_mtgo_deck(raw_deck: dict) -> dict:
         "wins": wins,
         "losses": losses,
         "mainboard": mainboard,
-        "sideboard": sideboard
+        "sideboard": sideboard,
     }
 
 
 def convert_deck_to_classifier_format(clean_deck: dict) -> dict:
     """Convert clean deck format to ArchetypeClassifier format."""
     mainboard = [
-        {"name": card["card_name"], "count": card["qty"]}
-        for card in clean_deck["mainboard"]
+        {"name": card["card_name"], "count": card["qty"]} for card in clean_deck["mainboard"]
     ]
     sideboard = [
-        {"name": card["card_name"], "count": card["qty"]}
-        for card in clean_deck["sideboard"]
+        {"name": card["card_name"], "count": card["qty"]} for card in clean_deck["sideboard"]
     ]
 
-    return {
-        "mainboard": mainboard,
-        "sideboard": sideboard,
-        "format": "modern"
-    }
+    return {"mainboard": mainboard, "sideboard": sideboard, "format": "modern"}
 
 
 def deck_to_text(clean_deck: dict) -> str:

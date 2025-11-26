@@ -78,7 +78,10 @@ class MetagameRepository:
             raise
 
     def get_decks_for_archetype(
-        self, archetype: dict[str, Any], force_refresh: bool = False, source_filter: str | None = None
+        self,
+        archetype: dict[str, Any],
+        force_refresh: bool = False,
+        source_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Get deck lists for a specific archetype.

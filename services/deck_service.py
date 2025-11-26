@@ -302,7 +302,9 @@ class DeckService:
 
             for deck in decks_to_process:
                 try:
-                    deck_content = self.metagame_repo.download_deck_content(deck, source_filter=source_filter)
+                    deck_content = self.metagame_repo.download_deck_content(
+                        deck, source_filter=source_filter
+                    )
                     buffer = self.add_deck_to_buffer(buffer, deck_content)
                     processed += 1
                 except Exception as exc:

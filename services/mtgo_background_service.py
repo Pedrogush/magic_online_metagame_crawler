@@ -2,14 +2,13 @@
 
 import json
 import time
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
 from utils.archetype_classifier import ArchetypeClassifier
-from utils.constants import ARCHETYPE_CACHE_FILE, CACHE_DIR
+from utils.constants import CACHE_DIR
 from utils.deck_text_cache import get_deck_cache
 
 MTGO_METADATA_CACHE = CACHE_DIR / "mtgo_deck_metadata.json"
@@ -33,21 +32,17 @@ def parse_mtgo_deck(raw_deck: dict) -> dict:
         if card.get("sideboard") == "false":
             card_name = card.get("card_attributes", {}).get("card_name", "")
             if card_name:
-                mainboard.append({
-                    "card_name": card_name,
-                    "qty": int(card.get("qty", "1")),
-                    "sideboard": "false"
-                })
+                mainboard.append(
+                    {"card_name": card_name, "qty": int(card.get("qty", "1")), "sideboard": "false"}
+                )
 
     sideboard = []
     for card in raw_deck.get("sideboard_deck", []):
         card_name = card.get("card_attributes", {}).get("card_name", "")
         if card_name:
-            sideboard.append({
-                "card_name": card_name,
-                "qty": int(card.get("qty", "1")),
-                "sideboard": "true"
-            })
+            sideboard.append(
+                {"card_name": card_name, "qty": int(card.get("qty", "1")), "sideboard": "true"}
+            )
 
     return {
         "deck_id": deck_id,
@@ -55,26 +50,20 @@ def parse_mtgo_deck(raw_deck: dict) -> dict:
         "wins": wins,
         "losses": losses,
         "mainboard": mainboard,
-        "sideboard": sideboard
+        "sideboard": sideboard,
     }
 
 
 def convert_deck_to_classifier_format(clean_deck: dict) -> dict:
     """Convert clean deck format to ArchetypeClassifier format."""
     mainboard = [
-        {"name": card["card_name"], "count": card["qty"]}
-        for card in clean_deck["mainboard"]
+        {"name": card["card_name"], "count": card["qty"]} for card in clean_deck["mainboard"]
     ]
     sideboard = [
-        {"name": card["card_name"], "count": card["qty"]}
-        for card in clean_deck["sideboard"]
+        {"name": card["card_name"], "count": card["qty"]} for card in clean_deck["sideboard"]
     ]
 
-    return {
-        "mainboard": mainboard,
-        "sideboard": sideboard,
-        "format": "modern"
-    }
+    return {"mainboard": mainboard, "sideboard": sideboard, "format": "modern"}
 
 
 def deck_to_text(clean_deck: dict) -> str:
@@ -154,23 +143,31 @@ def load_mtgo_deck_metadata(archetype: str, mtg_format: str) -> list[dict]:
         return []
 
 
-def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_format: str = "modern"):
+def fetch_mtgo_events_for_period(
+    start_date: datetime, end_date: datetime, mtg_format: str = "modern"
+):
     """
     Fetch MTGO events between start_date and end_date.
 
     Returns list of event URLs.
     """
-    logger.info(f"Fetching MTGO events for {mtg_format} from {start_date.date()} to {end_date.date()}")
+    logger.info(
+        f"Fetching MTGO events for {mtg_format} from {start_date.date()} to {end_date.date()}"
+    )
     events = []
     current_date = start_date
 
-    logger.info(f"Starting loop: current_date={current_date.date()}, end_date={end_date.date()}, condition={current_date <= end_date}")
+    logger.info(
+        f"Starting loop: current_date={current_date.date()}, end_date={end_date.date()}, condition={current_date <= end_date}"
+    )
     while current_date <= end_date:
         logger.info(f"Loop iteration for {current_date.year}-{current_date.month:02d}")
         try:
             logger.info(f"Calling fetch_decklist_index({current_date.year}, {current_date.month})")
             entries = fetch_decklist_index(current_date.year, current_date.month)
-            logger.info(f"fetch_decklist_index returned {len(entries)} total entries for {current_date.year}-{current_date.month:02d}")
+            logger.info(
+                f"fetch_decklist_index returned {len(entries)} total entries for {current_date.year}-{current_date.month:02d}"
+            )
 
             # Filter for the format and date range
             matching_entries = 0
@@ -185,32 +182,45 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
                 try:
                     publish_date_str = entry.get("publish_date", "")
                     if publish_date_str:
-                        publish_date = datetime.fromisoformat(publish_date_str.replace("Z", "+00:00"))
+                        publish_date = datetime.fromisoformat(
+                            publish_date_str.replace("Z", "+00:00")
+                        )
                         if start_date <= publish_date <= end_date:
-                            events.append({
-                                "url": entry["url"],
-                                "title": entry["title"],
-                                "date": entry["publish_date"],
-                                "event_type": entry.get("event_type", "unknown")
-                            })
+                            events.append(
+                                {
+                                    "url": entry["url"],
+                                    "title": entry["title"],
+                                    "date": entry["publish_date"],
+                                    "event_type": entry.get("event_type", "unknown"),
+                                }
+                            )
                             matching_entries += 1
                 except (ValueError, AttributeError):
                     pass
 
-            logger.info(f"Found {matching_entries} {mtg_format} events in date range for {current_date.year}-{current_date.month:02d}")
+            logger.info(
+                f"Found {matching_entries} {mtg_format} events in date range for {current_date.year}-{current_date.month:02d}"
+            )
 
             # Move to next month if needed
             if current_date.month == 12:
-                current_date = datetime(current_date.year + 1, 1, 1, tzinfo=timezone.utc)
+                current_date = datetime(current_date.year + 1, 1, 1, tzinfo=UTC)
             else:
-                current_date = datetime(current_date.year, current_date.month + 1, 1, tzinfo=timezone.utc)
+                current_date = datetime(
+                    current_date.year, current_date.month + 1, 1, tzinfo=UTC
+                )
 
         except Exception as exc:
-            logger.error(f"Failed to fetch events for {current_date.year}-{current_date.month}: {exc}", exc_info=True)
+            logger.error(
+                f"Failed to fetch events for {current_date.year}-{current_date.month}: {exc}",
+                exc_info=True,
+            )
             if current_date.month == 12:
-                current_date = datetime(current_date.year + 1, 1, 1, tzinfo=timezone.utc)
+                current_date = datetime(current_date.year + 1, 1, 1, tzinfo=UTC)
             else:
-                current_date = datetime(current_date.year, current_date.month + 1, 1, tzinfo=timezone.utc)
+                current_date = datetime(
+                    current_date.year, current_date.month + 1, 1, tzinfo=UTC
+                )
 
     logger.info(f"Total events found: {len(events)}")
     return events
@@ -229,7 +239,7 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
         logger.info(f"Fetching MTGO event: {event_url}")
 
         payload = fetch_deck_event(event_url)
-        event_date = payload.get("publish_date", datetime.now(timezone.utc).isoformat()[:10])
+        event_date = payload.get("publish_date", datetime.now(UTC).isoformat()[:10])
         event_title = payload.get("title", "MTGO Event")
 
         raw_decklists = payload.get("decklists", [])
@@ -310,7 +320,7 @@ def fetch_mtgo_data_background(days: int = 7, mtg_format: str = "modern", delay:
     logger.info(f"Starting MTGO background fetch for past {days} days")
 
     start_time = time.time()
-    end_date = datetime.now(timezone.utc)
+    end_date = datetime.now(UTC)
     start_date = end_date - timedelta(days=days)
 
     # Fetch event list
@@ -336,7 +346,7 @@ def fetch_mtgo_data_background(days: int = 7, mtg_format: str = "modern", delay:
         "events_found": len(events),
         "events_processed": successful_events,
         "total_decks_cached": total_decks,
-        "elapsed_seconds": elapsed
+        "elapsed_seconds": elapsed,
     }
 
     logger.info(f"MTGO background fetch complete: {stats}")

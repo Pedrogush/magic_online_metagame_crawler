@@ -2,7 +2,7 @@
 """Test script to verify MTGO deck metadata caching."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 
@@ -19,7 +19,7 @@ MTGO_METADATA_CACHE = CACHE_DIR / "mtgo_deck_metadata.json"
 def main():
     logger.info("Testing MTGO deck metadata caching...")
 
-    end_date = datetime.now(timezone.utc)
+    end_date = datetime.now(UTC)
     start_date = end_date - timedelta(days=3)
 
     logger.info(f"Fetching Modern events from {start_date.date()} to {end_date.date()}")
