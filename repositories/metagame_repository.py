@@ -9,6 +9,7 @@ This module handles all metagame-related data fetching including:
 
 import json
 import time
+from pathlib import Path
 from typing import Any, Final
 
 from loguru import logger
@@ -30,14 +31,24 @@ _USE_DEFAULT_MAX_AGE: Final = object()
 class MetagameRepository:
     """Repository for metagame data access operations."""
 
-    def __init__(self, cache_ttl: int = METAGAME_CACHE_TTL_SECONDS):
+    def __init__(
+        self,
+        cache_ttl: int = METAGAME_CACHE_TTL_SECONDS,
+        *,
+        archetype_list_cache_file: Path = ARCHETYPE_LIST_CACHE_FILE,
+        archetype_decks_cache_file: Path = ARCHETYPE_DECKS_CACHE_FILE,
+    ):
         """
         Initialize the metagame repository.
 
         Args:
             cache_ttl: Time-to-live for cached data in seconds (default: 1 hour)
+            archetype_list_cache_file: Path to archetype list cache (overridable for testing)
+            archetype_decks_cache_file: Path to archetype deck cache (overridable for testing)
         """
         self.cache_ttl = cache_ttl
+        self.archetype_list_cache_file = Path(archetype_list_cache_file)
+        self.archetype_decks_cache_file = Path(archetype_decks_cache_file)
 
     # ============= Archetype Operations =============
 
@@ -78,7 +89,10 @@ class MetagameRepository:
             raise
 
     def get_decks_for_archetype(
-        self, archetype: dict[str, Any], force_refresh: bool = False
+        self,
+        archetype: dict[str, Any],
+        force_refresh: bool = False,
+        source_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Get deck lists for a specific archetype.
@@ -86,6 +100,7 @@ class MetagameRepository:
         Args:
             archetype: Archetype dictionary with 'href' or 'url' key
             force_refresh: If True, bypass cache and fetch fresh data
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
 
         Returns:
             List of deck dictionaries
@@ -99,7 +114,9 @@ class MetagameRepository:
             cached = self._load_cached_decks(archetype_href)
             if cached is not None:
                 logger.debug(f"Using cached decks for {archetype_name}")
-                return cached
+                mtggoldfish_decks = self._filter_decks_by_source(cached, source_filter)
+                mtgo_decks = self._get_mtgo_decks_from_db(archetype_name, source_filter)
+                return self._merge_and_sort_decks(mtggoldfish_decks, mtgo_decks)
 
         # Fetch fresh data
         logger.info(f"Fetching fresh decks for {archetype_name}")
@@ -108,22 +125,27 @@ class MetagameRepository:
             decks = get_archetype_decks(archetype_href)
             # Cache the results
             self._save_cached_decks(archetype_href, decks)
-            return decks
+            mtggoldfish_decks = self._filter_decks_by_source(decks, source_filter)
+            mtgo_decks = self._get_mtgo_decks_from_db(archetype_name, source_filter)
+            return self._merge_and_sort_decks(mtggoldfish_decks, mtgo_decks)
         except Exception as exc:
             logger.error(f"Failed to fetch decks for {archetype_name}: {exc}")
             # Try to return stale cache if available
             cached = self._load_cached_decks(archetype_href, max_age=None)
             if cached:
                 logger.warning(f"Returning stale cached decks for {archetype_name}")
-                return cached
+                mtggoldfish_decks = self._filter_decks_by_source(cached, source_filter)
+                mtgo_decks = self._get_mtgo_decks_from_db(archetype_name, source_filter)
+                return self._merge_and_sort_decks(mtggoldfish_decks, mtgo_decks)
             raise
 
-    def download_deck_content(self, deck: dict[str, Any]) -> str:
+    def download_deck_content(self, deck: dict[str, Any], source_filter: str | None = None) -> str:
         """
         Download the actual deck list content.
 
         Args:
             deck: Deck dictionary with 'number' key (deck ID)
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
 
         Returns:
             Deck list as text string
@@ -141,7 +163,7 @@ class MetagameRepository:
         try:
             # fetch_deck_text handles caching and returns the text directly
             # This avoids unnecessary write-to-file and read-from-file operations
-            deck_content = fetch_deck_text(deck_number)
+            deck_content = fetch_deck_text(deck_number, source_filter=source_filter)
             return deck_content
         except Exception as exc:
             logger.error(f"Failed to download deck {deck_name}: {exc}")
@@ -166,11 +188,11 @@ class MetagameRepository:
             max_age = _USE_DEFAULT_MAX_AGE
         effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
-        if not ARCHETYPE_LIST_CACHE_FILE.exists():
+        if not self.archetype_list_cache_file.exists():
             return None
 
         try:
-            with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            with self.archetype_list_cache_file.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except json.JSONDecodeError as exc:
             logger.warning(f"Cached archetype list invalid: {exc}")
@@ -199,8 +221,8 @@ class MetagameRepository:
         """
         try:
             # Load existing cache
-            if ARCHETYPE_LIST_CACHE_FILE.exists():
-                with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            if self.archetype_list_cache_file.exists():
+                with self.archetype_list_cache_file.open("r", encoding="utf-8") as fh:
                     data = json.load(fh)
             else:
                 data = {}
@@ -209,8 +231,8 @@ class MetagameRepository:
             data[mtg_format] = {"timestamp": time.time(), "items": items}
 
             # Save back
-            ARCHETYPE_LIST_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with ARCHETYPE_LIST_CACHE_FILE.open("w", encoding="utf-8") as fh:
+            self.archetype_list_cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.archetype_list_cache_file.open("w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
 
             logger.debug(f"Cached {len(items)} archetypes for {mtg_format}")
@@ -234,11 +256,11 @@ class MetagameRepository:
             max_age = _USE_DEFAULT_MAX_AGE
         effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
-        if not ARCHETYPE_DECKS_CACHE_FILE.exists():
+        if not self.archetype_decks_cache_file.exists():
             return None
 
         try:
-            with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            with self.archetype_decks_cache_file.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except json.JSONDecodeError as exc:
             logger.warning(f"Cached deck list invalid: {exc}")
@@ -267,8 +289,8 @@ class MetagameRepository:
         """
         try:
             # Load existing cache
-            if ARCHETYPE_DECKS_CACHE_FILE.exists():
-                with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            if self.archetype_decks_cache_file.exists():
+                with self.archetype_decks_cache_file.open("r", encoding="utf-8") as fh:
                     data = json.load(fh)
             else:
                 data = {}
@@ -277,17 +299,99 @@ class MetagameRepository:
             data[archetype_url] = {"timestamp": time.time(), "items": items}
 
             # Save back
-            ARCHETYPE_DECKS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with ARCHETYPE_DECKS_CACHE_FILE.open("w", encoding="utf-8") as fh:
+            self.archetype_decks_cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.archetype_decks_cache_file.open("w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
 
             logger.debug(f"Cached {len(items)} decks for archetype")
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(f"Failed to cache decks: {exc}")
 
+    def _filter_decks_by_source(
+        self, decks: list[dict[str, Any]], source_filter: str | None
+    ) -> list[dict[str, Any]]:
+        """
+        Filter decks by source.
+
+        Args:
+            decks: List of deck dictionaries
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
+
+        Returns:
+            Filtered list of decks
+        """
+        if not source_filter or source_filter == "both":
+            return decks
+
+        return [deck for deck in decks if deck.get("source") == source_filter]
+
+    def _get_mtgo_decks_from_db(
+        self, archetype_name: str, source_filter: str | None
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieve MTGO decks from JSON cache for a specific archetype.
+
+        Args:
+            archetype_name: Name of the archetype
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
+
+        Returns:
+            List of MTGO deck dictionaries formatted for UI display
+        """
+        if source_filter == "mtggoldfish":
+            return []
+
+        try:
+            from services.mtgo_background_service import load_mtgo_deck_metadata
+
+            mtgo_decks = []
+            for fmt in ("modern", "standard", "pioneer", "legacy"):
+                decks = load_mtgo_deck_metadata(archetype_name, fmt)
+                mtgo_decks.extend(decks)
+
+            logger.debug(f"Retrieved {len(mtgo_decks)} MTGO decks from cache for {archetype_name}")
+            return mtgo_decks
+
+        except Exception as exc:
+            logger.warning(f"Failed to retrieve MTGO decks from cache: {exc}")
+            return []
+
+    def _merge_and_sort_decks(
+        self, mtggoldfish_decks: list[dict[str, Any]], mtgo_decks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """
+        Merge MTGGoldfish and MTGO decks and sort by date (newest first).
+
+        Args:
+            mtggoldfish_decks: Decks from MTGGoldfish
+            mtgo_decks: Decks from MTGO (MongoDB)
+
+        Returns:
+            Merged and sorted list of decks
+        """
+        all_decks = mtggoldfish_decks + mtgo_decks
+
+        def parse_date(date_str: str) -> tuple:
+            if not date_str:
+                return (0, 0, 0)
+            try:
+                parts = date_str.split("-")
+                if len(parts) == 3:
+                    return (int(parts[0]), int(parts[1]), int(parts[2]))
+                elif "/" in date_str:
+                    parts = date_str.split("/")
+                    if len(parts) == 3:
+                        return (int(parts[2]), int(parts[0]), int(parts[1]))
+            except (ValueError, IndexError):
+                pass
+            return (0, 0, 0)
+
+        all_decks.sort(key=lambda d: parse_date(d.get("date", "")), reverse=True)
+        return all_decks
+
     def clear_cache(self) -> None:
         """Clear all metagame caches."""
-        for cache_file in [ARCHETYPE_LIST_CACHE_FILE, ARCHETYPE_DECKS_CACHE_FILE]:
+        for cache_file in [self.archetype_list_cache_file, self.archetype_decks_cache_file]:
             if cache_file.exists():
                 try:
                     cache_file.unlink()

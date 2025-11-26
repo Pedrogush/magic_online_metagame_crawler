@@ -270,7 +270,7 @@ class DeckService:
         return "\n".join(lines)
 
     def build_daily_average(
-        self, archetype: dict[str, Any], max_decks: int = 10
+        self, archetype: dict[str, Any], max_decks: int = 10, source_filter: str | None = None
     ) -> tuple[str, int]:
         """
         Build an average deck from recent tournament results.
@@ -278,13 +278,16 @@ class DeckService:
         Args:
             archetype: Archetype dictionary with 'url' key
             max_decks: Maximum number of decks to average
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
 
         Returns:
             Tuple of (averaged_deck_text, decks_processed)
         """
         try:
             # Fetch recent decks for archetype
-            decks = self.metagame_repo.get_decks_for_archetype(archetype, force_refresh=True)
+            decks = self.metagame_repo.get_decks_for_archetype(
+                archetype, force_refresh=True, source_filter=source_filter
+            )
 
             if not decks:
                 logger.warning(f"No decks found for archetype: {archetype.get('name')}")
@@ -299,7 +302,9 @@ class DeckService:
 
             for deck in decks_to_process:
                 try:
-                    deck_content = self.metagame_repo.download_deck_content(deck)
+                    deck_content = self.metagame_repo.download_deck_content(
+                        deck, source_filter=source_filter
+                    )
                     buffer = self.add_deck_to_buffer(buffer, deck_content)
                     processed += 1
                 except Exception as exc:

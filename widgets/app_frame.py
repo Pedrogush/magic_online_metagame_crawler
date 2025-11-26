@@ -203,7 +203,18 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
         hint = wx.StaticText(panel, label="Higher values reduce download frequency.")
         hint.SetForegroundColour(SUBDUED_TEXT)
-        sizer.Add(hint, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(hint, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
+
+        source_label = wx.StaticText(panel, label="Deck data source:")
+        source_label.SetForegroundColour(LIGHT_TEXT)
+        sizer.Add(source_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        self.deck_source_choice = wx.Choice(panel, choices=["Both", "MTGGoldfish", "MTGO.com"])
+        current_source = self.controller.get_deck_data_source()
+        source_map = {"both": 0, "mtggoldfish": 1, "mtgo": 2}
+        self.deck_source_choice.SetSelection(source_map.get(current_source, 0))
+        self.deck_source_choice.Bind(wx.EVT_CHOICE, self._on_deck_source_changed)
+        sizer.Add(self.deck_source_choice, 0, wx.ALIGN_CENTER_VERTICAL)
 
         sizer.AddStretchSpacer(1)
         return panel

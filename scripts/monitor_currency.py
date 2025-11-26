@@ -5,8 +5,13 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
+
+try:
+    from datetime import UTC
+except ImportError:  # pragma: no cover - Python 3.10 fallback
+    UTC = UTC
 
 from utils import mtgo_bridge
 

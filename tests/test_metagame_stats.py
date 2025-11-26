@@ -3,7 +3,7 @@ from typing import Any
 
 try:
     from datetime import UTC
-except ImportError:
+except ImportError:  # pragma: no cover - Python 3.10 fallback
     UTC = UTC
 
 from utils.metagame_stats import (

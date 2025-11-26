@@ -36,8 +36,12 @@ class DeckTextCache:
         """Create the cache table and indexes if they don't exist."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
+
+            # Enable WAL mode for better concurrent access
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
 
             # Create main cache table
             cursor.execute(
@@ -45,12 +49,24 @@ class DeckTextCache:
                 CREATE TABLE IF NOT EXISTS deck_cache (
                     deck_number TEXT PRIMARY KEY,
                     deck_text TEXT NOT NULL,
+                    source TEXT DEFAULT 'mtggoldfish',
                     cached_at REAL NOT NULL,
                     access_count INTEGER DEFAULT 0,
                     last_accessed REAL NOT NULL
                 )
             """
             )
+
+            # Add source column to existing tables (migration)
+            try:
+                cursor.execute(
+                    "ALTER TABLE deck_cache ADD COLUMN source TEXT DEFAULT 'mtggoldfish'"
+                )
+                conn.commit()
+                logger.info("Added source column to deck_cache table")
+            except sqlite3.OperationalError:
+                # Column already exists
+                pass
 
             # Create index on last_accessed for efficient LRU operations
             cursor.execute(
@@ -71,28 +87,38 @@ class DeckTextCache:
             conn.commit()
             logger.debug(f"Deck cache schema initialized at {self.db_path}")
 
-    def get(self, deck_number: str) -> str | None:
+    def get(self, deck_number: str, source: str | None = None) -> str | None:
         """
         Get deck text from cache.
 
         Args:
-            deck_number: MTGGoldfish deck number
+            deck_number: Deck number/ID
+            source: Optional source filter ('mtggoldfish' or 'mtgo')
 
         Returns:
             Deck text if found, None otherwise
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
 
                 # Get deck text and update access statistics
-                cursor.execute(
-                    """
-                    SELECT deck_text FROM deck_cache
-                    WHERE deck_number = ?
-                    """,
-                    (deck_number,),
-                )
+                if source:
+                    cursor.execute(
+                        """
+                        SELECT deck_text FROM deck_cache
+                        WHERE deck_number = ? AND source = ?
+                        """,
+                        (deck_number, source),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT deck_text FROM deck_cache
+                        WHERE deck_number = ?
+                        """,
+                        (deck_number,),
+                    )
 
                 row = cursor.fetchone()
 
@@ -121,40 +147,57 @@ class DeckTextCache:
             logger.error(f"Error reading from deck cache: {exc}")
             return None
 
-    def set(self, deck_number: str, deck_text: str) -> bool:
+    def set(self, deck_number: str, deck_text: str, source: str = "mtggoldfish") -> bool:
         """
-        Store deck text in cache.
+        Store deck text in cache with retry logic for database locks.
 
         Args:
-            deck_number: MTGGoldfish deck number
+            deck_number: Deck number/ID
             deck_text: Deck list as text
+            source: Data source ('mtggoldfish' or 'mtgo')
 
         Returns:
             True if successful, False otherwise
         """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
+        max_retries = 3
+        retry_delay = 0.1  # Start with 100ms
 
-                now = time.time()
+        for attempt in range(max_retries):
+            try:
+                with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                    cursor = conn.cursor()
 
-                # Insert or replace deck text
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO deck_cache
-                    (deck_number, deck_text, cached_at, access_count, last_accessed)
-                    VALUES (?, ?, ?, COALESCE((SELECT access_count FROM deck_cache WHERE deck_number = ?), 0), ?)
-                    """,
-                    (deck_number, deck_text, now, deck_number, now),
-                )
+                    now = time.time()
 
-                conn.commit()
-                logger.debug(f"Cached deck {deck_number}")
-                return True
+                    # Insert or replace deck text
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO deck_cache
+                        (deck_number, deck_text, source, cached_at, access_count, last_accessed)
+                        VALUES (?, ?, ?, ?, COALESCE((SELECT access_count FROM deck_cache WHERE deck_number = ?), 0), ?)
+                        """,
+                        (deck_number, deck_text, source, now, deck_number, now),
+                    )
 
-        except sqlite3.Error as exc:
-            logger.error(f"Error writing to deck cache: {exc}")
-            return False
+                    conn.commit()
+                    return True
+
+            except sqlite3.OperationalError as exc:
+                if "database is locked" in str(exc) and attempt < max_retries - 1:
+                    logger.warning(
+                        f"Database locked, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    logger.error(f"Error writing to deck cache after {attempt + 1} attempts: {exc}")
+                    return False
+            except sqlite3.Error as exc:
+                logger.error(f"Error writing to deck cache: {exc}")
+                return False
+
+        return False
 
     def get_stats(self) -> dict:
         """
@@ -164,7 +207,7 @@ class DeckTextCache:
             Dictionary with cache stats (total_decks, db_size_mb, oldest_entry, newest_entry)
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
 
                 # Get total count
@@ -215,7 +258,7 @@ class DeckTextCache:
         cutoff_time = time.time() - (max_age_days * 24 * 60 * 60)
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
 
                 cursor.execute(
@@ -246,7 +289,7 @@ class DeckTextCache:
             Number of entries deleted
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
 
                 # Count current entries
@@ -305,7 +348,7 @@ class DeckTextCache:
                 return 0
 
             migrated = 0
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
                 now = time.time()
 
@@ -337,7 +380,7 @@ class DeckTextCache:
     def vacuum(self) -> None:
         """Optimize database and reclaim space after deletions."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 conn.execute("VACUUM")
                 logger.info("Database vacuumed successfully")
         except sqlite3.Error as exc:
@@ -351,7 +394,7 @@ class DeckTextCache:
             True if successful
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 conn.execute("DELETE FROM deck_cache")
                 conn.commit()
             logger.info("Deck cache cleared")

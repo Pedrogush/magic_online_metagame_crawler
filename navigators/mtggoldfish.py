@@ -91,8 +91,21 @@ def get_archetypes(
         }
         for tag in archetypes
     ]
-    _save_cached_archetypes(mtg_format, items)
-    return items
+
+    # Deduplicate by archetype name (MTGGoldfish sometimes returns duplicate names with different hrefs)
+    # Keep first occurrence which typically has the cleaner/shorter href
+    seen_names = set()
+    unique_items = []
+    for item in items:
+        name_lower = item["name"].lower()
+        if name_lower not in seen_names:
+            seen_names.add(name_lower)
+            unique_items.append(item)
+        else:
+            logger.debug(f"Skipping duplicate archetype: {item['name']} (href: {item['href']})")
+
+    _save_cached_archetypes(mtg_format, unique_items)
+    return unique_items
 
 
 def _load_cached_archetype_decks(archetype: str, max_age: int = METAGAME_CACHE_TTL_SECONDS):
@@ -166,6 +179,7 @@ def get_archetype_decks(archetype: str):
                 "event": tds[3].text.strip(),
                 "result": tds[4].text.strip(),
                 "name": archetype,
+                "source": "mtggoldfish",
             }
         )
     # Save to cache
@@ -290,7 +304,7 @@ def _ensure_cache_migration():
                 logger.warning(f"Could not backup old JSON cache: {exc}")
 
 
-def fetch_deck_text(deck_num: str) -> str:
+def fetch_deck_text(deck_num: str, source_filter: str | None = None) -> str:
     """
     Return a deck list as text, using the SQLite cache when available.
 
@@ -299,6 +313,7 @@ def fetch_deck_text(deck_num: str) -> str:
 
     Args:
         deck_num: MTGGoldfish deck number
+        source_filter: Optional source filter ('mtggoldfish', 'mtgo', or None for both)
 
     Returns:
         Deck text content
@@ -312,12 +327,21 @@ def fetch_deck_text(deck_num: str) -> str:
     # Get SQLite cache instance
     cache = get_deck_cache()
 
-    # Check cache first
-    cached_text = cache.get(deck_num)
+    # Check cache first, applying source filter
+    # source_filter="both" means None (any source), otherwise use specific source
+    cache_source = None if source_filter == "both" else source_filter
+    cached_text = cache.get(deck_num, source=cache_source)
     if cached_text is not None:
         return cached_text
 
-    # Cache miss - download from MTGGoldfish
+    # Cache miss - only download from MTGGoldfish if source allows it
+    if source_filter == "mtgo":
+        logger.warning(
+            f"Deck {deck_num} not found in MTGO cache and source filter blocks MTGGoldfish"
+        )
+        raise ValueError(f"Deck {deck_num} not available from MTGO source")
+
+    # Download from MTGGoldfish
     logger.info(f"Downloading deck {deck_num} from MTGGoldfish")
     page = requests.get(f"https://www.mtggoldfish.com/deck/{deck_num}", impersonate="chrome")
     match = re.search(r'initializeDeckComponents\([^,]+,\s*[^,]+,\s*"([^"]+)"', page.text)
@@ -328,17 +352,21 @@ def fetch_deck_text(deck_num: str) -> str:
     encoded_deck = match.group(1)
     deck_text = unquote(encoded_deck)
 
-    # Store in cache
-    cache.set(deck_num, deck_text)
+    # Store in cache with mtggoldfish source
+    cache.set(deck_num, deck_text, source="mtggoldfish")
 
     return deck_text
 
 
-def download_deck(deck_num: str):
+def download_deck(deck_num: str, source_filter: str | None = None):
     """
     Downloads a deck list and writes it to CURR_DECK_FILE while maintaining cache compatibility.
+
+    Args:
+        deck_num: MTGGoldfish deck number
+        source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
     """
-    deck_text = fetch_deck_text(deck_num)
+    deck_text = fetch_deck_text(deck_num, source_filter=source_filter)
 
     CURR_DECK_FILE.parent.mkdir(parents=True, exist_ok=True)
     with CURR_DECK_FILE.open("w", encoding="utf-8") as f:
