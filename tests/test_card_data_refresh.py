@@ -145,3 +145,42 @@ def test_ensure_latest_downloads_when_meta_differs(tmp_path: Path, monkeypatch):
     assert download_called is True
     assert meta["etag"] == "v2"
     assert manager.get_card("Lightning Bolt") is not None
+
+
+def test_ensure_latest_skips_download_when_only_etag_changes(tmp_path: Path, monkeypatch):
+    cards = {"Opt": [_card("Opt", "{U}", "", "U")]}
+    initial_headers = {
+        "etag": "v1",
+        "last-modified": "Mon, 01 Jan 2024 00:00:00 GMT",
+        "content-length": "123",
+    }
+    content = _build_bulk_zip(cards)
+    _patch_requests(monkeypatch, initial_headers, content)
+
+    first_manager = CardDataManager(tmp_path)
+    first_manager.ensure_latest()
+
+    new_headers = {
+        "etag": "v2",
+        "last-modified": "Tue, 02 Jan 2024 00:00:00 GMT",
+        "content-length": "123",
+    }
+
+    download_called = False
+
+    def fake_get(*_: Any, **__: Any) -> _StubResponse:
+        nonlocal download_called
+        download_called = True
+        return _StubResponse(headers=new_headers, content=content)
+
+    def fake_head(*_: Any, **__: Any) -> _StubResponse:
+        return _StubResponse(headers=new_headers)
+
+    monkeypatch.setattr(card_data.requests, "head", fake_head, raising=False)
+    monkeypatch.setattr(card_data.requests, "get", fake_get, raising=False)
+
+    second_manager = CardDataManager(tmp_path)
+    second_manager.ensure_latest()
+
+    assert download_called is False
+    assert second_manager.get_card("Opt") is not None

@@ -51,12 +51,12 @@ class CardDataManager:
         missing_index = not self.index_path.exists()
         needs_refresh = force or missing_index
         if not needs_refresh and remote_meta:
-            for key, value in remote_meta.items():
-                if local_meta.get(key) != value:
-                    logger.warning(f"Local metadata differs from remote for key: {key}")
-                    logger.warning("Forcing a refresh")
-                    needs_refresh = True
-                    break
+            remote_size = remote_meta.get("content_length")
+            local_size = local_meta.get("content_length")
+            if remote_size and local_size != remote_size:
+                logger.warning(f"File size changed: local={local_size}, remote={remote_size}")
+                logger.warning("Forcing a refresh")
+                needs_refresh = True
 
         if needs_refresh:
             logger.warning("No atomic card index found or force refresh requested")
