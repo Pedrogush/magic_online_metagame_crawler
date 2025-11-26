@@ -38,6 +38,7 @@ def ensure_base_dirs() -> None:
     for path in (CONFIG_DIR, CACHE_DIR, DECKS_DIR):
         path.mkdir(parents=True, exist_ok=True)
 
+
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DECK_MONITOR_CONFIG_FILE = CONFIG_DIR / "deck_monitor_config.json"
 DECK_SELECTOR_SETTINGS_FILE = CONFIG_DIR / "deck_selector_settings.json"
