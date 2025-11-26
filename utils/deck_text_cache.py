@@ -178,7 +178,6 @@ class DeckTextCache:
                     )
 
                     conn.commit()
-                    logger.debug(f"Cached deck {deck_number} from {source}")
                     return True
 
             except sqlite3.OperationalError as exc:
