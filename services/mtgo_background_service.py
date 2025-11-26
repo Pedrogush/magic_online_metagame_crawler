@@ -211,9 +211,7 @@ def fetch_mtgo_events_for_period(
             if current_date.month == 12:
                 current_date = datetime(current_date.year + 1, 1, 1, tzinfo=UTC)
             else:
-                current_date = datetime(
-                    current_date.year, current_date.month + 1, 1, tzinfo=UTC
-                )
+                current_date = datetime(current_date.year, current_date.month + 1, 1, tzinfo=UTC)
 
         except Exception as exc:
             logger.error(
@@ -223,9 +221,7 @@ def fetch_mtgo_events_for_period(
             if current_date.month == 12:
                 current_date = datetime(current_date.year + 1, 1, 1, tzinfo=UTC)
             else:
-                current_date = datetime(
-                    current_date.year, current_date.month + 1, 1, tzinfo=UTC
-                )
+                current_date = datetime(current_date.year, current_date.month + 1, 1, tzinfo=UTC)
 
     logger.info(f"Total events found: {len(events)}")
     return events
