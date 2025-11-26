@@ -224,7 +224,17 @@ class AppEventHandlers:
     def _on_archetypes_loaded(self: AppFrame, items: list[dict[str, Any]]) -> None:
         with self._loading_lock:
             self.loading_archetypes = False
-        self.archetypes = sorted(items, key=lambda entry: entry.get("name", "").lower())
+
+        # Deduplicate archetypes by name (keep first occurrence)
+        seen_names = set()
+        unique_archetypes = []
+        for item in items:
+            name = item.get("name", "").lower()
+            if name not in seen_names:
+                seen_names.add(name)
+                unique_archetypes.append(item)
+
+        self.archetypes = sorted(unique_archetypes, key=lambda entry: entry.get("name", "").lower())
         self.filtered_archetypes = list(self.archetypes)
         self._populate_archetype_list()
         self.research_panel.enable_controls()
