@@ -135,13 +135,16 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
 
             # Move to next month if needed
             if current_date.month == 12:
-                current_date = datetime(current_date.year + 1, 1, 1)
+                current_date = datetime(current_date.year + 1, 1, 1, tzinfo=timezone.utc)
             else:
-                current_date = datetime(current_date.year, current_date.month + 1, 1)
+                current_date = datetime(current_date.year, current_date.month + 1, 1, tzinfo=timezone.utc)
 
         except Exception as exc:
             logger.error(f"Failed to fetch events for {current_date.year}-{current_date.month}: {exc}", exc_info=True)
-            current_date = datetime(current_date.year, current_date.month + 1, 1)
+            if current_date.month == 12:
+                current_date = datetime(current_date.year + 1, 1, 1, tzinfo=timezone.utc)
+            else:
+                current_date = datetime(current_date.year, current_date.month + 1, 1, tzinfo=timezone.utc)
 
     logger.info(f"Total events found: {len(events)}")
     return events
