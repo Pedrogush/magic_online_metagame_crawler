@@ -28,7 +28,8 @@ class CardFrequency:
     max_copies: int  # Maximum copies in a single deck
     avg_copies: float  # Average copies when present
     inclusion_rate: float  # % of decks containing this card
-    saturation_rate: float  # % toward "always-a-four-of" (100% = always 4)
+    expected_copies: float  # Average copies per deck across the sample
+    copy_distribution: dict[int, int]  # Deck counts keyed by number of copies
 
 
 @dataclass
@@ -155,9 +156,13 @@ class RadarService:
             mainboard_frequencies = self._calculate_frequencies(mainboard_stats, successful_decks)
             sideboard_frequencies = self._calculate_frequencies(sideboard_stats, successful_decks)
 
-            # Sort by saturation rate (descending)
-            mainboard_frequencies.sort(key=lambda x: x.saturation_rate, reverse=True)
-            sideboard_frequencies.sort(key=lambda x: x.saturation_rate, reverse=True)
+            # Sort by expected copies (descending)
+            mainboard_frequencies.sort(
+                key=lambda x: (x.expected_copies, x.inclusion_rate), reverse=True
+            )
+            sideboard_frequencies.sort(
+                key=lambda x: (x.expected_copies, x.inclusion_rate), reverse=True
+            )
 
             logger.info(
                 f"Radar calculated: {len(mainboard_frequencies)} mainboard cards, "
@@ -201,12 +206,16 @@ class RadarService:
             # Inclusion rate: what % of decks include this card
             inclusion_rate = (appearances / total_decks) * 100 if total_decks > 0 else 0
 
-            # Saturation rate: how close to "always-a-four-of" (100% = always 4)
-            # This is: (avg copies when present / 4) * inclusion rate
-            # So a card that appears in 100% of decks as a 4-of = 100%
-            # A card that appears in 50% of decks as a 4-of = 50%
-            # A card that appears in 100% of decks as a 2-of = 50%
-            saturation_rate = (avg_copies / 4.0) * inclusion_rate if inclusion_rate > 0 else 0
+            # Expected copies across all analyzed decks (including decks with 0 copies)
+            expected_copies = total_copies / total_decks if total_decks > 0 else 0
+
+            # Build distribution including decks that don't run the card
+            copy_distribution: dict[int, int] = defaultdict(int)
+            for count in counts:
+                copy_distribution[count] += 1
+            zero_count = max(total_decks - appearances, 0)
+            if zero_count:
+                copy_distribution[0] += zero_count
 
             frequencies.append(
                 CardFrequency(
@@ -216,7 +225,8 @@ class RadarService:
                     max_copies=max_copies,
                     avg_copies=round(avg_copies, 2),
                     inclusion_rate=round(inclusion_rate, 1),
-                    saturation_rate=round(saturation_rate, 1),
+                    expected_copies=round(expected_copies, 2),
+                    copy_distribution=dict(sorted(copy_distribution.items(), reverse=True)),
                 )
             )
 
@@ -225,18 +235,18 @@ class RadarService:
     def export_radar_as_decklist(
         self,
         radar: RadarData,
-        min_saturation: float = 0.0,
+        min_expected_copies: float = 0.0,
         max_cards: int | None = None,
     ) -> str:
         """
         Export radar data as a standard deck list format.
 
         Cards are included based on their average count when present,
-        filtered by minimum saturation rate.
+        filtered by minimum expected copies per deck.
 
         Args:
             radar: RadarData to export
-            min_saturation: Minimum saturation rate to include (0-100)
+            min_expected_copies: Minimum expected copies to include (0-4+)
             max_cards: Maximum number of cards to include per zone (None = all)
 
         Returns:
@@ -246,7 +256,7 @@ class RadarService:
 
         # Filter and format mainboard
         mainboard = [
-            card for card in radar.mainboard_cards if card.saturation_rate >= min_saturation
+            card for card in radar.mainboard_cards if card.expected_copies >= min_expected_copies
         ]
         if max_cards is not None:
             mainboard = mainboard[:max_cards]
@@ -258,7 +268,7 @@ class RadarService:
 
         # Add sideboard section
         sideboard = [
-            card for card in radar.sideboard_cards if card.saturation_rate >= min_saturation
+            card for card in radar.sideboard_cards if card.expected_copies >= min_expected_copies
         ]
         if max_cards is not None:
             sideboard = sideboard[:max_cards]
