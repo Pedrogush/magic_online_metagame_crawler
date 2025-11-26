@@ -356,7 +356,7 @@ class AppEventHandlers:
     # Builder Panel Handlers
     def _on_builder_search(self: AppFrame) -> None:
         card_manager = self.controller.card_repo.get_card_manager()
-        if not card_manager:
+        if not card_manager or not self.controller.card_repo.is_card_data_loaded():
             if not self.controller.card_repo.is_card_data_loading():
                 self.ensure_card_data_loaded()
             if not self.card_data_dialogs_disabled:
