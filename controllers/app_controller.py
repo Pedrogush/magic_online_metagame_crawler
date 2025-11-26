@@ -43,6 +43,7 @@ from utils.constants import (
     ensure_base_dirs,
 )
 from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
+from utils.mtgo_bridge import runtime_status
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
@@ -403,6 +404,19 @@ class AppController:
         return True, f"Processing {len(todays_decks)} decks"
 
     # ============= Collection Management =============
+
+    def check_mtgo_bridge_status(self) -> None:
+        """Check MTGO bridge availability and update UI button states."""
+        callbacks = self._ui_callbacks
+        on_mtgo_status = callbacks.get("on_mtgo_status_change")
+
+        ready, error_msg = runtime_status()
+
+        if on_mtgo_status:
+            on_mtgo_status(ready)
+
+        if not ready:
+            logger.debug(f"MTGO bridge not available: {error_msg}")
 
     def load_collection_from_cache(self, directory: Path) -> tuple[bool, dict[str, Any] | None]:
         try:
@@ -784,6 +798,10 @@ class AppController:
             force_cached=self._bulk_cache_force,
         )
 
+        # Step 5: Check MTGO bridge status and start periodic checking
+        self.check_mtgo_bridge_status()
+        self._start_mtgo_status_monitoring()
+
     # ============= Frame Factory =============
 
     def create_frame(self, parent: wx.Window | None = None) -> AppFrame:
@@ -834,6 +852,9 @@ class AppController:
                 frame._on_bulk_data_downloaded, msg
             ),
             "on_bulk_download_failed": lambda msg: wx.CallAfter(frame._on_bulk_data_failed, msg),
+            "on_mtgo_status_change": lambda ready: wx.CallAfter(
+                frame.toolbar.enable_mtgo_buttons, ready
+            ),
         }
 
         # Restore UI state from controller's session data
@@ -849,6 +870,20 @@ class AppController:
         return frame
 
     # ============= MTGO Background Fetch =============
+
+    def _start_mtgo_status_monitoring(self) -> None:
+        """Start background thread to periodically check MTGO bridge status."""
+
+        def mtgo_status_check_task():
+            """Background task to check MTGO bridge status every 30 seconds."""
+            while True:
+                time.sleep(30)
+                try:
+                    self.check_mtgo_bridge_status()
+                except Exception as exc:
+                    logger.error(f"MTGO status check failed: {exc}", exc_info=True)
+
+        BackgroundWorker(mtgo_status_check_task).start()
 
     def _start_mtgo_background_fetch(self) -> None:
         """Start background thread to fetch MTGO data continuously."""

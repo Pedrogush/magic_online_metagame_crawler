@@ -140,8 +140,8 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         right_panel.SetSizer(right_sizer)
 
         # Toolbar
-        toolbar = self._build_toolbar(right_panel)
-        right_sizer.Add(toolbar, 0, wx.EXPAND | wx.BOTTOM, 6)
+        self.toolbar = self._build_toolbar(right_panel)
+        right_sizer.Add(self.toolbar, 0, wx.EXPAND | wx.BOTTOM, 6)
 
         card_data_controls = self._build_card_data_controls(right_panel)
         right_sizer.Add(card_data_controls, 0, wx.EXPAND | wx.BOTTOM, 10)
