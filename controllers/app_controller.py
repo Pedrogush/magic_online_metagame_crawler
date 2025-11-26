@@ -40,6 +40,7 @@ from utils.constants import (
     DECKS_DIR,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
     FORMAT_OPTIONS,
+    ensure_base_dirs,
 )
 from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
 
@@ -82,6 +83,8 @@ class BackgroundWorker:
 class AppController:
 
     def __init__(self):
+        ensure_base_dirs()
+
         # Services and repositories
         self.deck_repo = get_deck_repository()
         self.metagame_repo = get_metagame_repository()

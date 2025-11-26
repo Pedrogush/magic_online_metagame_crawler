@@ -3,8 +3,7 @@ name: Pre-Commit Validation
 on:
   push:
     branches-ignore:
-      - main  # Main branch uses full CI workflow
-  pull_request:
+      - main  # Main branch uses full CI workflow for PRs to main
 
 jobs:
   lint-and-format:
