@@ -1,7 +1,7 @@
 """Background service for fetching MTGO data."""
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
@@ -160,7 +160,7 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
         logger.info(f"Fetching MTGO event: {event_url}")
 
         payload = fetch_deck_event(event_url)
-        event_date = payload.get("publish_date", datetime.now().isoformat()[:10])
+        event_date = payload.get("publish_date", datetime.now(timezone.utc).isoformat()[:10])
 
         raw_decklists = payload.get("decklists", [])
         logger.debug(f"Found {len(raw_decklists)} decklists in event")
@@ -222,7 +222,7 @@ def fetch_mtgo_data_background(days: int = 7, mtg_format: str = "modern", delay:
     logger.info(f"Starting MTGO background fetch for past {days} days")
 
     start_time = time.time()
-    end_date = datetime.now()
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
 
     # Fetch event list
