@@ -99,8 +99,12 @@ def save_mtgo_deck_metadata(archetype: str, mtg_format: str, deck_metadata: dict
 
     try:
         if MTGO_METADATA_CACHE.exists():
-            with MTGO_METADATA_CACHE.open("r", encoding="utf-8") as fh:
-                data = json.load(fh)
+            try:
+                with MTGO_METADATA_CACHE.open("r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except json.JSONDecodeError:
+                logger.warning("MTGO metadata cache invalid JSON; resetting file")
+                data = {}
         else:
             data = {}
 
@@ -138,8 +142,12 @@ def load_mtgo_deck_metadata(archetype: str, mtg_format: str) -> list[dict]:
         if not MTGO_METADATA_CACHE.exists():
             return []
 
-        with MTGO_METADATA_CACHE.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
+        try:
+            with MTGO_METADATA_CACHE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except json.JSONDecodeError:
+            logger.warning("MTGO metadata cache invalid JSON; returning empty results")
+            return []
 
         return data.get(cache_key, [])
 

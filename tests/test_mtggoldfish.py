@@ -142,7 +142,8 @@ class TestCacheLoading:
 
     def test_load_cached_archetypes_missing_file(self, temp_archetype_list_file):
         """Test loading archetypes when cache file doesn't exist."""
-        result = _load_cached_archetypes("modern", max_age=3600)
+        with patch("navigators.mtggoldfish.ARCHETYPE_LIST_CACHE_FILE", temp_archetype_list_file):
+            result = _load_cached_archetypes("modern", max_age=3600)
         assert result is None
 
     def test_load_cached_archetypes_invalid_json(self, temp_archetype_list_file):
@@ -447,4 +448,4 @@ class TestDownloadDeck:
 
         assert temp_curr_deck_file.exists()
         assert temp_curr_deck_file.read_text() == deck_text
-        mock_fetch.assert_called_once_with("123456")
+        mock_fetch.assert_called_once_with("123456", source_filter=None)
