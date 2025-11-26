@@ -31,9 +31,12 @@ CONFIG_DIR = Path("config")
 CACHE_DIR = Path("cache")
 DECKS_DIR = Path("decks")
 DECK_SAVE_DIR = DECKS_DIR
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-DECKS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_base_dirs() -> None:
+    """Ensure base config/cache/deck directories exist without importing side effects."""
+    for path in (CONFIG_DIR, CACHE_DIR, DECKS_DIR):
+        path.mkdir(parents=True, exist_ok=True)
 
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DECK_MONITOR_CONFIG_FILE = CONFIG_DIR / "deck_monitor_config.json"
@@ -69,6 +72,7 @@ __all__ = [
     "ARCHETYPE_DECKS_CACHE_FILE",
     "DECK_CACHE_FILE",
     "CURR_DECK_FILE",
+    "ensure_base_dirs",
 ]
 
 """Gameplay-related constants shared across services."""
