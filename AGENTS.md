@@ -32,6 +32,12 @@
 - For PRs: describe scope, testing (`python3 -m pytest ...`), and any UI-impacting changes; link issues when applicable.
 - Avoid force-push on shared branches; prefer small, reviewable changes.
 
+## Agent Workflow
+- Start new tasks by checking out `main`, pulling from remote, then creating a new branch for the work.
+- Each turn in a conversation should either commit work to the remote branch or ask clarifying follow-up questions to improve instructions.
+- Always run `python3 -m ruff check .` and `python3 -m black --check .` before opening pull requests.
+- Completing a task should culminate in raising a pull request targeting `main`.
+
 ## Security & Configuration Tips
 - Secrets live outside the repo; do not commit host-specific configs (`pytest_host.conf.example` documents required vars).
 - MTGO bridge path can be overridden via `MTGO_BRIDGE_PATH`; avoid hardcoding local paths in code or tests.
