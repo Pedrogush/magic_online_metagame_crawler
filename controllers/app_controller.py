@@ -31,6 +31,7 @@ from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
+from utils import mtgo_bridge_client
 from utils.card_data import CardDataManager
 from utils.constants import (
     CACHE_DIR,
@@ -43,7 +44,6 @@ from utils.constants import (
     ensure_base_dirs,
 )
 from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
-from utils.mtgo_bridge import runtime_status
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
@@ -406,17 +406,28 @@ class AppController:
     # ============= Collection Management =============
 
     def check_mtgo_bridge_status(self) -> None:
-        """Check MTGO bridge availability and update UI button states."""
+        """Check if MTGO is running and logged in, then update UI button states."""
         callbacks = self._ui_callbacks
         on_mtgo_status = callbacks.get("on_mtgo_status_change")
 
-        ready, error_msg = runtime_status()
+        mtgo_ready = False
+        try:
+            payload = mtgo_bridge_client.run_bridge_command("username", timeout=2.0)
+            if isinstance(payload, dict):
+                username = payload.get("username")
+                error = payload.get("error")
+                if username and not error:
+                    mtgo_ready = True
+                    logger.debug(f"MTGO ready: logged in as {username}")
+                else:
+                    logger.debug(f"MTGO not ready: {error or 'no username'}")
+        except mtgo_bridge_client.BridgeCommandError as exc:
+            logger.debug(f"MTGO not ready: {exc}")
+        except Exception as exc:
+            logger.debug(f"MTGO status check failed: {exc}")
 
         if on_mtgo_status:
-            on_mtgo_status(ready)
-
-        if not ready:
-            logger.debug(f"MTGO bridge not available: {error_msg}")
+            on_mtgo_status(mtgo_ready)
 
     def load_collection_from_cache(self, directory: Path) -> tuple[bool, dict[str, Any] | None]:
         try:
