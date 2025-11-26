@@ -20,12 +20,12 @@ import json
 import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime
 
 try:  # Python 3.11+ has UTC
     from datetime import UTC
 except ImportError:  # pragma: no cover - compatibility shim for Python 3.10
-    UTC = timezone.utc
+    UTC = UTC
 from pathlib import Path, PureWindowsPath
 from typing import Any
 

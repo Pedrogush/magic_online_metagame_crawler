@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 try:
     from datetime import UTC
 except ImportError:  # pragma: no cover - Python 3.10 fallback
-    UTC = timezone.utc
+    UTC = UTC
 
 from utils.metagame_stats import (
     _filter_decks,
