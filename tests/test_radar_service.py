@@ -59,29 +59,32 @@ def test_calculate_frequencies_basic():
     counter = next(f for f in frequencies if f.card_name == "Counterspell")
     consider = next(f for f in frequencies if f.card_name == "Consider")
 
-    # Lightning Bolt: 100% inclusion, always 4-of = 100% saturation
+    # Lightning Bolt: 100% inclusion, always 4-of = 4.0 expected copies
     assert bolt.appearances == 3
     assert bolt.total_copies == 12
     assert bolt.max_copies == 4
     assert bolt.avg_copies == 4.0
     assert bolt.inclusion_rate == 100.0
-    assert bolt.saturation_rate == 100.0
+    assert bolt.expected_copies == 4.0
+    assert bolt.copy_distribution == {4: 3}
 
-    # Counterspell: 66.7% inclusion, 2-of when present = 33.3% saturation
+    # Counterspell: 66.7% inclusion, 2-of when present = 1.33 expected copies
     assert counter.appearances == 2
     assert counter.total_copies == 4
     assert counter.max_copies == 2
     assert counter.avg_copies == 2.0
     assert counter.inclusion_rate == pytest.approx(66.7, abs=0.1)
-    assert counter.saturation_rate == pytest.approx(33.3, abs=0.1)
+    assert counter.expected_copies == pytest.approx(1.33, abs=0.01)
+    assert counter.copy_distribution == {2: 2, 0: 1}
 
-    # Consider: 33.3% inclusion, 4-of when present = 33.3% saturation
+    # Consider: 33.3% inclusion, 4-of when present = 1.33 expected copies
     assert consider.appearances == 1
     assert consider.total_copies == 4
     assert consider.max_copies == 4
     assert consider.avg_copies == 4.0
     assert consider.inclusion_rate == pytest.approx(33.3, abs=0.1)
-    assert consider.saturation_rate == pytest.approx(33.3, abs=0.1)
+    assert consider.expected_copies == pytest.approx(1.33, abs=0.01)
+    assert consider.copy_distribution == {4: 1, 0: 2}
 
 
 def test_calculate_radar_success(
@@ -143,11 +146,11 @@ def test_calculate_radar_success(
     # Check mainboard cards
     assert len(radar.mainboard_cards) == 2  # Lightning Bolt and Island
 
-    # Lightning Bolt should be first (100% saturation)
+    # Lightning Bolt should be first (highest expected copies)
     bolt = radar.mainboard_cards[0]
     assert bolt.card_name == "Lightning Bolt"
     assert bolt.inclusion_rate == 100.0
-    assert bolt.saturation_rate == 100.0
+    assert bolt.expected_copies == 4.0
 
     # Island should be second (varies in count)
     island = radar.mainboard_cards[1]
@@ -196,26 +199,71 @@ def test_export_radar_as_decklist():
         archetype_name="Test Archetype",
         format_name="Modern",
         mainboard_cards=[
-            CardFrequency("Lightning Bolt", 10, 40, 4, 4.0, 100.0, 100.0),
-            CardFrequency("Counterspell", 5, 10, 2, 2.0, 50.0, 25.0),
-            CardFrequency("Consider", 3, 3, 1, 1.0, 30.0, 7.5),
+            CardFrequency(
+                "Lightning Bolt",
+                10,
+                40,
+                4,
+                4.0,
+                100.0,
+                4.0,
+                {4: 10},
+            ),
+            CardFrequency(
+                "Counterspell",
+                5,
+                10,
+                2,
+                2.0,
+                50.0,
+                1.0,
+                {2: 5, 0: 5},
+            ),
+            CardFrequency(
+                "Consider",
+                3,
+                3,
+                1,
+                1.0,
+                30.0,
+                0.3,
+                {1: 3, 0: 7},
+            ),
         ],
         sideboard_cards=[
-            CardFrequency("Abrade", 8, 16, 2, 2.0, 80.0, 40.0),
-            CardFrequency("Negate", 2, 2, 1, 1.0, 20.0, 5.0),
+            CardFrequency(
+                "Abrade",
+                8,
+                16,
+                2,
+                2.0,
+                80.0,
+                1.6,
+                {2: 8, 0: 2},
+            ),
+            CardFrequency(
+                "Negate",
+                2,
+                2,
+                1,
+                1.0,
+                20.0,
+                0.2,
+                {1: 2, 0: 8},
+            ),
         ],
         total_decks_analyzed=10,
         decks_failed=0,
     )
 
-    # Export with minimum saturation of 20%
-    decklist = service.export_radar_as_decklist(radar, min_saturation=20.0)
+    # Export with minimum expected copies of 0.5
+    decklist = service.export_radar_as_decklist(radar, min_expected_copies=0.5)
 
     # Parse the decklist
     decklist.split("\n")
 
-    # Should include Lightning Bolt (100%), Counterspell (25%), Abrade (40%)
-    # Should exclude Consider (7.5%) and Negate (5%)
+    # Should include Lightning Bolt (4.0 expected), Counterspell (1.0), Abrade (1.6)
+    # Should exclude Consider (0.3) and Negate (0.2)
     assert "4 Lightning Bolt" in decklist
     assert "2 Counterspell" in decklist
     assert "2 Abrade" in decklist
@@ -234,12 +282,12 @@ def test_get_radar_card_names():
         archetype_name="Test",
         format_name="Modern",
         mainboard_cards=[
-            CardFrequency("Card A", 1, 1, 1, 1.0, 100.0, 100.0),
-            CardFrequency("Card B", 1, 1, 1, 1.0, 100.0, 100.0),
+            CardFrequency("Card A", 1, 1, 1, 1.0, 100.0, 1.0, {1: 1}),
+            CardFrequency("Card B", 1, 1, 1, 1.0, 100.0, 1.0, {1: 1}),
         ],
         sideboard_cards=[
-            CardFrequency("Card C", 1, 1, 1, 1.0, 100.0, 100.0),
-            CardFrequency("Card D", 1, 1, 1, 1.0, 100.0, 100.0),
+            CardFrequency("Card C", 1, 1, 1, 1.0, 100.0, 1.0, {1: 1}),
+            CardFrequency("Card D", 1, 1, 1, 1.0, 100.0, 1.0, {1: 1}),
         ],
         total_decks_analyzed=1,
         decks_failed=0,

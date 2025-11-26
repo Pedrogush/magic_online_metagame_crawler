@@ -1,7 +1,7 @@
 """
 Radar Panel - Displays archetype card frequency analysis.
 
-Shows mainboard and sideboard card frequencies with inclusion rates and saturation percentages.
+Shows mainboard and sideboard card frequencies with inclusion rates and expected copies.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import wx
 import wx.dataview as dv
 from loguru import logger
 
-from services.radar_service import RadarData, RadarService, get_radar_service
+from services.radar_service import CardFrequency, RadarData, RadarService, get_radar_service
 from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT
 
 
@@ -95,11 +95,12 @@ class RadarPanel(wx.Panel):
         self.mainboard_list = dv.DataViewListCtrl(self)
         self.mainboard_list.AppendTextColumn("Card", width=200)
         self.mainboard_list.AppendTextColumn("Inclusion %", width=90)
-        self.mainboard_list.AppendTextColumn("Saturation %", width=90)
+        self.mainboard_list.AppendTextColumn("Expected Copies", width=120)
         self.mainboard_list.AppendTextColumn("Avg Copies", width=90)
         self.mainboard_list.AppendTextColumn("Max", width=60)
         self.mainboard_list.SetBackgroundColour(DARK_ALT)
         self.mainboard_list.SetForegroundColour(LIGHT_TEXT)
+        self._bind_tooltip_handlers(self.mainboard_list)
         mainboard_box_sizer.Add(self.mainboard_list, 1, wx.EXPAND | wx.ALL, 6)
 
         # Sideboard section
@@ -111,11 +112,12 @@ class RadarPanel(wx.Panel):
         self.sideboard_list = dv.DataViewListCtrl(self)
         self.sideboard_list.AppendTextColumn("Card", width=200)
         self.sideboard_list.AppendTextColumn("Inclusion %", width=90)
-        self.sideboard_list.AppendTextColumn("Saturation %", width=90)
+        self.sideboard_list.AppendTextColumn("Expected Copies", width=120)
         self.sideboard_list.AppendTextColumn("Avg Copies", width=90)
         self.sideboard_list.AppendTextColumn("Max", width=60)
         self.sideboard_list.SetBackgroundColour(DARK_ALT)
         self.sideboard_list.SetForegroundColour(LIGHT_TEXT)
+        self._bind_tooltip_handlers(self.sideboard_list)
         sideboard_box_sizer.Add(self.sideboard_list, 1, wx.EXPAND | wx.ALL, 6)
 
     # ============= Public API =============
@@ -162,7 +164,9 @@ class RadarPanel(wx.Panel):
 
     # ============= Private Methods =============
 
-    def _populate_card_list(self, list_ctrl: dv.DataViewListCtrl, cards: list) -> None:
+    def _populate_card_list(
+        self, list_ctrl: dv.DataViewListCtrl, cards: list[CardFrequency]
+    ) -> None:
         """
         Populate a list control with card frequency data.
 
@@ -177,11 +181,77 @@ class RadarPanel(wx.Panel):
                 [
                     card.card_name,
                     f"{card.inclusion_rate:.1f}%",
-                    f"{card.saturation_rate:.1f}%",
+                    f"{card.expected_copies:.2f}",
                     f"{card.avg_copies:.2f}",
                     str(card.max_copies),
                 ]
             )
+
+    def _bind_tooltip_handlers(self, list_ctrl: dv.DataViewListCtrl) -> None:
+        """Attach mouse handlers to update tooltips per row."""
+        list_ctrl.Bind(wx.EVT_MOTION, lambda event: self._on_list_mouse_move(list_ctrl, event))
+        list_ctrl.Bind(wx.EVT_LEAVE_WINDOW, lambda event: self._clear_tooltip(list_ctrl, event))
+
+    def _on_list_mouse_move(self, list_ctrl: dv.DataViewListCtrl, event: wx.MouseEvent) -> None:
+        """Show copy distribution tooltip for the row under the cursor."""
+        if not self.current_radar:
+            self._clear_tooltip(list_ctrl, event)
+            return
+
+        hit = list_ctrl.HitTest(event.GetPosition())
+        if not hit or len(hit) < 2:
+            self._clear_tooltip(list_ctrl, event)
+            return
+
+        item = hit[0]
+        if not item or not item.IsOk():
+            self._clear_tooltip(list_ctrl, event)
+            return
+
+        row = list_ctrl.ItemToRow(item)
+        if row == wx.NOT_FOUND:
+            self._clear_tooltip(list_ctrl, event)
+            return
+
+        cards = (
+            self.current_radar.mainboard_cards
+            if list_ctrl is self.mainboard_list
+            else self.current_radar.sideboard_cards
+        )
+        if row >= len(cards):
+            self._clear_tooltip(list_ctrl, event)
+            return
+
+        tooltip_text = self._format_distribution_tooltip(
+            cards[row],
+            self.current_radar.total_decks_analyzed,
+        )
+        current_tip = list_ctrl.GetToolTipText() if list_ctrl.GetToolTip() else ""
+        if tooltip_text and tooltip_text != current_tip:
+            list_ctrl.SetToolTip(tooltip_text)
+        elif not tooltip_text and current_tip:
+            list_ctrl.SetToolTip("")
+
+        event.Skip()
+
+    def _clear_tooltip(self, list_ctrl: dv.DataViewListCtrl, event: wx.Event | None = None) -> None:
+        """Remove any tooltip when leaving the control or losing hover context."""
+        if list_ctrl.GetToolTip():
+            list_ctrl.SetToolTip("")
+        if event:
+            event.Skip()
+
+    def _format_distribution_tooltip(self, card: CardFrequency, total_decks: int) -> str:
+        """Build tooltip text summarizing how many decks play each copy count."""
+        if total_decks <= 0:
+            return ""
+
+        lines = [f"{total_decks} decks analyzed"]
+        for copies, deck_count in card.copy_distribution.items():
+            copy_label = "copy" if copies == 1 else "copies"
+            lines.append(f"{deck_count} decks use {copies} {copy_label}")
+
+        return "\n".join(lines)
 
     def _on_export_clicked(self, event: wx.Event) -> None:
         """Handle export button click."""
@@ -385,22 +455,25 @@ class RadarDialog(wx.Dialog):
         Args:
             radar: RadarData to export
         """
-        # Ask for minimum saturation threshold
+        # Ask for minimum expected copies threshold
         dlg = wx.TextEntryDialog(
             self,
-            "Enter minimum saturation % (0-100):\n" "(100% = always-a-four-of)",
+            "Enter minimum expected copies (0-4):\n"
+            "Expected copies represent the average copies per deck in the sample.",
             "Export Radar as Decklist",
             "0",
         )
 
         if dlg.ShowModal() == wx.ID_OK:
             try:
-                min_saturation = float(dlg.GetValue())
-                if min_saturation < 0 or min_saturation > 100:
-                    raise ValueError("Must be between 0 and 100")
+                min_expected = float(dlg.GetValue())
+                if min_expected < 0 or min_expected > 4:
+                    raise ValueError("Must be between 0 and 4")
 
                 # Generate deck list
-                decklist = self.radar_service.export_radar_as_decklist(radar, min_saturation)
+                decklist = self.radar_service.export_radar_as_decklist(
+                    radar, min_expected_copies=min_expected
+                )
 
                 # Save to file
                 with wx.FileDialog(
@@ -416,7 +489,7 @@ class RadarDialog(wx.Dialog):
                         logger.info(f"Radar exported to {path}")
 
             except ValueError as exc:
-                logger.exception(f"Invalid saturation value: {exc}")
+                logger.exception(f"Invalid expected copies value: {exc}")
 
         dlg.Destroy()
 
