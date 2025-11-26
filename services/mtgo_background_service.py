@@ -94,15 +94,17 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
 
     Returns list of event URLs.
     """
-    logger.debug(f"Fetching MTGO events for {mtg_format} from {start_date.date()} to {end_date.date()}")
+    logger.info(f"Fetching MTGO events for {mtg_format} from {start_date.date()} to {end_date.date()}")
     events = []
     current_date = start_date
 
+    logger.info(f"Starting loop: current_date={current_date.date()}, end_date={end_date.date()}, condition={current_date <= end_date}")
     while current_date <= end_date:
+        logger.info(f"Loop iteration for {current_date.year}-{current_date.month:02d}")
         try:
-            logger.debug(f"Fetching decklist index for {current_date.year}-{current_date.month:02d}")
+            logger.info(f"Calling fetch_decklist_index({current_date.year}, {current_date.month})")
             entries = fetch_decklist_index(current_date.year, current_date.month)
-            logger.debug(f"Found {len(entries)} total entries for {current_date.year}-{current_date.month:02d}")
+            logger.info(f"fetch_decklist_index returned {len(entries)} total entries for {current_date.year}-{current_date.month:02d}")
 
             # Filter for the format and date range
             matching_entries = 0
@@ -129,7 +131,7 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
                 except (ValueError, AttributeError):
                     pass
 
-            logger.debug(f"Found {matching_entries} {mtg_format} events in date range for {current_date.year}-{current_date.month:02d}")
+            logger.info(f"Found {matching_entries} {mtg_format} events in date range for {current_date.year}-{current_date.month:02d}")
 
             # Move to next month if needed
             if current_date.month == 12:
@@ -138,10 +140,10 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
                 current_date = datetime(current_date.year, current_date.month + 1, 1)
 
         except Exception as exc:
-            logger.warning(f"Failed to fetch events for {current_date.year}-{current_date.month}: {exc}")
+            logger.error(f"Failed to fetch events for {current_date.year}-{current_date.month}: {exc}", exc_info=True)
             current_date = datetime(current_date.year, current_date.month + 1, 1)
 
-    logger.debug(f"Total events found: {len(events)}")
+    logger.info(f"Total events found: {len(events)}")
     return events
 
 
