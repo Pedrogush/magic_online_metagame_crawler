@@ -849,17 +849,30 @@ class AppController:
     # ============= MTGO Background Fetch =============
 
     def _start_mtgo_background_fetch(self) -> None:
-        """Start background thread to fetch MTGO data for the past 7 days."""
+        """Start background thread to fetch MTGO data continuously."""
         from services.mtgo_background_service import fetch_mtgo_data_background
 
         def mtgo_fetch_task():
-            """Background task to fetch MTGO data."""
-            try:
-                logger.info("Starting MTGO background fetch...")
-                stats = fetch_mtgo_data_background(days=7, mtg_format="modern", delay=2.0)
-                logger.info(f"MTGO fetch complete: {stats['total_decks_cached']} decks cached")
-            except Exception as exc:
-                logger.error(f"MTGO background fetch failed: {exc}")
+            """Background task to fetch MTGO data continuously."""
+            # Formats to fetch (in priority order)
+            formats = ["modern", "standard", "pioneer", "legacy"]
+
+            while True:
+                for mtg_format in formats:
+                    try:
+                        logger.info(f"Starting MTGO background fetch for {mtg_format}...")
+                        stats = fetch_mtgo_data_background(days=7, mtg_format=mtg_format, delay=2.0)
+                        logger.info(
+                            f"MTGO fetch complete for {mtg_format}: "
+                            f"{stats['total_decks_cached']} decks cached from "
+                            f"{stats['events_processed']}/{stats['events_found']} events"
+                        )
+                    except Exception as exc:
+                        logger.error(f"MTGO background fetch failed for {mtg_format}: {exc}", exc_info=True)
+
+                # Wait 1 hour before fetching again
+                logger.info("MTGO background fetch cycle complete. Waiting 1 hour before next cycle...")
+                time.sleep(3600)
 
         # Start the background thread
         BackgroundWorker(mtgo_fetch_task).start()

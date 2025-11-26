@@ -94,14 +94,18 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
 
     Returns list of event URLs.
     """
+    logger.debug(f"Fetching MTGO events for {mtg_format} from {start_date.date()} to {end_date.date()}")
     events = []
     current_date = start_date
 
     while current_date <= end_date:
         try:
+            logger.debug(f"Fetching decklist index for {current_date.year}-{current_date.month:02d}")
             entries = fetch_decklist_index(current_date.year, current_date.month)
+            logger.debug(f"Found {len(entries)} total entries for {current_date.year}-{current_date.month:02d}")
 
             # Filter for the format and date range
+            matching_entries = 0
             for entry in entries:
                 if not entry.get("format"):
                     continue
@@ -121,8 +125,11 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
                                 "date": entry["publish_date"],
                                 "event_type": entry.get("event_type", "unknown")
                             })
+                            matching_entries += 1
                 except (ValueError, AttributeError):
                     pass
+
+            logger.debug(f"Found {matching_entries} {mtg_format} events in date range for {current_date.year}-{current_date.month:02d}")
 
             # Move to next month if needed
             if current_date.month == 12:
@@ -134,15 +141,17 @@ def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_f
             logger.warning(f"Failed to fetch events for {current_date.year}-{current_date.month}: {exc}")
             current_date = datetime(current_date.year, current_date.month + 1, 1)
 
+    logger.debug(f"Total events found: {len(events)}")
     return events
 
 
-def process_mtgo_event(event_url: str, delay: float = 2.0):
+def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float = 2.0):
     """
     Fetch and process a single MTGO event.
 
     Args:
         event_url: URL of the MTGO event
+        mtg_format: Format for archetype classification (default: "modern")
         delay: Delay in seconds between requests (default: 2.0)
     """
     try:
@@ -151,25 +160,40 @@ def process_mtgo_event(event_url: str, delay: float = 2.0):
         payload = fetch_deck_event(event_url)
         event_date = payload.get("publish_date", datetime.now().isoformat()[:10])
 
+        raw_decklists = payload.get("decklists", [])
+        logger.debug(f"Found {len(raw_decklists)} decklists in event")
+
+        if not raw_decklists:
+            logger.warning(f"No decklists found in event {event_url}")
+            return 0
+
         classifier = ArchetypeClassifier()
         deck_cache = get_deck_cache()
 
-        clean_decks = [parse_mtgo_deck(raw_deck) for raw_deck in payload.get("decklists", [])]
+        clean_decks = [parse_mtgo_deck(raw_deck) for raw_deck in raw_decklists]
         classifier_decks = [convert_deck_to_classifier_format(deck) for deck in clean_decks]
 
-        classifier.assign_archetypes(classifier_decks, "modern")
+        logger.debug(f"Assigning archetypes for {len(classifier_decks)} decks using format: {mtg_format}")
+        classifier.assign_archetypes(classifier_decks, mtg_format)
 
         cached_count = 0
-        for clean_deck, classifier_deck in zip(clean_decks, classifier_decks):
+        for idx, (clean_deck, classifier_deck) in enumerate(zip(clean_decks, classifier_decks), 1):
             deck_id = clean_deck["deck_id"]
             if not deck_id:
+                logger.warning(f"Deck {idx} has no deck_id, skipping")
                 continue
 
             deck_text = deck_to_text(clean_deck)
-            deck_cache.set(deck_id, deck_text, source="mtgo")
-            cached_count += 1
+            logger.debug(f"Caching deck {idx}/{len(clean_decks)}: deck_id={deck_id}, len={len(deck_text)} chars")
 
-        logger.info(f"Cached {cached_count} decks from {event_url}")
+            success = deck_cache.set(deck_id, deck_text, source="mtgo")
+            if success:
+                cached_count += 1
+                logger.debug(f"Successfully cached deck {deck_id}")
+            else:
+                logger.warning(f"Failed to cache deck {deck_id}")
+
+        logger.info(f"Cached {cached_count}/{len(clean_decks)} decks from {event_url}")
 
         # Polite delay between events
         time.sleep(delay)
@@ -177,7 +201,7 @@ def process_mtgo_event(event_url: str, delay: float = 2.0):
         return cached_count
 
     except Exception as exc:
-        logger.error(f"Failed to process MTGO event {event_url}: {exc}")
+        logger.error(f"Failed to process MTGO event {event_url}: {exc}", exc_info=True)
         return 0
 
 
@@ -210,7 +234,7 @@ def fetch_mtgo_data_background(days: int = 7, mtg_format: str = "modern", delay:
     for idx, event in enumerate(events, 1):
         logger.info(f"Processing event {idx}/{len(events)}: {event['title']}")
 
-        decks_cached = process_mtgo_event(event["url"], delay=delay)
+        decks_cached = process_mtgo_event(event["url"], mtg_format=mtg_format, delay=delay)
 
         if decks_cached > 0:
             successful_events += 1
