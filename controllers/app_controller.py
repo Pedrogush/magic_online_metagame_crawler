@@ -31,6 +31,7 @@ from services.deck_service import get_deck_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
+from utils import mtgo_bridge_client
 from utils.card_data import CardDataManager
 from utils.constants import (
     CACHE_DIR,
@@ -403,6 +404,30 @@ class AppController:
         return True, f"Processing {len(todays_decks)} decks"
 
     # ============= Collection Management =============
+
+    def check_mtgo_bridge_status(self) -> None:
+        """Check if MTGO is running and logged in, then update UI button states."""
+        callbacks = self._ui_callbacks
+        on_mtgo_status = callbacks.get("on_mtgo_status_change")
+
+        mtgo_ready = False
+        try:
+            payload = mtgo_bridge_client.run_bridge_command("username", timeout=2.0)
+            if isinstance(payload, dict):
+                username = payload.get("username")
+                error = payload.get("error")
+                if username and not error:
+                    mtgo_ready = True
+                    logger.debug(f"MTGO ready: logged in as {username}")
+                else:
+                    logger.debug(f"MTGO not ready: {error or 'no username'}")
+        except mtgo_bridge_client.BridgeCommandError as exc:
+            logger.debug(f"MTGO not ready: {exc}")
+        except Exception as exc:
+            logger.debug(f"MTGO status check failed: {exc}")
+
+        if on_mtgo_status:
+            on_mtgo_status(mtgo_ready)
 
     def load_collection_from_cache(self, directory: Path) -> tuple[bool, dict[str, Any] | None]:
         try:
@@ -784,6 +809,10 @@ class AppController:
             force_cached=self._bulk_cache_force,
         )
 
+        # Step 5: Check MTGO bridge status and start periodic checking
+        self.check_mtgo_bridge_status()
+        self._start_mtgo_status_monitoring()
+
     # ============= Frame Factory =============
 
     def create_frame(self, parent: wx.Window | None = None) -> AppFrame:
@@ -834,6 +863,9 @@ class AppController:
                 frame._on_bulk_data_downloaded, msg
             ),
             "on_bulk_download_failed": lambda msg: wx.CallAfter(frame._on_bulk_data_failed, msg),
+            "on_mtgo_status_change": lambda ready: wx.CallAfter(
+                frame.toolbar.enable_mtgo_buttons, ready
+            ),
         }
 
         # Restore UI state from controller's session data
@@ -849,6 +881,20 @@ class AppController:
         return frame
 
     # ============= MTGO Background Fetch =============
+
+    def _start_mtgo_status_monitoring(self) -> None:
+        """Start background thread to periodically check MTGO bridge status."""
+
+        def mtgo_status_check_task():
+            """Background task to check MTGO bridge status every 30 seconds."""
+            while True:
+                time.sleep(30)
+                try:
+                    self.check_mtgo_bridge_status()
+                except Exception as exc:
+                    logger.error(f"MTGO status check failed: {exc}", exc_info=True)
+
+        BackgroundWorker(mtgo_status_check_task).start()
 
     def _start_mtgo_background_fetch(self) -> None:
         """Start background thread to fetch MTGO data continuously."""
