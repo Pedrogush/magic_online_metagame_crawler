@@ -9,6 +9,7 @@ This module handles all metagame-related data fetching including:
 
 import json
 import time
+from pathlib import Path
 from typing import Any, Final
 
 from loguru import logger
@@ -30,14 +31,24 @@ _USE_DEFAULT_MAX_AGE: Final = object()
 class MetagameRepository:
     """Repository for metagame data access operations."""
 
-    def __init__(self, cache_ttl: int = METAGAME_CACHE_TTL_SECONDS):
+    def __init__(
+        self,
+        cache_ttl: int = METAGAME_CACHE_TTL_SECONDS,
+        *,
+        archetype_list_cache_file: Path = ARCHETYPE_LIST_CACHE_FILE,
+        archetype_decks_cache_file: Path = ARCHETYPE_DECKS_CACHE_FILE,
+    ):
         """
         Initialize the metagame repository.
 
         Args:
             cache_ttl: Time-to-live for cached data in seconds (default: 1 hour)
+            archetype_list_cache_file: Path to archetype list cache (overridable for testing)
+            archetype_decks_cache_file: Path to archetype deck cache (overridable for testing)
         """
         self.cache_ttl = cache_ttl
+        self.archetype_list_cache_file = Path(archetype_list_cache_file)
+        self.archetype_decks_cache_file = Path(archetype_decks_cache_file)
 
     # ============= Archetype Operations =============
 
@@ -177,11 +188,11 @@ class MetagameRepository:
             max_age = _USE_DEFAULT_MAX_AGE
         effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
-        if not ARCHETYPE_LIST_CACHE_FILE.exists():
+        if not self.archetype_list_cache_file.exists():
             return None
 
         try:
-            with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            with self.archetype_list_cache_file.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except json.JSONDecodeError as exc:
             logger.warning(f"Cached archetype list invalid: {exc}")
@@ -210,8 +221,8 @@ class MetagameRepository:
         """
         try:
             # Load existing cache
-            if ARCHETYPE_LIST_CACHE_FILE.exists():
-                with ARCHETYPE_LIST_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            if self.archetype_list_cache_file.exists():
+                with self.archetype_list_cache_file.open("r", encoding="utf-8") as fh:
                     data = json.load(fh)
             else:
                 data = {}
@@ -220,8 +231,8 @@ class MetagameRepository:
             data[mtg_format] = {"timestamp": time.time(), "items": items}
 
             # Save back
-            ARCHETYPE_LIST_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with ARCHETYPE_LIST_CACHE_FILE.open("w", encoding="utf-8") as fh:
+            self.archetype_list_cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.archetype_list_cache_file.open("w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
 
             logger.debug(f"Cached {len(items)} archetypes for {mtg_format}")
@@ -245,11 +256,11 @@ class MetagameRepository:
             max_age = _USE_DEFAULT_MAX_AGE
         effective_max_age = self.cache_ttl if max_age is _USE_DEFAULT_MAX_AGE else max_age
 
-        if not ARCHETYPE_DECKS_CACHE_FILE.exists():
+        if not self.archetype_decks_cache_file.exists():
             return None
 
         try:
-            with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            with self.archetype_decks_cache_file.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except json.JSONDecodeError as exc:
             logger.warning(f"Cached deck list invalid: {exc}")
@@ -278,8 +289,8 @@ class MetagameRepository:
         """
         try:
             # Load existing cache
-            if ARCHETYPE_DECKS_CACHE_FILE.exists():
-                with ARCHETYPE_DECKS_CACHE_FILE.open("r", encoding="utf-8") as fh:
+            if self.archetype_decks_cache_file.exists():
+                with self.archetype_decks_cache_file.open("r", encoding="utf-8") as fh:
                     data = json.load(fh)
             else:
                 data = {}
@@ -288,8 +299,8 @@ class MetagameRepository:
             data[archetype_url] = {"timestamp": time.time(), "items": items}
 
             # Save back
-            ARCHETYPE_DECKS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with ARCHETYPE_DECKS_CACHE_FILE.open("w", encoding="utf-8") as fh:
+            self.archetype_decks_cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.archetype_decks_cache_file.open("w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
 
             logger.debug(f"Cached {len(items)} decks for archetype")
@@ -380,7 +391,7 @@ class MetagameRepository:
 
     def clear_cache(self) -> None:
         """Clear all metagame caches."""
-        for cache_file in [ARCHETYPE_LIST_CACHE_FILE, ARCHETYPE_DECKS_CACHE_FILE]:
+        for cache_file in [self.archetype_list_cache_file, self.archetype_decks_cache_file]:
             if cache_file.exists():
                 try:
                     cache_file.unlink()

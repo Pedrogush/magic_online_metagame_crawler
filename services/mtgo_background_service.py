@@ -2,7 +2,12 @@
 
 import json
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+try:
+    from datetime import UTC
+except ImportError:  # pragma: no cover - Python 3.10 fallback
+    UTC = timezone.utc
 
 from loguru import logger
 

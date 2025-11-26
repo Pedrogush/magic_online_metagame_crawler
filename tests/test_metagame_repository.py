@@ -14,19 +14,25 @@ def _write_cache(path, payload):
 
 
 @pytest.fixture
-def metagame_repo():
-    """MetagameRepository instance for testing."""
-    return MetagameRepository(cache_ttl=3600)
+def archetype_cache_file(tmp_path):
+    """Create a temporary archetype cache file."""
+    return tmp_path / "archetype_cache.json"
 
 
 @pytest.fixture
-def archetype_cache_file(tmp_path, monkeypatch):
-    """Create a temporary archetype cache file."""
-    import repositories.metagame_repository as metagame_repo_module
+def archetype_deck_cache_file(tmp_path):
+    """Create a temporary archetype deck cache file."""
+    return tmp_path / "archetype_decks_cache.json"
 
-    cache_file = tmp_path / "archetype_cache.json"
-    monkeypatch.setattr(metagame_repo_module, "ARCHETYPE_LIST_CACHE_FILE", cache_file)
-    return cache_file
+
+@pytest.fixture
+def metagame_repo(archetype_cache_file, archetype_deck_cache_file):
+    """MetagameRepository instance for testing."""
+    return MetagameRepository(
+        cache_ttl=3600,
+        archetype_list_cache_file=archetype_cache_file,
+        archetype_decks_cache_file=archetype_deck_cache_file,
+    )
 
 
 # ============= Cache Loading Tests =============
@@ -187,9 +193,15 @@ def test_save_cached_archetypes_update_existing_format(metagame_repo, archetype_
 # ============= Stale Fallback Tests =============
 
 
-def test_get_archetypes_returns_stale_cache_when_fetch_fails(archetype_cache_file, monkeypatch):
+def test_get_archetypes_returns_stale_cache_when_fetch_fails(
+    archetype_cache_file, archetype_deck_cache_file, monkeypatch
+):
     """Ensure stale archetype cache is returned when MTGGoldfish fetch fails."""
-    repo = MetagameRepository(cache_ttl=1)
+    repo = MetagameRepository(
+        cache_ttl=1,
+        archetype_list_cache_file=archetype_cache_file,
+        archetype_decks_cache_file=archetype_deck_cache_file,
+    )
     stale_items = [{"name": "UR Murktide"}]
     _write_cache(
         archetype_cache_file,

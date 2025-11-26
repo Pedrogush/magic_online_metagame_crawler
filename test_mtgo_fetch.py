@@ -2,9 +2,14 @@
 """Test script to verify MTGO deck metadata caching."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from loguru import logger
+
+try:
+    from datetime import UTC
+except ImportError:  # pragma: no cover - Python 3.10 fallback
+    UTC = timezone.utc
 
 from services.mtgo_background_service import (
     fetch_mtgo_events_for_period,
