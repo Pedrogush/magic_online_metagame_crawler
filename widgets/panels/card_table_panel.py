@@ -96,35 +96,39 @@ class CardTablePanel(wx.Panel):
         return True
 
     def _rebuild_grid(self) -> None:
-        self.grid_sizer.Clear(delete_windows=True)
-        self.card_widgets = []
-        self.active_panel = None
-        total = sum(card["qty"] for card in self.cards)
-        self.count_label.SetLabel(f"{total} card{'s' if total != 1 else ''}")
-        for card in self.cards:
-            cell = CardBoxPanel(
-                self.scroller,
-                self.zone,
-                card,
-                self.icon_factory,
-                self._get_metadata,
-                self._owned_status,
-                self._on_delta,
-                self._on_remove,
-                self._handle_card_click,
-            )
-            self.grid_sizer.Add(cell, 0, wx.EXPAND)
-            self.card_widgets.append(cell)
-        remainder = len(self.cards) % 4
-        if remainder:
-            for _ in range(4 - remainder):
-                spacer = wx.Panel(self.scroller)
-                spacer.SetBackgroundColour(DARK_PANEL)
-                self.grid_sizer.Add(spacer, 0, wx.EXPAND)
-        self.grid_sizer.Layout()
-        self.scroller.Layout()
-        self.scroller.FitInside()
-        self._restore_selection()
+        self.scroller.Freeze()
+        try:
+            self.grid_sizer.Clear(delete_windows=True)
+            self.card_widgets = []
+            self.active_panel = None
+            total = sum(card["qty"] for card in self.cards)
+            self.count_label.SetLabel(f"{total} card{'s' if total != 1 else ''}")
+            for card in self.cards:
+                cell = CardBoxPanel(
+                    self.scroller,
+                    self.zone,
+                    card,
+                    self.icon_factory,
+                    self._get_metadata,
+                    self._owned_status,
+                    self._on_delta,
+                    self._on_remove,
+                    self._handle_card_click,
+                )
+                self.grid_sizer.Add(cell, 0, wx.EXPAND)
+                self.card_widgets.append(cell)
+            remainder = len(self.cards) % 4
+            if remainder:
+                for _ in range(4 - remainder):
+                    spacer = wx.Panel(self.scroller)
+                    spacer.SetBackgroundColour(DARK_PANEL)
+                    self.grid_sizer.Add(spacer, 0, wx.EXPAND)
+            self.grid_sizer.Layout()
+            self.scroller.Layout()
+            self.scroller.FitInside()
+            self._restore_selection()
+        finally:
+            self.scroller.Thaw()
 
     def _handle_card_click(self, zone: str, card: dict[str, Any], panel: CardBoxPanel) -> None:
         if self.active_panel is panel:
