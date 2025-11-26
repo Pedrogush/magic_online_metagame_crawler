@@ -100,7 +100,9 @@ class MetagameRepository:
             cached = self._load_cached_decks(archetype_href)
             if cached is not None:
                 logger.debug(f"Using cached decks for {archetype_name}")
-                return self._filter_decks_by_source(cached, source_filter)
+                mtggoldfish_decks = self._filter_decks_by_source(cached, source_filter)
+                mtgo_decks = self._get_mtgo_decks_from_db(archetype_name, source_filter)
+                return self._merge_and_sort_decks(mtggoldfish_decks, mtgo_decks)
 
         # Fetch fresh data
         logger.info(f"Fetching fresh decks for {archetype_name}")
@@ -109,14 +111,18 @@ class MetagameRepository:
             decks = get_archetype_decks(archetype_href)
             # Cache the results
             self._save_cached_decks(archetype_href, decks)
-            return self._filter_decks_by_source(decks, source_filter)
+            mtggoldfish_decks = self._filter_decks_by_source(decks, source_filter)
+            mtgo_decks = self._get_mtgo_decks_from_db(archetype_name, source_filter)
+            return self._merge_and_sort_decks(mtggoldfish_decks, mtgo_decks)
         except Exception as exc:
             logger.error(f"Failed to fetch decks for {archetype_name}: {exc}")
             # Try to return stale cache if available
             cached = self._load_cached_decks(archetype_href, max_age=None)
             if cached:
                 logger.warning(f"Returning stale cached decks for {archetype_name}")
-                return self._filter_decks_by_source(cached, source_filter)
+                mtggoldfish_decks = self._filter_decks_by_source(cached, source_filter)
+                mtgo_decks = self._get_mtgo_decks_from_db(archetype_name, source_filter)
+                return self._merge_and_sort_decks(mtggoldfish_decks, mtgo_decks)
             raise
 
     def download_deck_content(self, deck: dict[str, Any], source_filter: str | None = None) -> str:
@@ -304,6 +310,70 @@ class MetagameRepository:
             return decks
 
         return [deck for deck in decks if deck.get("source") == source_filter]
+
+    def _get_mtgo_decks_from_db(
+        self, archetype_name: str, source_filter: str | None
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieve MTGO decks from JSON cache for a specific archetype.
+
+        Args:
+            archetype_name: Name of the archetype
+            source_filter: Optional source filter ('mtggoldfish', 'mtgo', or 'both')
+
+        Returns:
+            List of MTGO deck dictionaries formatted for UI display
+        """
+        if source_filter == "mtggoldfish":
+            return []
+
+        try:
+            from services.mtgo_background_service import load_mtgo_deck_metadata
+
+            mtgo_decks = []
+            for fmt in ("modern", "standard", "pioneer", "legacy"):
+                decks = load_mtgo_deck_metadata(archetype_name, fmt)
+                mtgo_decks.extend(decks)
+
+            logger.debug(f"Retrieved {len(mtgo_decks)} MTGO decks from cache for {archetype_name}")
+            return mtgo_decks
+
+        except Exception as exc:
+            logger.warning(f"Failed to retrieve MTGO decks from cache: {exc}")
+            return []
+
+    def _merge_and_sort_decks(
+        self, mtggoldfish_decks: list[dict[str, Any]], mtgo_decks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """
+        Merge MTGGoldfish and MTGO decks and sort by date (newest first).
+
+        Args:
+            mtggoldfish_decks: Decks from MTGGoldfish
+            mtgo_decks: Decks from MTGO (MongoDB)
+
+        Returns:
+            Merged and sorted list of decks
+        """
+        all_decks = mtggoldfish_decks + mtgo_decks
+
+        def parse_date(date_str: str) -> tuple:
+            if not date_str:
+                return (0, 0, 0)
+            try:
+                parts = date_str.split("-")
+                if len(parts) == 3:
+                    return (int(parts[0]), int(parts[1]), int(parts[2]))
+                elif "/" in date_str:
+                    parts = date_str.split("/")
+                    if len(parts) == 3:
+                        return (int(parts[2]), int(parts[0]), int(parts[1]))
+            except (ValueError, IndexError):
+                pass
+            return (0, 0, 0)
+
+        all_decks.sort(key=lambda d: parse_date(d.get("date", "")), reverse=True)
+        return all_decks
 
     def clear_cache(self) -> None:
         """Clear all metagame caches."""

@@ -1,14 +1,18 @@
 """Background service for fetching MTGO data."""
 
+import json
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from loguru import logger
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
 from utils.archetype_classifier import ArchetypeClassifier
-from utils.constants import ARCHETYPE_CACHE_FILE
+from utils.constants import ARCHETYPE_CACHE_FILE, CACHE_DIR
 from utils.deck_text_cache import get_deck_cache
+
+MTGO_METADATA_CACHE = CACHE_DIR / "mtgo_deck_metadata.json"
 
 
 def parse_mtgo_deck(raw_deck: dict) -> dict:
@@ -88,6 +92,68 @@ def deck_to_text(clean_deck: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def save_mtgo_deck_metadata(archetype: str, mtg_format: str, deck_metadata: dict) -> None:
+    """
+    Save MTGO deck metadata to JSON cache.
+
+    Args:
+        archetype: Archetype name
+        mtg_format: Format (e.g., "modern")
+        deck_metadata: Deck metadata dictionary
+    """
+    cache_key = f"{mtg_format}:{archetype}"
+
+    try:
+        if MTGO_METADATA_CACHE.exists():
+            with MTGO_METADATA_CACHE.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        else:
+            data = {}
+
+        if cache_key not in data:
+            data[cache_key] = []
+
+        deck_id = deck_metadata.get("number")
+        existing_ids = {d.get("number") for d in data[cache_key]}
+        if deck_id not in existing_ids:
+            data[cache_key].append(deck_metadata)
+
+        MTGO_METADATA_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        with MTGO_METADATA_CACHE.open("w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+
+    except Exception as exc:
+        logger.error(f"Failed to save MTGO deck metadata: {exc}")
+        raise
+
+
+def load_mtgo_deck_metadata(archetype: str, mtg_format: str) -> list[dict]:
+    """
+    Load MTGO deck metadata from JSON cache.
+
+    Args:
+        archetype: Archetype name
+        mtg_format: Format (e.g., "modern")
+
+    Returns:
+        List of deck metadata dictionaries
+    """
+    cache_key = f"{mtg_format}:{archetype}"
+
+    try:
+        if not MTGO_METADATA_CACHE.exists():
+            return []
+
+        with MTGO_METADATA_CACHE.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+
+        return data.get(cache_key, [])
+
+    except Exception as exc:
+        logger.warning(f"Failed to load MTGO deck metadata: {exc}")
+        return []
+
+
 def fetch_mtgo_events_for_period(start_date: datetime, end_date: datetime, mtg_format: str = "modern"):
     """
     Fetch MTGO events between start_date and end_date.
@@ -164,6 +230,7 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
 
         payload = fetch_deck_event(event_url)
         event_date = payload.get("publish_date", datetime.now(timezone.utc).isoformat()[:10])
+        event_title = payload.get("title", "MTGO Event")
 
         raw_decklists = payload.get("decklists", [])
         logger.debug(f"Found {len(raw_decklists)} decklists in event")
@@ -197,6 +264,31 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
                 logger.debug(f"Successfully cached deck {deck_id}")
             else:
                 logger.warning(f"Failed to cache deck {deck_id}")
+                continue
+
+            archetype = classifier_deck.get("archetype", "Unknown")
+            player = clean_deck.get("player", "Unknown")
+            wins = clean_deck.get("wins", "5")
+            losses = clean_deck.get("losses", "0")
+            result = f"{wins}-{losses}"
+
+            deck_metadata = {
+                "number": deck_id,
+                "date": event_date,
+                "event": event_title,
+                "result": result,
+                "player": player,
+                "archetype": archetype,
+                "name": archetype,
+                "source": "mtgo",
+                "format": mtg_format,
+            }
+
+            try:
+                save_mtgo_deck_metadata(archetype, mtg_format, deck_metadata)
+                logger.debug(f"Saved MTGO deck metadata for {deck_id} (archetype: {archetype})")
+            except Exception as meta_exc:
+                logger.warning(f"Failed to save MTGO deck metadata for {deck_id}: {meta_exc}")
 
         logger.info(f"Cached {cached_count}/{len(clean_decks)} decks from {event_url}")
 
