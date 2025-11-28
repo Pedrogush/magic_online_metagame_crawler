@@ -68,7 +68,9 @@ class LoadingFrame(wx.Frame):
         self._maybe_finish()
 
     def _on_tick(self, _event: wx.TimerEvent) -> None:
-        self.gauge.Pulse()
+        elapsed = time.monotonic() - self._start
+        progress = min(100, int((elapsed / self._max_duration) * 100))
+        self.gauge.SetValue(progress)
         self._maybe_finish()
 
     def _maybe_finish(self) -> None:
@@ -79,6 +81,7 @@ class LoadingFrame(wx.Frame):
             self._finished = True
             self._timer.Stop()
             callback = self._on_ready
+            self.gauge.SetValue(100)
             self.Hide()
             self.Destroy()
             if callback:
