@@ -20,6 +20,7 @@ class CardTablePanel(wx.Panel):
         on_remove: Callable[[str, str], None],
         on_add: Callable[[str], None],
         on_select: Callable[[str, dict[str, Any] | None], None],
+        on_hover: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.zone = zone
@@ -30,6 +31,7 @@ class CardTablePanel(wx.Panel):
         self._on_remove = on_remove
         self._on_add = on_add
         self._on_select = on_select
+        self._on_hover = on_hover
         self.cards: list[dict[str, Any]] = []
         self.card_widgets: list[CardBoxPanel] = []
         self.active_panel: CardBoxPanel | None = None
@@ -114,6 +116,7 @@ class CardTablePanel(wx.Panel):
                     self._on_delta,
                     self._on_remove,
                     self._handle_card_click,
+                    self._on_hover,
                 )
                 self.grid_sizer.Add(cell, 0, wx.EXPAND)
                 self.card_widgets.append(cell)
