@@ -50,8 +50,6 @@ class _SearchResultsView(wx.ListCtrl):
 
 class DeckBuilderPanel(wx.Panel):
     """Panel for searching and filtering MTG cards by various properties."""
-
-    _MANA_ICON_SCALE = 1  # deck search display needs icons reduced by 70%
     _SEARCH_DEBOUNCE_MS = 300
 
     def __init__(
@@ -396,35 +394,6 @@ class DeckBuilderPanel(wx.Panel):
     def _on_result_selected(self, idx: int) -> None:
         """Handle result list item selection."""
         self._on_result_selected_callback(idx)
-
-    def _get_mana_icon_text(self, mana_cost: str) -> dv.DataViewIconText:
-        """Return cached icon text object for a mana cost."""
-        cost_key = mana_cost.strip()
-        cache_key = f"{cost_key}|{self._MANA_ICON_SCALE}"
-        if cache_key in self._mana_icon_cache:
-            return self._mana_icon_cache[cache_key]
-        bitmap = self.mana_icons.bitmap_for_cost(cost_key)
-        if bitmap:
-            bitmap = self._scale_bitmap(bitmap, self._MANA_ICON_SCALE)
-            icon = wx.Icon()
-            icon.CopyFromBitmap(bitmap)
-            value = dv.DataViewIconText("", icon)
-        else:
-            value = dv.DataViewIconText("—", wx.NullIcon)
-        self._mana_icon_cache[cache_key] = value
-        return value
-
-    def _scale_bitmap(self, bitmap: wx.Bitmap, scale: float) -> wx.Bitmap:
-        """Return a bitmap scaled by the provided factor."""
-        if scale <= 0:
-            return bitmap
-        width = max(1, int(bitmap.GetWidth() * scale))
-        height = max(1, int(bitmap.GetHeight() * scale))
-        if width == bitmap.GetWidth() and height == bitmap.GetHeight():
-            return bitmap
-        image = bitmap.ConvertToImage()
-        scaled = image.Scale(width, height, wx.IMAGE_QUALITY_HIGH)
-        return wx.Bitmap(scaled)
 
     def _schedule_search(self) -> None:
         """Debounce search execution when filters change."""
