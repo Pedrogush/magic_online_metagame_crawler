@@ -4,7 +4,6 @@ from collections.abc import Callable
 from typing import Any
 
 import wx
-import wx.dataview as dv
 
 from services.radar_service import RadarData
 from utils.constants import DARK_ALT, DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
@@ -18,11 +17,35 @@ from utils.stylize import (
 from widgets.buttons.mana_button import create_mana_button
 
 
-class _SearchResultsView(dv.DataViewListCtrl):
-    """DataViewListCtrl with legacy ListCtrl helpers used by tests."""
+class _SearchResultsView(wx.ListCtrl):
+    """Virtual ListCtrl for efficiently displaying large card search results."""
+
+    def __init__(self, parent: wx.Window, style: int):
+        super().__init__(parent, style=style | wx.LC_REPORT | wx.LC_VIRTUAL | wx.LC_SINGLE_SEL)
+        self._data: list[dict[str, Any]] = []
+
+    def SetData(self, data: list[dict[str, Any]]) -> None:
+        """Set the data source and refresh the display."""
+        self._data = data
+        self.SetItemCount(len(data))
+        self.Refresh()
+
+    def OnGetItemText(self, item: int, column: int) -> str:
+        """Return text for the given item and column."""
+        if item < 0 or item >= len(self._data):
+            return ""
+
+        card = self._data[item]
+        if column == 0:
+            return card.get("name", "Unknown")
+        elif column == 1:
+            mana_cost = card.get("mana_cost", "")
+            return mana_cost if mana_cost else "—"
+        return ""
 
     def GetItemText(self, row: int, col: int = 0) -> str:
-        return self.GetTextValue(row, col)
+        """Legacy method for test compatibility."""
+        return self.OnGetItemText(row, col)
 
 
 class DeckBuilderPanel(wx.Panel):
@@ -63,10 +86,9 @@ class DeckBuilderPanel(wx.Panel):
         self.format_checks: list[wx.CheckBox] = []
         self.color_checks: dict[str, wx.CheckBox] = {}
         self.color_mode_choice: wx.Choice | None = None
-        self.results_ctrl: dv.DataViewListCtrl | None = None
+        self.results_ctrl: _SearchResultsView | None = None
         self.status_label: wx.StaticText | None = None
         self.results_cache: list[dict[str, Any]] = []
-        self._mana_icon_cache: dict[str, dv.DataViewIconText] = {}
         self._search_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_search_timer, self._search_timer)
 
@@ -237,13 +259,13 @@ class DeckBuilderPanel(wx.Panel):
         controls.AddStretchSpacer(1)
         sizer.Add(controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
-        # Results list
-        results = _SearchResultsView(self, style=dv.DV_ROW_LINES | dv.DV_SINGLE)
-        results.AppendTextColumn("Name", width=230)
-        results.AppendIconTextColumn("Mana", width=120)
+        # Results list (virtual ListCtrl for handling large datasets)
+        results = _SearchResultsView(self, style=0)
+        results.InsertColumn(0, "Name", width=230)
+        results.InsertColumn(1, "Mana Cost", width=120)
         results.SetBackgroundColour(DARK_ALT)
         results.SetForegroundColour(LIGHT_TEXT)
-        results.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self._on_result_item_selected)
+        results.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_result_item_selected)
         sizer.Add(results, 1, wx.EXPAND | wx.ALL, 6)
         self.results_ctrl = results
 
@@ -257,14 +279,11 @@ class DeckBuilderPanel(wx.Panel):
         """Handle back button click."""
         self._on_switch_to_research()
 
-    def _on_result_item_selected(self, event: dv.DataViewEvent) -> None:
+    def _on_result_item_selected(self, event: wx.ListEvent) -> None:
         """Handle result list item selection."""
         if not self.results_ctrl:
             return
-        item = event.GetItem()
-        if not item.IsOk():
-            return
-        idx = self.results_ctrl.ItemToRow(item)
+        idx = event.GetIndex()
         if idx == wx.NOT_FOUND:
             return
         self._on_result_selected(idx)
@@ -319,8 +338,7 @@ class DeckBuilderPanel(wx.Panel):
             ctrl.ChangeValue("")
         self.results_cache = []
         if self.results_ctrl:
-            self.results_ctrl.DeleteAllItems()
-        self._mana_icon_cache.clear()
+            self.results_ctrl.SetData([])
 
         if self.status_label:
             self.status_label.SetLabel("Filters cleared.")
@@ -350,12 +368,7 @@ class DeckBuilderPanel(wx.Panel):
         self.results_cache = results
         if not self.results_ctrl:
             return
-        self.results_ctrl.DeleteAllItems()
-        for _idx, card in enumerate(results):
-            name = card.get("name", "Unknown")
-            mana_cost = card.get("mana_cost") or ""
-            icon_text = self._get_mana_icon_text(mana_cost)
-            self.results_ctrl.AppendItem([name, icon_text])
+        self.results_ctrl.SetData(results)
         if self.status_label:
             count = len(results)
             self.status_label.SetLabel(f"Showing {count} card{'s' if count != 1 else ''}.")
