@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import multiprocessing as mp
 import time
 from collections.abc import Callable
 
@@ -94,7 +95,9 @@ class MetagameWxApp(wx.App):
     def OnInit(self) -> bool:  # noqa: N802 - wx override
         logger.info("Starting MTGO Metagame Deck Builder (wx)")
         self.loading_frame = LoadingFrame()
-        self.loading_frame.Show()
+        # If splash is running out-of-process we only need the readiness signal.
+        if getattr(self, "_splash_event", None) is None:
+            self.loading_frame.Show()
         wx.CallAfter(self._build_main_window)
         return True
 
@@ -107,10 +110,24 @@ class MetagameWxApp(wx.App):
             controller.frame.Show()
             wx.CallAfter(controller.frame.ensure_card_data_loaded)
 
-        if getattr(self, "loading_frame", None):
+        splash_event = getattr(self, "_splash_event", None)
+        if splash_event is not None:
+            splash_event.set()
+            self._join_splash_process()
+            show_main()
+        elif getattr(self, "loading_frame", None):
             self.loading_frame.set_ready(show_main)
         else:
             show_main()
+
+    def _join_splash_process(self) -> None:
+        process = getattr(self, "_splash_process", None)
+        if not process:
+            return
+        try:
+            process.join(timeout=1.5)
+        except Exception:
+            pass
 
     def OnExceptionInMainLoop(self) -> bool:  # noqa: N802 - wx override
         """Handle exceptions in the main event loop."""
@@ -153,7 +170,38 @@ def main() -> None:
 
     sys.excepthook = global_exception_handler
 
+    def _run_splash(ready_event: mp.synchronize.Event) -> None:
+        """Run the splash screen in a dedicated process so it never starves."""
+        mp.freeze_support()
+        splash_app = wx.App(False)
+        frame = LoadingFrame()
+
+        def poll_ready(_evt: wx.TimerEvent) -> None:
+            if ready_event.is_set():
+                frame.set_ready()
+
+        timer = wx.Timer(frame)
+        frame.Bind(wx.EVT_TIMER, poll_ready, timer)
+        timer.Start(80)
+        frame.Show()
+        splash_app.MainLoop()
+
+    # Start splash process before heavy work
+    splash_event: mp.synchronize.Event | None = None
+    splash_process: mp.Process | None = None
+    try:
+        splash_event = mp.Event()
+        splash_process = mp.Process(target=_run_splash, args=(splash_event,), daemon=True)
+        splash_process.start()
+    except Exception as exc:  # pragma: no cover - best effort fallback
+        logger.warning(f"Failed to start splash process: {exc}")
+        splash_event = None
+        splash_process = None
+
     app = MetagameWxApp(False)
+    app._splash_event = splash_event  # type: ignore[attr-defined]
+    app._splash_process = splash_process  # type: ignore[attr-defined]
+
     app.MainLoop()
 
 
