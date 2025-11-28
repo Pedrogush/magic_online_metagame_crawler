@@ -401,17 +401,20 @@ class DeckBuilderPanel(wx.Panel):
         if total_items == 0:
             return
 
-        top_item = self._get_first_visible_item()
-        if top_item == -1:
+        first_visible = self._get_first_visible_item()
+        last_visible = self._get_last_visible_item()
+
+        if first_visible == -1 or last_visible == -1:
             return
 
-        items_from_top = top_item
-        items_from_bottom = total_items - top_item
+        items_from_top = first_visible
+        items_from_bottom = total_items - last_visible - 1
 
-        load_more_up = items_from_top < self._scroll_threshold and self._window_start > 0
-        load_more_down = items_from_bottom < self._scroll_threshold and self._window_start + len(
-            self.results_cache
-        ) < len(self._all_results)
+        can_load_up = self._window_start > 0
+        can_load_down = self._window_start + len(self.results_cache) < len(self._all_results)
+
+        load_more_up = items_from_top < self._scroll_threshold and can_load_up
+        load_more_down = items_from_bottom < self._scroll_threshold and can_load_down
 
         if load_more_up:
             self._shift_window_up()
@@ -430,6 +433,25 @@ class DeckBuilderPanel(wx.Panel):
                 if rect.GetTop() >= 0:
                     return i
         return 0
+
+    def _get_last_visible_item(self) -> int:
+        """Get the index of the last visible item in the results list."""
+        if not self.results_ctrl:
+            return -1
+
+        client_height = self.results_ctrl.GetClientSize().GetHeight()
+        last_visible = -1
+
+        for i in range(self.results_ctrl.GetItemCount()):
+            item = self.results_ctrl.RowToItem(i)
+            if item.IsOk():
+                rect = self.results_ctrl.GetItemRect(item)
+                if rect.GetTop() < client_height:
+                    last_visible = i
+                else:
+                    break
+
+        return last_visible
 
     def _load_window(self) -> None:
         """Load the current window of results into the UI."""
