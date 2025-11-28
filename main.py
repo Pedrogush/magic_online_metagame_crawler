@@ -34,7 +34,7 @@ def run_splash(ready_event: mp.synchronize.Event) -> None:
 class LoadingFrame(wx.Frame):
     """Lightweight splash with a short progress pulse to avoid blank startup screens."""
 
-    def __init__(self, min_duration: float = 1.2, max_duration: float = 3.0) -> None:
+    def __init__(self, min_duration: float = 0.8, max_duration: float = 1.8) -> None:
         super().__init__(
             None,
             title="Loading MTGO Deck Builder",
@@ -69,13 +69,14 @@ class LoadingFrame(wx.Frame):
         self.gauge.SetMinSize((-1, 22))
         self.gauge.SetForegroundColour(DARK_ACCENT)
         self.gauge.SetBackgroundColour(DARK_BG)
+        self.gauge.SetValue(5)
         outer.Add(self.gauge, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 18)
         panel.Layout()
         self.Layout()
 
         self._timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_tick, self._timer)
-        self._timer.Start(60)
+        self._timer.Start(40)
 
         self.Centre(wx.BOTH)
 
