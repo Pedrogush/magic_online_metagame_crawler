@@ -3,90 +3,11 @@
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
-
 import wx
 from loguru import logger
 
 from controllers.app_controller import get_deck_selector_controller
-from utils.constants import DARK_ACCENT, DARK_BG, DARK_PANEL, LIGHT_TEXT
-
-
-class LoadingFrame(wx.Frame):
-    """Lightweight splash with a short progress pulse to avoid blank startup screens."""
-
-    def __init__(self, min_duration: float = 0.8, max_duration: float = 1.8) -> None:
-        super().__init__(
-            None,
-            title="Loading MTGO Deck Builder",
-            style=wx.BORDER_NONE | wx.STAY_ON_TOP,
-            size=(460, 160),
-        )
-        self._start = time.monotonic()
-        self._min_duration = min_duration
-        self._max_duration = max_duration
-        self._ready = False
-        self._finished = False
-        self._on_ready: Callable[[], None] | None = None
-
-        self.SetBackgroundColour(DARK_BG)
-        panel = wx.Panel(self)
-        panel.SetBackgroundColour(DARK_PANEL)
-        outer = wx.BoxSizer(wx.VERTICAL)
-        panel.SetSizer(outer)
-        frame_sizer = wx.BoxSizer(wx.VERTICAL)
-        frame_sizer.Add(panel, 1, wx.EXPAND | wx.ALL, 12)
-        self.SetSizer(frame_sizer)
-
-        title = wx.StaticText(panel, label="Loading MTGOTools...")
-        title.SetForegroundColour(LIGHT_TEXT)
-        title_font = title.GetFont()
-        title_font.MakeBold()
-        title.SetFont(title_font)
-        outer.Add(title, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.TOP | wx.LEFT | wx.RIGHT, 18)
-        outer.AddStretchSpacer(1)
-
-        self.gauge = wx.Gauge(panel, range=100, style=wx.GA_HORIZONTAL | wx.GA_SMOOTH)
-        self.gauge.SetMinSize((-1, 22))
-        self.gauge.SetForegroundColour(DARK_ACCENT)
-        self.gauge.SetBackgroundColour(DARK_BG)
-        self.gauge.SetValue(5)
-        outer.Add(self.gauge, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 18)
-        panel.Layout()
-        self.Layout()
-
-        self._timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self._on_tick, self._timer)
-        self._timer.Start(40)
-
-        self.Centre(wx.BOTH)
-
-    def set_ready(self, on_ready: Callable[[], None] | None = None) -> None:
-        """Mark the splash as ready to close once the minimum display time is met."""
-        self._ready = True
-        self._on_ready = on_ready
-        self._maybe_finish()
-
-    def _on_tick(self, _event: wx.TimerEvent) -> None:
-        elapsed = time.monotonic() - self._start
-        progress = min(100, int((elapsed / self._max_duration) * 100))
-        self.gauge.SetValue(progress)
-        self._maybe_finish()
-
-    def _maybe_finish(self) -> None:
-        if self._finished:
-            return
-        elapsed = time.monotonic() - self._start
-        if (self._ready and elapsed >= self._min_duration) or elapsed >= self._max_duration:
-            self._finished = True
-            self._timer.Stop()
-            callback = self._on_ready
-            self.gauge.SetValue(100)
-            self.Hide()
-            self.Destroy()
-            if callback:
-                wx.CallAfter(callback)
+from widgets.splash_frame import LoadingFrame
 
 
 class MetagameWxApp(wx.App):
