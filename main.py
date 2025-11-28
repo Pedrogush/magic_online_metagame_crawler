@@ -96,6 +96,9 @@ class MetagameWxApp(wx.App):
         logger.info("Starting MTGO Metagame Deck Builder (wx)")
         self.loading_frame = LoadingFrame()
         self.loading_frame.Show()
+        self.loading_frame.Layout()
+        self.loading_frame.Refresh()
+        self.loading_frame.Update()
         wx.CallAfter(self._build_main_window)
         return True
 
