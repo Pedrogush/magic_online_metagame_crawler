@@ -185,7 +185,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         notebook.SetTabAreaColour(DARK_PANEL)
         notebook.SetActiveTabColour(DARK_ACCENT)
         notebook.SetNonActiveTabTextColour(SUBDUED_TEXT)
-        notebook.SetActiveTabTextColour(LIGHT_TEXT)
+        notebook.SetActiveTabTextColour(wx.Colour(12, 14, 18))
         notebook.SetBackgroundColour(DARK_BG)
         notebook.SetForegroundColour(LIGHT_TEXT)
         return notebook
