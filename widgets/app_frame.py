@@ -175,7 +175,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
     def _create_notebook(self, parent: wx.Window) -> fnb.FlatNotebook:
         notebook = fnb.FlatNotebook(
             parent,
-            style=(
+            agwStyle=(
                 fnb.FNB_FANCY_TABS
                 | fnb.FNB_SMART_TABS
                 | fnb.FNB_NO_X_BUTTON

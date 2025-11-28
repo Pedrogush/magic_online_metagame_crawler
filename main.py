@@ -35,6 +35,9 @@ class LoadingFrame(wx.Frame):
         panel.SetBackgroundColour(DARK_PANEL)
         outer = wx.BoxSizer(wx.VERTICAL)
         panel.SetSizer(outer)
+        frame_sizer = wx.BoxSizer(wx.VERTICAL)
+        frame_sizer.Add(panel, 1, wx.EXPAND | wx.ALL, 12)
+        self.SetSizer(frame_sizer)
 
         title = wx.StaticText(panel, label="Loading MTGOTools...")
         title.SetForegroundColour(LIGHT_TEXT)
@@ -49,6 +52,8 @@ class LoadingFrame(wx.Frame):
         self.gauge.SetForegroundColour(DARK_ACCENT)
         self.gauge.SetBackgroundColour(DARK_BG)
         outer.Add(self.gauge, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 18)
+        panel.Layout()
+        self.Layout()
 
         self._timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_tick, self._timer)
