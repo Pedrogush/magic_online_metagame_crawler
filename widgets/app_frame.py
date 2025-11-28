@@ -177,9 +177,9 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             parent,
             style=(
                 fnb.FNB_FANCY_TABS
-                | fnb.FNB_NO_X_BUTTON
                 | fnb.FNB_SMART_TABS
-                | fnb.FNB_NAV_BUTTONS_WHEN_NEEDED
+                | fnb.FNB_NO_X_BUTTON
+                | fnb.FNB_NO_NAV_BUTTONS
             ),
         )
         notebook.SetTabAreaColour(DARK_PANEL)
