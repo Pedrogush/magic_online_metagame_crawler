@@ -147,8 +147,6 @@ def main() -> None:
     import sys
     import traceback
 
-    mp.freeze_support()
-
     def global_exception_handler(exc_type, exc_value, exc_traceback):
         logger.error("=== UNCAUGHT EXCEPTION (GLOBAL) ===")
         logger.error(f"Exception type: {exc_type.__name__}")
@@ -163,22 +161,7 @@ def main() -> None:
 
     sys.excepthook = global_exception_handler
 
-    # Start splash process before heavy work
-    splash_event: mp.synchronize.Event | None = None
-    splash_process: mp.Process | None = None
-    try:
-        splash_event = mp.Event()
-        splash_process = mp.Process(target=run_splash, args=(splash_event,), daemon=True)
-        splash_process.start()
-    except Exception as exc:  # pragma: no cover - best effort fallback
-        logger.warning(f"Failed to start splash process: {exc}")
-        splash_event = None
-        splash_process = None
-
     app = MetagameWxApp(False)
-    app._splash_event = splash_event  # type: ignore[attr-defined]
-    app._splash_process = splash_process  # type: ignore[attr-defined]
-
     app.MainLoop()
 
 
