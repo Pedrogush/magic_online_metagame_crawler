@@ -125,14 +125,21 @@ class MetagameWxApp(wx.App):
         self.SetTopWindow(controller.frame)
 
         def show_main() -> None:
-            controller.frame.Show()
-            wx.CallAfter(controller.frame.ensure_card_data_loaded)
+            frame = controller.frame
+            frame.Freeze()
+            frame.Layout()
+            frame.SendSizeEvent()
+            frame.Thaw()
+            frame.Show()
+            frame.Refresh()
+            frame.Update()
+            wx.CallAfter(frame.ensure_card_data_loaded)
 
         splash_event = getattr(self, "_splash_event", None)
         if splash_event is not None:
+            show_main()
             splash_event.set()
             self._join_splash_process()
-            show_main()
         elif getattr(self, "loading_frame", None):
             self.loading_frame.set_ready(show_main)
         else:
