@@ -14,6 +14,23 @@ from controllers.app_controller import get_deck_selector_controller
 from utils.constants import DARK_ACCENT, DARK_BG, DARK_PANEL, LIGHT_TEXT
 
 
+def run_splash(ready_event: mp.synchronize.Event) -> None:
+    """Run the splash screen in a dedicated process so it never starves."""
+    mp.freeze_support()
+    splash_app = wx.App(False)
+    frame = LoadingFrame()
+
+    def poll_ready(_evt: wx.TimerEvent) -> None:
+        if ready_event.is_set():
+            frame.set_ready()
+
+    timer = wx.Timer(frame)
+    frame.Bind(wx.EVT_TIMER, poll_ready, timer)
+    timer.Start(80)
+    frame.Show()
+    splash_app.MainLoop()
+
+
 class LoadingFrame(wx.Frame):
     """Lightweight splash with a short progress pulse to avoid blank startup screens."""
 
@@ -156,6 +173,8 @@ def main() -> None:
     import sys
     import traceback
 
+    mp.freeze_support()
+
     def global_exception_handler(exc_type, exc_value, exc_traceback):
         logger.error("=== UNCAUGHT EXCEPTION (GLOBAL) ===")
         logger.error(f"Exception type: {exc_type.__name__}")
@@ -170,28 +189,12 @@ def main() -> None:
 
     sys.excepthook = global_exception_handler
 
-    def _run_splash(ready_event: mp.synchronize.Event) -> None:
-        """Run the splash screen in a dedicated process so it never starves."""
-        mp.freeze_support()
-        splash_app = wx.App(False)
-        frame = LoadingFrame()
-
-        def poll_ready(_evt: wx.TimerEvent) -> None:
-            if ready_event.is_set():
-                frame.set_ready()
-
-        timer = wx.Timer(frame)
-        frame.Bind(wx.EVT_TIMER, poll_ready, timer)
-        timer.Start(80)
-        frame.Show()
-        splash_app.MainLoop()
-
     # Start splash process before heavy work
     splash_event: mp.synchronize.Event | None = None
     splash_process: mp.Process | None = None
     try:
         splash_event = mp.Event()
-        splash_process = mp.Process(target=_run_splash, args=(splash_event,), daemon=True)
+        splash_process = mp.Process(target=run_splash, args=(splash_event,), daemon=True)
         splash_process.start()
     except Exception as exc:  # pragma: no cover - best effort fallback
         logger.warning(f"Failed to start splash process: {exc}")
