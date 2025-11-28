@@ -67,6 +67,13 @@ class DeckBuilderPanel(wx.Panel):
         self.results_cache: list[dict[str, Any]] = []
         self._mana_icon_cache: dict[str, dv.DataViewIconText] = {}
 
+        # Infinite scroll state
+        self._all_results: list[dict[str, Any]] = []
+        self._window_size: int = 300
+        self._window_start: int = 0
+        self._scroll_threshold: int = 50
+        self._last_scroll_pos: int = 0
+
         # Radar state
         self.active_radar: RadarData | None = None
         self.radar_enabled: bool = False
@@ -238,6 +245,7 @@ class DeckBuilderPanel(wx.Panel):
         results.SetBackgroundColour(DARK_ALT)
         results.SetForegroundColour(LIGHT_TEXT)
         results.Bind(dv.EVT_DATAVIEW_SELECTION_CHANGED, self._on_result_item_selected)
+        results.Bind(wx.EVT_SCROLLWIN, self._on_scroll)
         sizer.Add(results, 1, wx.EXPAND | wx.ALL, 6)
         self.results_ctrl = results
 
@@ -311,7 +319,12 @@ class DeckBuilderPanel(wx.Panel):
         for ctrl in self.inputs.values():
             ctrl.ChangeValue("")
         self.results_cache = []
+        self._all_results = []
+        self._window_start = 0
         self._mana_icon_cache.clear()
+
+        if self.results_ctrl:
+            self.results_ctrl.DeleteAllItems()
 
         if self.status_label:
             self.status_label.SetLabel("Filters cleared.")
@@ -337,21 +350,24 @@ class DeckBuilderPanel(wx.Panel):
 
     def update_results(self, results: list[dict[str, Any]]) -> None:
         """Update the results list with search results."""
-        self.results_cache = results
+        self._all_results = results
+        self._window_start = 0
+        self.results_cache = []
         if not self.results_ctrl:
             return
-        self.results_ctrl.DeleteAllItems()
-        for _idx, card in enumerate(results):
-            name = card.get("name", "Unknown")
-            mana_cost = card.get("mana_cost") or ""
-            icon_text = self._get_mana_icon_text(mana_cost)
-            self.results_ctrl.AppendItem([name, icon_text])
+        self._load_window()
         if self.status_label:
             count = len(results)
-            self.status_label.SetLabel(f"Showing {count} card{'s' if count != 1 else ''}.")
+            visible = len(self.results_cache)
+            if count > self._window_size:
+                self.status_label.SetLabel(
+                    f"Showing {visible} of {count} card{'s' if count != 1 else ''} (scroll for more)."
+                )
+            else:
+                self.status_label.SetLabel(f"Showing {count} card{'s' if count != 1 else ''}.")
 
     def get_result_at_index(self, idx: int) -> dict[str, Any] | None:
-        """Get the result card data at the given index."""
+        """Get the result card data at the given index (relative to visible window)."""
         if idx < 0 or idx >= len(self.results_cache):
             return None
         return self.results_cache[idx]
@@ -367,6 +383,87 @@ class DeckBuilderPanel(wx.Panel):
     def _on_result_selected(self, idx: int) -> None:
         """Handle result list item selection."""
         self._on_result_selected_callback(idx)
+
+    def _on_scroll(self, event: wx.ScrollWinEvent) -> None:
+        """Handle scroll events to implement infinite scroll."""
+        event.Skip()
+        if not self.results_ctrl or not self._all_results:
+            return
+
+        wx.CallAfter(self._check_scroll_position)
+
+    def _check_scroll_position(self) -> None:
+        """Check scroll position and load more items if needed."""
+        if not self.results_ctrl or not self._all_results:
+            return
+
+        total_items = self.results_ctrl.GetItemCount()
+        if total_items == 0:
+            return
+
+        top_item = self._get_first_visible_item()
+        if top_item == -1:
+            return
+
+        items_from_top = top_item
+        items_from_bottom = total_items - top_item
+
+        load_more_up = items_from_top < self._scroll_threshold and self._window_start > 0
+        load_more_down = items_from_bottom < self._scroll_threshold and self._window_start + len(
+            self.results_cache
+        ) < len(self._all_results)
+
+        if load_more_up:
+            self._shift_window_up()
+        elif load_more_down:
+            self._shift_window_down()
+
+    def _get_first_visible_item(self) -> int:
+        """Get the index of the first visible item in the results list."""
+        if not self.results_ctrl:
+            return -1
+
+        for i in range(self.results_ctrl.GetItemCount()):
+            item = self.results_ctrl.RowToItem(i)
+            if item.IsOk():
+                rect = self.results_ctrl.GetItemRect(item)
+                if rect.GetTop() >= 0:
+                    return i
+        return 0
+
+    def _load_window(self) -> None:
+        """Load the current window of results into the UI."""
+        if not self.results_ctrl:
+            return
+
+        window_end = min(self._window_start + self._window_size, len(self._all_results))
+        self.results_cache = self._all_results[self._window_start : window_end]
+
+        self.results_ctrl.DeleteAllItems()
+        for _idx, card in enumerate(self.results_cache):
+            name = card.get("name", "Unknown")
+            mana_cost = card.get("mana_cost") or ""
+            icon_text = self._get_mana_icon_text(mana_cost)
+            self.results_ctrl.AppendItem([name, icon_text])
+
+    def _shift_window_up(self) -> None:
+        """Shift the viewing window up to load earlier results."""
+        if self._window_start <= 0:
+            return
+
+        new_start = max(0, self._window_start - self._window_size)
+        self._window_start = new_start
+        self._load_window()
+
+    def _shift_window_down(self) -> None:
+        """Shift the viewing window down to load later results."""
+        max_start = max(0, len(self._all_results) - self._window_size)
+        if self._window_start >= max_start:
+            return
+
+        new_start = min(max_start, self._window_start + self._window_size)
+        self._window_start = new_start
+        self._load_window()
 
     def _get_mana_icon_text(self, mana_cost: str) -> dv.DataViewIconText:
         """Return cached icon text object for a mana cost."""
