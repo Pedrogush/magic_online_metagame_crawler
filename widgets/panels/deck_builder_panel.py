@@ -29,6 +29,7 @@ class DeckBuilderPanel(wx.Panel):
     """Panel for searching and filtering MTG cards by various properties."""
 
     _MANA_ICON_SCALE = 1  # deck search display needs icons reduced by 70%
+    _SEARCH_DEBOUNCE_MS = 300
 
     def __init__(
         self,
@@ -66,6 +67,8 @@ class DeckBuilderPanel(wx.Panel):
         self.status_label: wx.StaticText | None = None
         self.results_cache: list[dict[str, Any]] = []
         self._mana_icon_cache: dict[str, dv.DataViewIconText] = {}
+        self._search_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_search_timer, self._search_timer)
 
         # Radar state
         self.active_radar: RadarData | None = None
@@ -106,6 +109,7 @@ class DeckBuilderPanel(wx.Panel):
             ctrl = wx.TextCtrl(self)
             stylize_textctrl(ctrl)
             ctrl.SetHint(hint)
+            ctrl.Bind(wx.EVT_TEXT, self._on_filters_changed)
             sizer.Add(ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
             self.inputs[key] = ctrl
 
@@ -121,6 +125,7 @@ class DeckBuilderPanel(wx.Panel):
                 exact_cb.SetBackgroundColour(DARK_PANEL)
                 match_row.Add(exact_cb, 0)
                 self.mana_exact_cb = exact_cb
+                exact_cb.Bind(wx.EVT_CHECKBOX, self._on_filters_changed)
                 match_row.AddStretchSpacer(1)
                 sizer.Add(match_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
@@ -148,11 +153,13 @@ class DeckBuilderPanel(wx.Panel):
         mv_choice.SetSelection(0)
         stylize_choice(mv_choice)
         self.mv_comparator = mv_choice
+        mv_choice.Bind(wx.EVT_CHOICE, self._on_filters_changed)
         mv_row.Add(mv_choice, 0, wx.RIGHT, 6)
         mv_value = wx.TextCtrl(self)
         stylize_textctrl(mv_value)
         mv_value.SetHint("e.g. 3")
         self.mv_value = mv_value
+        mv_value.Bind(wx.EVT_TEXT, self._on_filters_changed)
         mv_row.Add(mv_value, 1)
         sizer.Add(mv_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
@@ -166,6 +173,7 @@ class DeckBuilderPanel(wx.Panel):
             cb.SetForegroundColour(LIGHT_TEXT)
             cb.SetBackgroundColour(DARK_PANEL)
             formats_grid.Add(cb, 0, wx.RIGHT, 6)
+            cb.Bind(wx.EVT_CHECKBOX, self._on_filters_changed)
             self.format_checks.append(cb)
         sizer.Add(formats_grid, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
@@ -178,6 +186,7 @@ class DeckBuilderPanel(wx.Panel):
         color_mode.SetSelection(0)
         stylize_choice(color_mode)
         self.color_mode_choice = color_mode
+        color_mode.Bind(wx.EVT_CHOICE, self._on_filters_changed)
         sizer.Add(color_mode, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         colors_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -193,15 +202,12 @@ class DeckBuilderPanel(wx.Panel):
             cb.SetForegroundColour(LIGHT_TEXT)
             cb.SetBackgroundColour(DARK_PANEL)
             colors_row.Add(cb, 0, wx.RIGHT, 6)
+            cb.Bind(wx.EVT_CHECKBOX, self._on_filters_changed)
             self.color_checks[code] = cb
         sizer.Add(colors_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
-        # Search and clear buttons
+        # Clear button
         controls = wx.BoxSizer(wx.HORIZONTAL)
-        search_btn = wx.Button(self, label="Search Cards")
-        stylize_button(search_btn)
-        search_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_search())
-        controls.Add(search_btn, 0, wx.RIGHT, 6)
         clear_btn = wx.Button(self, label="Clear Filters")
         stylize_button(clear_btn)
         clear_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_clear())
@@ -242,7 +248,7 @@ class DeckBuilderPanel(wx.Panel):
         self.results_ctrl = results
 
         # Status label
-        status = wx.StaticText(self, label="Search for cards to populate this list.")
+        status = wx.StaticText(self, label="Results update automatically as you type.")
         status.SetForegroundColour(SUBDUED_TEXT)
         sizer.Add(status, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         self.status_label = status
@@ -274,6 +280,7 @@ class DeckBuilderPanel(wx.Panel):
         text = symbol if symbol.startswith("{") else f"{{{symbol}}}"
         ctrl.ChangeValue(ctrl.GetValue() + text)
         ctrl.SetFocus()
+        self._schedule_search()
 
     def get_filters(self) -> dict[str, Any]:
         """Get all current filter values."""
@@ -311,6 +318,8 @@ class DeckBuilderPanel(wx.Panel):
         for ctrl in self.inputs.values():
             ctrl.ChangeValue("")
         self.results_cache = []
+        if self.results_ctrl:
+            self.results_ctrl.DeleteAllItems()
         self._mana_icon_cache.clear()
 
         if self.status_label:
@@ -334,6 +343,7 @@ class DeckBuilderPanel(wx.Panel):
         if hasattr(self, "radar_cb"):
             self.radar_cb.SetValue(False)
             self.radar_zone_choice.Enable(False)
+        self._schedule_search()
 
     def update_results(self, results: list[dict[str, Any]]) -> None:
         """Update the results list with search results."""
@@ -357,8 +367,14 @@ class DeckBuilderPanel(wx.Panel):
         return self.results_cache[idx]
 
     def _on_search(self) -> None:
-        """Handle search button click."""
+        """Trigger search callback."""
         self._on_search_callback()
+
+    def _on_filters_changed(self, event: wx.Event | None = None) -> None:
+        """Handle any filter change by scheduling a search."""
+        self._schedule_search()
+        if event:
+            event.Skip()
 
     def _on_clear(self) -> None:
         """Handle clear button click."""
@@ -397,6 +413,18 @@ class DeckBuilderPanel(wx.Panel):
         scaled = image.Scale(width, height, wx.IMAGE_QUALITY_HIGH)
         return wx.Bitmap(scaled)
 
+    def _schedule_search(self) -> None:
+        """Debounce search execution when filters change."""
+        if not self._search_timer:
+            return
+        if self._search_timer.IsRunning():
+            self._search_timer.Stop()
+        self._search_timer.StartOnce(self._SEARCH_DEBOUNCE_MS)
+
+    def _on_search_timer(self, _event: wx.TimerEvent) -> None:
+        """Run the search after the debounce timer fires."""
+        self._on_search()
+
     # ============= Radar Integration =============
 
     def _on_radar_toggle(self, event: wx.Event) -> None:
@@ -413,12 +441,14 @@ class DeckBuilderPanel(wx.Panel):
             self.radar_cb.SetValue(False)
             self.radar_enabled = False
             self.radar_zone_choice.Enable(False)
+        self._schedule_search()
 
     def _on_radar_zone_changed(self, event: wx.Event) -> None:
         """Handle radar zone selection change."""
         selection = self.radar_zone_choice.GetSelection()
         zone_map = {0: "both", 1: "mainboard", 2: "sideboard"}
         self.radar_zone = zone_map.get(selection, "both")
+        self._schedule_search()
 
     def _on_open_radar(self, event: wx.Event) -> None:
         """Handle open radar button click."""
@@ -444,3 +474,4 @@ class DeckBuilderPanel(wx.Panel):
                 f"Radar active: {radar.archetype_name} "
                 f"({len(radar.mainboard_cards)} MB, {len(radar.sideboard_cards)} SB cards)"
             )
+        self._schedule_search()

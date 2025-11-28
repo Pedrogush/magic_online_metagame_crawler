@@ -45,6 +45,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         # Store controller reference - ALL state and business logic goes through this
         self.controller: AppController = controller
         self.card_data_dialogs_disabled = False
+        self._builder_search_pending = False
 
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
