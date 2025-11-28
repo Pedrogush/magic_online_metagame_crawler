@@ -269,6 +269,10 @@ class DeckBuilderPanel(wx.Panel):
         idx = self.results_ctrl.ItemToRow(item)
         if idx == wx.NOT_FOUND:
             return
+
+        # Check if we need to load more items based on selection position
+        self._check_selection_position(idx)
+
         self._on_result_selected(idx)
 
     def _append_mana_symbol(self, token: str) -> None:
@@ -392,6 +396,27 @@ class DeckBuilderPanel(wx.Panel):
 
         wx.CallAfter(self._check_scroll_position)
 
+    def _check_selection_position(self, selected_idx: int) -> None:
+        """Check if selected item is near edges and load more if needed."""
+        if not self._all_results:
+            return
+
+        total_items = self.results_ctrl.GetItemCount()
+        if total_items == 0:
+            return
+
+        # Check if selection is near top or bottom
+        near_top = selected_idx < self._scroll_threshold
+        near_bottom = selected_idx >= total_items - self._scroll_threshold
+
+        can_load_up = self._window_start > 0
+        can_load_down = self._window_start + len(self.results_cache) < len(self._all_results)
+
+        if near_top and can_load_up:
+            wx.CallAfter(self._shift_window_up)
+        elif near_bottom and can_load_down:
+            wx.CallAfter(self._shift_window_down)
+
     def _check_scroll_position(self) -> None:
         """Check scroll position and load more items if needed."""
         if not self.results_ctrl or not self._all_results:
@@ -473,19 +498,66 @@ class DeckBuilderPanel(wx.Panel):
         if self._window_start <= 0:
             return
 
-        new_start = max(0, self._window_start - self._window_size)
+        # Calculate how many items to prepend
+        items_to_add = min(self._window_size, self._window_start)
+        new_start = self._window_start - items_to_add
+
+        # Get items to prepend
+        items_to_prepend = self._all_results[new_start : self._window_start]
+
+        # Prepend items
+        self.results_cache = items_to_prepend + self.results_cache
         self._window_start = new_start
-        self._load_window()
+
+        # Rebuild the list
+        self._rebuild_list()
+
+        # Trim from bottom if needed
+        max_items = self._window_size * 2
+        if len(self.results_cache) > max_items:
+            items_to_remove = len(self.results_cache) - max_items
+            self.results_cache = self.results_cache[:max_items]
+            self._rebuild_list()
 
     def _shift_window_down(self) -> None:
         """Shift the viewing window down to load later results."""
-        max_start = max(0, len(self._all_results) - self._window_size)
-        if self._window_start >= max_start:
+        window_end = self._window_start + len(self.results_cache)
+        if window_end >= len(self._all_results):
             return
 
-        new_start = min(max_start, self._window_start + self._window_size)
-        self._window_start = new_start
-        self._load_window()
+        # Calculate how many items to append
+        items_to_add = min(self._window_size, len(self._all_results) - window_end)
+        items_to_append = self._all_results[window_end : window_end + items_to_add]
+
+        # Append new items directly to the control
+        for card in items_to_append:
+            name = card.get("name", "Unknown")
+            mana_cost = card.get("mana_cost") or ""
+            icon_text = self._get_mana_icon_text(mana_cost)
+            self.results_ctrl.AppendItem([name, icon_text])
+
+        # Update cache
+        self.results_cache.extend(items_to_append)
+
+        # Trim from top if needed
+        max_items = self._window_size * 2
+        if len(self.results_cache) > max_items:
+            items_to_remove = len(self.results_cache) - max_items
+            self.results_cache = self.results_cache[items_to_remove:]
+            self._window_start += items_to_remove
+            self._rebuild_list()
+
+    def _rebuild_list(self) -> None:
+        """Rebuild the entire list from cache."""
+        if not self.results_ctrl:
+            return
+
+        self.results_ctrl.DeleteAllItems()
+        for card in self.results_cache:
+            name = card.get("name", "Unknown")
+            mana_cost = card.get("mana_cost") or ""
+            icon_text = self._get_mana_icon_text(mana_cost)
+            self.results_ctrl.AppendItem([name, icon_text])
 
     def _get_mana_icon_text(self, mana_cost: str) -> dv.DataViewIconText:
         """Return cached icon text object for a mana cost."""
