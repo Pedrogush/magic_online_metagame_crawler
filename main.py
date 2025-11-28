@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import multiprocessing as mp
 import time
 from collections.abc import Callable
 
@@ -12,23 +11,6 @@ from loguru import logger
 
 from controllers.app_controller import get_deck_selector_controller
 from utils.constants import DARK_ACCENT, DARK_BG, DARK_PANEL, LIGHT_TEXT
-
-
-def run_splash(ready_event: mp.synchronize.Event) -> None:
-    """Run the splash screen in a dedicated process so it never starves."""
-    mp.freeze_support()
-    splash_app = wx.App(False)
-    frame = LoadingFrame()
-
-    def poll_ready(_evt: wx.TimerEvent) -> None:
-        if ready_event.is_set():
-            frame.set_ready()
-
-    timer = wx.Timer(frame)
-    frame.Bind(wx.EVT_TIMER, poll_ready, timer)
-    timer.Start(80)
-    frame.Show()
-    splash_app.MainLoop()
 
 
 class LoadingFrame(wx.Frame):
@@ -113,9 +95,7 @@ class MetagameWxApp(wx.App):
     def OnInit(self) -> bool:  # noqa: N802 - wx override
         logger.info("Starting MTGO Metagame Deck Builder (wx)")
         self.loading_frame = LoadingFrame()
-        # If splash is running out-of-process we only need the readiness signal.
-        if getattr(self, "_splash_event", None) is None:
-            self.loading_frame.Show()
+        self.loading_frame.Show()
         wx.CallAfter(self._build_main_window)
         return True
 
@@ -135,24 +115,10 @@ class MetagameWxApp(wx.App):
             frame.Update()
             wx.CallAfter(frame.ensure_card_data_loaded)
 
-        splash_event = getattr(self, "_splash_event", None)
-        if splash_event is not None:
-            show_main()
-            splash_event.set()
-            self._join_splash_process()
-        elif getattr(self, "loading_frame", None):
+        if getattr(self, "loading_frame", None):
             self.loading_frame.set_ready(show_main)
         else:
             show_main()
-
-    def _join_splash_process(self) -> None:
-        process = getattr(self, "_splash_process", None)
-        if not process:
-            return
-        try:
-            process.join(timeout=1.5)
-        except Exception:
-            pass
 
     def OnExceptionInMainLoop(self) -> bool:  # noqa: N802 - wx override
         """Handle exceptions in the main event loop."""
