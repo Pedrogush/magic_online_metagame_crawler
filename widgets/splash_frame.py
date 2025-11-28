@@ -37,8 +37,10 @@ class LoadingFrame(wx.Frame):
         title = wx.StaticText(panel, label="Loading MTGOTools...")
         title.SetForegroundColour(LIGHT_TEXT)
         font = title.GetFont()
+        font.SetPointSize(font.GetPointSize() + 4)
         font.MakeBold()
         title.SetFont(font)
+        title.Wrap(320)
         outer.Add(title, 1, wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL)
 
         panel.Layout()
