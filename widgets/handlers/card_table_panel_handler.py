@@ -22,7 +22,8 @@ class CardTablePanelHandler:
         elif zone == "side":
             self.side_table.set_cards(self.zone_cards["side"])
         else:
-            self.out_table.set_cards(self.zone_cards["out"])
+            if self.out_table:
+                self.out_table.set_cards(self.zone_cards["out"])
             self._persist_outboard_for_current()
         deck_text = self.controller.deck_service.build_deck_text_from_zones(self.zone_cards)
         self.controller.deck_repo.set_current_deck_text(deck_text)
@@ -113,7 +114,8 @@ class CardTablePanelHandler:
         for zone, table in tables.items():
             if zone == active_zone:
                 continue
-            table.collapse_active()
+            if table:
+                table.collapse_active()
 
     def _handle_card_focus(self: AppFrame, zone: str, card: dict[str, Any] | None) -> None:
         if card is None:

@@ -2,13 +2,21 @@ from typing import TYPE_CHECKING
 
 import wx
 from loguru import logger
+from wx.lib.agw import flatnotebook as fnb
 
 from controllers.app_controller import get_deck_selector_controller
 
 if TYPE_CHECKING:
     from controllers.app_controller import AppController
 
-from utils.constants import DARK_BG, DARK_PANEL, FORMAT_OPTIONS, LIGHT_TEXT, SUBDUED_TEXT
+from utils.constants import (
+    DARK_ACCENT,
+    DARK_BG,
+    DARK_PANEL,
+    FORMAT_OPTIONS,
+    LIGHT_TEXT,
+    SUBDUED_TEXT,
+)
 from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import stylize_listbox, stylize_textctrl
 from widgets.buttons.deck_action_buttons import DeckActionButtons
@@ -52,6 +60,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.left_stack: wx.Simplebook | None = None
         self.research_panel: DeckResearchPanel | None = None
         self.builder_panel: DeckBuilderPanel | None = None
+        self.out_table: CardTablePanel | None = None
 
         self._save_timer: wx.Timer | None = None
         self.mana_icons = ManaIconFactory()
@@ -162,6 +171,24 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self._build_deck_workspace(right_panel, right_sizer)
 
         return right_panel
+
+    def _create_notebook(self, parent: wx.Window) -> fnb.FlatNotebook:
+        notebook = fnb.FlatNotebook(
+            parent,
+            style=(
+                fnb.FNB_FANCY_TABS
+                | fnb.FNB_NO_X_BUTTON
+                | fnb.FNB_SMART_TABS
+                | fnb.FNB_NAV_BUTTONS_WHEN_NEEDED
+            ),
+        )
+        notebook.SetTabAreaColour(DARK_PANEL)
+        notebook.SetActiveTabColour(DARK_ACCENT)
+        notebook.SetNonActiveTabTextColour(SUBDUED_TEXT)
+        notebook.SetActiveTabTextColour(LIGHT_TEXT)
+        notebook.SetBackgroundColour(DARK_BG)
+        notebook.SetForegroundColour(LIGHT_TEXT)
+        return notebook
 
     def _build_toolbar(self, parent: wx.Window) -> ToolbarButtons:
         return ToolbarButtons(
@@ -293,7 +320,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         detail_sizer = wx.StaticBoxSizer(detail_box, wx.VERTICAL)
         parent_sizer.Add(detail_sizer, 1, wx.EXPAND)
 
-        self.deck_tabs = wx.Notebook(detail_box)
+        self.deck_tabs = self._create_notebook(detail_box)
         detail_sizer.Add(self.deck_tabs, 1, wx.EXPAND | wx.ALL, 6)
 
         # Deck tables tab
@@ -336,15 +363,13 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         tables_sizer = wx.BoxSizer(wx.VERTICAL)
         self.deck_tables_page.SetSizer(tables_sizer)
 
-        self.zone_notebook = wx.Notebook(self.deck_tables_page)
+        self.zone_notebook = self._create_notebook(self.deck_tables_page)
         tables_sizer.Add(self.zone_notebook, 1, wx.EXPAND | wx.BOTTOM, 6)
 
         # Create zone tables
         self.main_table = self._create_zone_table("main", "Mainboard")
         self.side_table = self._create_zone_table("side", "Sideboard")
-        self.out_table = self._create_zone_table(
-            "out", "Outboard", owned_status_func=lambda name, qty: ("Out", wx.Colour(255, 255, 255))
-        )
+        self.out_table = None
 
         # Collection status
         self.collection_status_label = wx.StaticText(
@@ -417,7 +442,8 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         if "zone_cards" in state:
             self.main_table.set_cards(self.zone_cards["main"])
             self.side_table.set_cards(self.zone_cards["side"])
-            self.out_table.set_cards(self.zone_cards["out"])
+            if self.out_table:
+                self.out_table.set_cards(self.zone_cards["out"])
 
         # Restore deck text
         if "deck_text" in state:
@@ -491,7 +517,8 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.zone_cards = {"main": [], "side": [], "out": []}
         self.main_table.set_cards([])
         self.side_table.set_cards([])
-        self.out_table.set_cards(self.zone_cards["out"])
+        if self.out_table:
+            self.out_table.set_cards(self.zone_cards["out"])
         self.controller.deck_repo.set_current_deck_text("")
         self._update_stats("")
         self.deck_notes_panel.clear()
