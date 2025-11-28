@@ -134,7 +134,7 @@ class SearchService:
         self,
         filters: dict[str, Any],
         card_manager: CardDataManager,
-        limit: int = 300,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """
         Perform a comprehensive card search with all builder panel filters.
@@ -146,7 +146,7 @@ class SearchService:
         Args:
             filters: Dictionary of filter criteria from builder panel
             card_manager: CardDataManager instance to search
-            limit: Maximum number of results to return (default 300)
+            limit: Maximum number of results to return (default None for unlimited)
 
         Returns:
             List of filtered card dictionaries
@@ -242,7 +242,7 @@ class SearchService:
 
             # Add to results
             filtered.append(card)
-            if len(filtered) >= limit:
+            if limit is not None and len(filtered) >= limit:
                 break
 
         logger.debug(

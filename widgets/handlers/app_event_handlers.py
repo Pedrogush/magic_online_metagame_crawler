@@ -332,6 +332,9 @@ class AppEventHandlers:
             unique=stats.get("unique_names"),
             total=stats.get("total_printings"),
         )
+        if self._builder_search_pending:
+            self._builder_search_pending = False
+            wx.CallAfter(self._on_builder_search)
 
     def _on_bulk_data_load_failed(self: AppFrame, error_msg: str) -> None:
         self.controller.image_service.clear_printing_index_loading()
@@ -360,14 +363,14 @@ class AppEventHandlers:
         if not card_manager or not self.controller.card_repo.is_card_data_loaded():
             if not self.controller.card_repo.is_card_data_loading():
                 self.ensure_card_data_loaded()
-            if not self.card_data_dialogs_disabled:
-                wx.MessageBox(
-                    "Card database is still loading. Please try again in a moment.",
-                    "Card Search",
-                    wx.OK | wx.ICON_INFORMATION,
+            self._builder_search_pending = True
+            if self.builder_panel and self.builder_panel.status_label:
+                self.builder_panel.status_label.SetLabel(
+                    "Loading card data… (search will run automatically)"
                 )
             return
 
+        self._builder_search_pending = False
         filters = self.builder_panel.get_filters()
 
         mv_value_text = filters.get("mv_value", "")
@@ -375,7 +378,8 @@ class AppEventHandlers:
             try:
                 float(mv_value_text)
             except ValueError:
-                wx.MessageBox("Mana value must be numeric.", "Card Search", wx.OK | wx.ICON_WARNING)
+                if self.builder_panel and self.builder_panel.status_label:
+                    self.builder_panel.status_label.SetLabel("Mana value must be numeric.")
                 return
 
         results = self.controller.search_service.search_with_builder_filters(filters, card_manager)

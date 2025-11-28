@@ -19,6 +19,7 @@ class CardBoxPanel(wx.Panel):
         on_delta: Callable[[str, str, int], None],
         on_remove: Callable[[str, str], None],
         on_select: Callable[[str, dict[str, Any], "CardBoxPanel"], None],
+        on_hover: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.zone = zone
@@ -28,6 +29,7 @@ class CardBoxPanel(wx.Panel):
         self._on_delta = on_delta
         self._on_remove = on_remove
         self._on_select = on_select
+        self._on_hover = on_hover
         self._active = False
 
         self.SetBackgroundColour(DARK_ALT)
@@ -85,6 +87,9 @@ class CardBoxPanel(wx.Panel):
 
         # Bind click events to all widgets so clicks anywhere on the card work
         self._bind_click_targets([self, self.qty_label, self.name_label, mana_panel])
+        self._bind_hover_targets(
+            [self, self.qty_label, self.name_label, mana_panel, self.button_panel]
+        )
 
     def update_quantity(
         self, qty: int | float, owned_text: str, owned_colour: tuple[int, int, int]
@@ -110,8 +115,20 @@ class CardBoxPanel(wx.Panel):
             for child in target.GetChildren():
                 child.Bind(wx.EVT_LEFT_DOWN, self._handle_click)
 
+    def _bind_hover_targets(self, targets: list[wx.Window]) -> None:
+        if self._on_hover is None:
+            return
+        for target in targets:
+            target.Bind(wx.EVT_ENTER_WINDOW, self._handle_hover)
+            for child in target.GetChildren():
+                child.Bind(wx.EVT_ENTER_WINDOW, self._handle_hover)
+
     def _handle_click(self, _event: wx.MouseEvent) -> None:
         self._on_select(self.zone, self.card, self)
+
+    def _handle_hover(self, _event: wx.MouseEvent) -> None:
+        if self._on_hover:
+            self._on_hover(self.zone, self.card)
 
     def _style_action_button(self, button: wx.Button) -> None:
         button.SetBackgroundColour(DARK_ACCENT)

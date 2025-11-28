@@ -125,3 +125,21 @@ class CardTablePanelHandler:
         self._collapse_other_zone_tables(zone)
         meta = self.controller.card_repo.get_card_metadata(card["name"])
         self.card_inspector_panel.update_card(card, zone=zone, meta=meta)
+
+    def _handle_card_hover(self: AppFrame, zone: str, card: dict[str, Any]) -> None:
+        self._pending_hover = (zone, card)
+        if self._inspector_hover_timer is None:
+            self._inspector_hover_timer = wx.Timer(self)
+            self.Bind(wx.EVT_TIMER, self._flush_hover_preview, self._inspector_hover_timer)
+        elif self._inspector_hover_timer.IsRunning():
+            self._inspector_hover_timer.Stop()
+        # Debounce inspector updates to avoid thrashing while the mouse moves quickly.
+        self._inspector_hover_timer.StartOnce(120)
+
+    def _flush_hover_preview(self: AppFrame, _event: wx.TimerEvent) -> None:
+        if not self._pending_hover:
+            return
+        zone, card = self._pending_hover
+        self._pending_hover = None
+        meta = self.controller.card_repo.get_card_metadata(card["name"])
+        self.card_inspector_panel.update_card(card, zone=zone, meta=meta)
