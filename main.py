@@ -21,7 +21,7 @@ class LoadingFrame(wx.Frame):
             None,
             title="Loading MTGO Deck Builder",
             style=wx.BORDER_NONE | wx.STAY_ON_TOP,
-            size=(420, 140),
+            size=(460, 160),
         )
         self._start = time.monotonic()
         self._min_duration = min_duration
@@ -36,18 +36,19 @@ class LoadingFrame(wx.Frame):
         outer = wx.BoxSizer(wx.VERTICAL)
         panel.SetSizer(outer)
 
-        title = wx.StaticText(panel, label="Preparing deck builder...")
+        title = wx.StaticText(panel, label="Loading MTGOTools...")
         title.SetForegroundColour(LIGHT_TEXT)
         title_font = title.GetFont()
         title_font.MakeBold()
         title.SetFont(title_font)
-        outer.Add(title, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 12)
+        outer.Add(title, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.TOP | wx.LEFT | wx.RIGHT, 18)
+        outer.AddStretchSpacer(1)
 
         self.gauge = wx.Gauge(panel, range=100, style=wx.GA_HORIZONTAL | wx.GA_SMOOTH)
-        self.gauge.SetMinSize((-1, 18))
+        self.gauge.SetMinSize((-1, 22))
         self.gauge.SetForegroundColour(DARK_ACCENT)
         self.gauge.SetBackgroundColour(DARK_BG)
-        outer.Add(self.gauge, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        outer.Add(self.gauge, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 18)
 
         self._timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_tick, self._timer)
