@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import wx
 from loguru import logger
@@ -63,6 +63,8 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.mana_keyboard_window: ManaKeyboardFrame | None = None
         self.force_cache_checkbox: wx.CheckBox | None = None
         self.bulk_cache_age_spin: wx.SpinCtrl | None = None
+        self._inspector_hover_timer: wx.Timer | None = None
+        self._pending_hover: tuple[str, dict[str, Any]] | None = None
 
         self._build_ui()
         self._apply_window_preferences()
@@ -370,6 +372,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             self._handle_zone_remove,
             self._handle_zone_add,
             self._handle_card_focus,
+            self._handle_card_hover,
         )
         self.zone_notebook.AddPage(table, tab_name)
         return table
