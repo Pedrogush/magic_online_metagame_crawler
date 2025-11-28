@@ -50,6 +50,7 @@ class _SearchResultsView(wx.ListCtrl):
 
 class DeckBuilderPanel(wx.Panel):
     """Panel for searching and filtering MTG cards by various properties."""
+
     _SEARCH_DEBOUNCE_MS = 300
 
     def __init__(
