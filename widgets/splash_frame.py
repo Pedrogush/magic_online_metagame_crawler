@@ -41,7 +41,9 @@ class LoadingFrame(wx.Frame):
         font.MakeBold()
         title.SetFont(font)
         title.Wrap(320)
-        outer.Add(title, 1, wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL)
+        outer.AddStretchSpacer(1)
+        outer.Add(title, 0, wx.ALIGN_CENTER_HORIZONTAL)
+        outer.AddStretchSpacer(1)
 
         panel.Layout()
         self.Layout()
