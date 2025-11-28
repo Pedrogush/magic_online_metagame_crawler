@@ -70,13 +70,16 @@ class CardBoxPanel(wx.Panel):
         self.button_panel.SetBackgroundColour(DARK_ALT)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.button_panel.SetSizer(btn_sizer)
-        add_btn = wx.Button(self.button_panel, label="+", size=(24, 24))
+        add_btn = wx.Button(self.button_panel, label="+")
+        self._style_action_button(add_btn)
         add_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_delta(zone, card["name"], 1))
         btn_sizer.Add(add_btn, 0)
-        sub_btn = wx.Button(self.button_panel, label="−", size=(24, 24))
+        sub_btn = wx.Button(self.button_panel, label="−")
+        self._style_action_button(sub_btn)
         sub_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_delta(zone, card["name"], -1))
         btn_sizer.Add(sub_btn, 0, wx.LEFT, 2)
-        rem_btn = wx.Button(self.button_panel, label="×", size=(24, 24))
+        rem_btn = wx.Button(self.button_panel, label="×")
+        self._style_action_button(rem_btn)
         rem_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_remove(zone, card["name"]))
         btn_sizer.Add(rem_btn, 0, wx.LEFT, 2)
         row.Add(self.button_panel, 0, wx.ALIGN_CENTER_VERTICAL)
@@ -126,3 +129,12 @@ class CardBoxPanel(wx.Panel):
     def _handle_hover(self, _event: wx.MouseEvent) -> None:
         if self._on_hover:
             self._on_hover(self.zone, self.card)
+
+    def _style_action_button(self, button: wx.Button) -> None:
+        button.SetBackgroundColour(DARK_ACCENT)
+        button.SetForegroundColour(wx.Colour(12, 14, 18))
+        button.SetWindowStyleFlag(wx.BORDER_NONE)
+        button.SetMinSize((28, 28))
+        font = button.GetFont()
+        font.MakeBold()
+        button.SetFont(font)

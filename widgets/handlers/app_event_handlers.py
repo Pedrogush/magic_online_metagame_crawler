@@ -288,7 +288,8 @@ class AppEventHandlers:
         self.zone_cards["out"] = self._load_outboard_for_current()
         self.main_table.set_cards(self.zone_cards["main"])
         self.side_table.set_cards(self.zone_cards["side"])
-        self.out_table.set_cards(self.zone_cards["out"])
+        if self.out_table:
+            self.out_table.set_cards(self.zone_cards["out"])
         self._update_stats(deck_text)
         self.copy_button.Enable(True)
         self.save_button.Enable(True)

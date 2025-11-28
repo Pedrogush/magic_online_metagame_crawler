@@ -7,6 +7,7 @@ import wx
 from loguru import logger
 
 from controllers.app_controller import get_deck_selector_controller
+from widgets.splash_frame import LoadingFrame
 
 
 class MetagameWxApp(wx.App):
@@ -14,13 +15,34 @@ class MetagameWxApp(wx.App):
 
     def OnInit(self) -> bool:  # noqa: N802 - wx override
         logger.info("Starting MTGO Metagame Deck Builder (wx)")
-        # Initialize controller which manages all application state and business logic
-        controller = get_deck_selector_controller()
-        # Controller creates and configures the UI frame
-        controller.frame.Show()
-        self.SetTopWindow(controller.frame)
-        wx.CallAfter(controller.frame.ensure_card_data_loaded)
+        self.loading_frame = LoadingFrame()
+        self.loading_frame.Show()
+        self.loading_frame.Layout()
+        self.loading_frame.Refresh()
+        self.loading_frame.Update()
+        wx.CallAfter(self._build_main_window)
         return True
+
+    def _build_main_window(self) -> None:
+        controller = get_deck_selector_controller()
+        self.controller = controller
+        self.SetTopWindow(controller.frame)
+
+        def show_main() -> None:
+            frame = controller.frame
+            frame.Freeze()
+            frame.Layout()
+            frame.SendSizeEvent()
+            frame.Thaw()
+            frame.Show()
+            frame.Refresh()
+            frame.Update()
+            wx.CallAfter(frame.ensure_card_data_loaded)
+
+        if getattr(self, "loading_frame", None):
+            self.loading_frame.set_ready(show_main)
+        else:
+            show_main()
 
     def OnExceptionInMainLoop(self) -> bool:  # noqa: N802 - wx override
         """Handle exceptions in the main event loop."""
