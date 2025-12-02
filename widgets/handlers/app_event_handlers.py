@@ -230,6 +230,9 @@ class AppEventHandlers:
         elif ctrl_down and key_code == ord("R"):
             self._show_left_panel("research")
             return
+        elif ctrl_down and key_code == ord("S"):
+            self.on_save_clicked(None)
+            return
         elif key_code in (ord("+"), ord("=")):
             self._handle_add_card_shortcut()
             return
