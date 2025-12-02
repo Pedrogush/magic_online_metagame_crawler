@@ -131,21 +131,12 @@ class AppEventHandlers:
             return
         deck = self.controller.deck_repo.get_decks_list()[idx]
         self.controller.deck_repo.set_current_deck(deck)
-        self.load_button.Enable()
-        self.copy_button.Enable(self._has_deck_loaded())
-        self.save_button.Enable(self._has_deck_loaded())
-        self._set_status(f"Selected deck {self.format_deck_name(deck)}")
+        self.copy_button.Disable()
+        self.save_button.Disable()
+        self._set_status(f"Loading deck {self.format_deck_name(deck)}…")
         self._show_left_panel("builder")
+        self._download_and_display_deck(deck)
         self._schedule_settings_save()
-
-    def on_load_deck_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
-        current_deck = self.controller.deck_repo.get_current_deck()
-        with self._loading_lock:
-            if self.loading_decks:
-                return
-        if not current_deck:
-            return
-        self._download_and_display_deck(current_deck)
 
     def on_daily_average_clicked(self: AppFrame, _event: wx.CommandEvent) -> None:
         with self._loading_lock:
@@ -259,7 +250,9 @@ class AppEventHandlers:
         self.deck_list.Enable()
         self.daily_average_button.Enable()
         self._present_archetype_summary(archetype_name, decks)
-        self._set_status(f"Loaded {len(decks)} decks for {archetype_name}. Select one to inspect.")
+        self._set_status(
+            f"Loaded {len(decks)} decks for {archetype_name}. Click a deck to load it."
+        )
 
     def _on_decks_error(self: AppFrame, error: Exception) -> None:
         with self._loading_lock:
@@ -270,7 +263,8 @@ class AppEventHandlers:
         wx.MessageBox(f"Failed to load deck lists:\n{error}", "Deck Error", wx.OK | wx.ICON_ERROR)
 
     def _on_deck_download_error(self: AppFrame, error: Exception) -> None:
-        self.load_button.Enable()
+        self.copy_button.Disable()
+        self.save_button.Disable()
         self._set_status(f"Deck download failed: {error}")
         wx.MessageBox(f"Failed to download deck:\n{error}", "Deck Download", wx.OK | wx.ICON_ERROR)
 
@@ -552,7 +546,6 @@ class AppEventHandlers:
             return
 
         # Update UI state immediately
-        self.load_button.Disable()
         self.copy_button.Disable()
         self.save_button.Disable()
 
