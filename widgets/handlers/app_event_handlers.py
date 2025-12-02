@@ -220,6 +220,53 @@ class AppEventHandlers:
             self.mana_keyboard_window = None
         event.Skip()
 
+    def on_key_press(self: AppFrame, event: wx.KeyEvent) -> None:
+        key_code = event.GetKeyCode()
+        ctrl_down = event.ControlDown()
+
+        if ctrl_down and key_code == ord("D"):
+            self._show_left_panel("builder")
+            return
+        elif ctrl_down and key_code == ord("R"):
+            self._show_left_panel("research")
+            return
+        elif key_code in (ord("+"), ord("=")):
+            self._handle_add_card_shortcut()
+            return
+        elif key_code in (ord("-"), ord("_")):
+            self._handle_remove_card_shortcut()
+            return
+
+        event.Skip()
+
+    def _handle_add_card_shortcut(self: AppFrame) -> None:
+        if self.left_mode == "builder" and self.builder_panel and self.builder_panel.results_ctrl:
+            selected_idx = self.builder_panel.results_ctrl.GetFirstSelected()
+            if selected_idx != -1:
+                card_data = self.builder_panel.get_result_at_index(selected_idx)
+                if card_data:
+                    card_name = card_data.get("name")
+                    if card_name:
+                        self._handle_zone_delta("main", card_name, 1)
+                        self._set_status(f"Added {card_name} to mainboard")
+                return
+
+        if hasattr(self, "card_inspector_panel") and self.card_inspector_panel.active_zone:
+            zone = self.card_inspector_panel.active_zone
+            card_name = self.card_inspector_panel.inspector_current_card_name
+            if card_name:
+                self._handle_zone_delta(zone, card_name, 1)
+                self._set_status(f"Added {card_name} to {zone}")
+
+    def _handle_remove_card_shortcut(self: AppFrame) -> None:
+        if hasattr(self, "card_inspector_panel") and self.card_inspector_panel.active_zone:
+            zone = self.card_inspector_panel.active_zone
+            if zone in ("main", "side"):
+                card_name = self.card_inspector_panel.inspector_current_card_name
+                if card_name:
+                    self._handle_zone_delta(zone, card_name, -1)
+                    self._set_status(f"Removed {card_name} from {zone}")
+
     # Async Callback Handlers
     def _on_archetypes_loaded(self: AppFrame, items: list[dict[str, Any]]) -> None:
         with self._loading_lock:
