@@ -48,6 +48,7 @@ class CardInspectorPanel(wx.Panel):
         self.printing_label_width: int = 0
         self.image_cache = get_cache()
         self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
+        self._image_available = False
 
         self._build_ui()
         self.reset()
@@ -61,18 +62,18 @@ class CardInspectorPanel(wx.Panel):
         sizer.Add(content, 1, wx.EXPAND | wx.ALL, 6)
 
         # Left column: Card image and printing navigation
-        image_column_panel = wx.Panel(self)
-        image_column_panel.SetBackgroundColour(DARK_PANEL)
+        self.image_column_panel = wx.Panel(self)
+        self.image_column_panel.SetBackgroundColour(DARK_PANEL)
         image_column = wx.BoxSizer(wx.VERTICAL)
-        image_column_panel.SetSizer(image_column)
-        content.Add(image_column_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        self.image_column_panel.SetSizer(image_column)
+        content.Add(self.image_column_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
 
         # Card image display
-        self.card_image_display = CardImageDisplay(image_column_panel, width=260, height=360)
+        self.card_image_display = CardImageDisplay(self.image_column_panel, width=260, height=360)
         image_column.Add(self.card_image_display, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 4)
 
         # Printing navigation panel
-        self.nav_panel = wx.Panel(image_column_panel)
+        self.nav_panel = wx.Panel(self.image_column_panel)
         self.nav_panel.SetBackgroundColour(DARK_PANEL)
         nav_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.nav_panel.SetSizer(nav_sizer)
@@ -111,14 +112,14 @@ class CardInspectorPanel(wx.Panel):
         self.nav_panel.Hide()  # Hidden by default
 
         # Right column: Card details
-        details_panel = wx.Panel(self)
-        details_panel.SetBackgroundColour(DARK_PANEL)
+        self.details_panel = wx.Panel(self)
+        self.details_panel.SetBackgroundColour(DARK_PANEL)
         details = wx.BoxSizer(wx.VERTICAL)
-        details_panel.SetSizer(details)
-        content.Add(details_panel, 1, wx.EXPAND)
+        self.details_panel.SetSizer(details)
+        content.Add(self.details_panel, 1, wx.EXPAND)
 
         # Card name
-        self.name_label = wx.StaticText(details_panel, label="Select a card to inspect.")
+        self.name_label = wx.StaticText(self.details_panel, label="Select a card to inspect.")
         name_font = self.name_label.GetFont()
         name_font.SetPointSize(name_font.GetPointSize() + 2)
         name_font.MakeBold()
@@ -127,7 +128,7 @@ class CardInspectorPanel(wx.Panel):
         details.Add(self.name_label, 0, wx.BOTTOM, 4)
 
         # Mana cost container
-        self.cost_container = wx.Panel(details_panel)
+        self.cost_container = wx.Panel(self.details_panel)
         self.cost_container.SetBackgroundColour(DARK_PANEL)
         self.cost_container.SetMinSize((-1, 36))
         self.cost_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -135,18 +136,18 @@ class CardInspectorPanel(wx.Panel):
         details.Add(self.cost_container, 0, wx.EXPAND | wx.BOTTOM, 4)
 
         # Type line
-        self.type_label = wx.StaticText(details_panel, label="")
+        self.type_label = wx.StaticText(self.details_panel, label="")
         self.type_label.SetForegroundColour(SUBDUED_TEXT)
         details.Add(self.type_label, 0, wx.BOTTOM, 4)
 
         # Stats (mana value, P/T, colors, zone)
-        self.stats_label = wx.StaticText(details_panel, label="")
+        self.stats_label = wx.StaticText(self.details_panel, label="")
         self.stats_label.SetForegroundColour(LIGHT_TEXT)
         details.Add(self.stats_label, 0, wx.BOTTOM, 4)
 
         # Oracle text
         self.text_ctrl = wx.TextCtrl(
-            details_panel,
+            self.details_panel,
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.NO_BORDER,
         )
         stylize_textctrl(self.text_ctrl, multiline=True)
@@ -161,13 +162,14 @@ class CardInspectorPanel(wx.Panel):
         self.name_label.SetLabel("Select a card to inspect.")
         self.type_label.SetLabel("")
         self.stats_label.SetLabel("")
-        self.text_ctrl.ChangeValue("")
+        self.text_ctrl.ChangeValue("Select a card to inspect.")
         self._render_mana_cost("")
         self.card_image_display.show_placeholder("Select a card")
         self.nav_panel.Hide()
         self.inspector_printings = []
         self.inspector_current_printing = 0
         self.inspector_current_card_name = None
+        self._set_display_mode(False)
 
     def update_card(
         self, card: dict[str, Any], zone: str | None = None, meta: dict[str, Any] | None = None
@@ -259,15 +261,18 @@ class CardInspectorPanel(wx.Panel):
 
     def _load_current_printing_image(self) -> None:
         """Load and display the current printing's image."""
+        image_available = False
         if not self.inspector_printings:
             # No printings found, try to load any cached image
             image_path = get_card_image(self.inspector_current_card_name, "normal")
             if image_path and image_path.exists():
                 self.card_image_display.show_image(image_path)
+                image_available = True
                 self.nav_panel.Hide()
             else:
                 self.card_image_display.show_placeholder("Not cached")
                 self.nav_panel.Hide()
+            self._set_display_mode(image_available)
             return
 
         # Get current printing
@@ -282,6 +287,7 @@ class CardInspectorPanel(wx.Panel):
                 self.card_image_display.show_images(image_paths)
             else:
                 self.card_image_display.show_image(image_paths[0])
+            image_available = True
         else:
             self.card_image_display.show_placeholder("Not cached")
 
@@ -305,7 +311,7 @@ class CardInspectorPanel(wx.Panel):
         else:
             self.nav_panel.Hide()
 
-        self.Layout()
+        self._set_display_mode(image_available)
 
     def _on_prev_printing(self, _event: wx.Event) -> None:
         """Navigate to previous printing."""
@@ -325,3 +331,10 @@ class CardInspectorPanel(wx.Panel):
         if self.printing_label_width:
             self.printing_label.Wrap(self.printing_label_width)
         self.nav_panel.Layout()
+
+    def _set_display_mode(self, image_available: bool) -> None:
+        """Toggle between image-only and text fallback views."""
+        self._image_available = image_available
+        self.image_column_panel.Show(image_available)
+        self.details_panel.Show(not image_available)
+        self.Layout()

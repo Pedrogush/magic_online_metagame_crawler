@@ -158,20 +158,20 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         card_data_controls = self._build_card_data_controls(right_panel)
         right_sizer.Add(card_data_controls, 0, wx.EXPAND | wx.BOTTOM, 10)
 
-        # Upper section with summary/decklist and card inspector
-        upper_split = wx.BoxSizer(wx.HORIZONTAL)
-        right_sizer.Add(upper_split, 1, wx.EXPAND | wx.BOTTOM, 10)
+        content_split = wx.BoxSizer(wx.HORIZONTAL)
+        right_sizer.Add(content_split, 1, wx.EXPAND | wx.BOTTOM, 10)
 
-        # Left side: Summary and deck list
-        summary_column = self._build_summary_and_deck_list(right_panel)
-        upper_split.Add(summary_column, 1, wx.EXPAND | wx.RIGHT, 10)
+        middle_column = wx.BoxSizer(wx.VERTICAL)
+        content_split.Add(middle_column, 2, wx.EXPAND | wx.RIGHT, 10)
 
-        # Right side: Card inspector
-        inspector_sizer = self._build_card_inspector(right_panel)
-        upper_split.Add(inspector_sizer, 2, wx.EXPAND)
+        deck_results = self._build_deck_results(right_panel)
+        middle_column.Add(deck_results, 0, wx.EXPAND | wx.BOTTOM, 10)
 
-        # Lower section: Deck workspace
-        self._build_deck_workspace(right_panel, right_sizer)
+        deck_workspace = self._build_deck_workspace(right_panel)
+        middle_column.Add(deck_workspace, 1, wx.EXPAND)
+
+        inspector_column = self._build_card_inspector(right_panel)
+        content_split.Add(inspector_column, 1, wx.EXPAND)
 
         return right_panel
 
@@ -249,30 +249,19 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         sizer.AddStretchSpacer(1)
         return panel
 
-    def _build_summary_and_deck_list(self, parent: wx.Window) -> wx.BoxSizer:
-        summary_column = wx.BoxSizer(wx.VERTICAL)
-
-        # Archetype summary
-        summary_box = wx.StaticBox(parent, label="Archetype Summary")
-        summary_box.SetForegroundColour(LIGHT_TEXT)
-        summary_box.SetBackgroundColour(DARK_PANEL)
-        summary_sizer = wx.StaticBoxSizer(summary_box, wx.VERTICAL)
-        summary_column.Add(summary_sizer, 0, wx.EXPAND | wx.BOTTOM, 10)
-
-        self.summary_text = wx.TextCtrl(
-            summary_box,
-            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.NO_BORDER,
-        )
-        stylize_textctrl(self.summary_text, multiline=True)
-        self.summary_text.SetMinSize((-1, 110))
-        summary_sizer.Add(self.summary_text, 1, wx.EXPAND | wx.ALL, 6)
-
-        # Deck list
+    def _build_deck_results(self, parent: wx.Window) -> wx.StaticBoxSizer:
         deck_box = wx.StaticBox(parent, label="Deck Results")
         deck_box.SetForegroundColour(LIGHT_TEXT)
         deck_box.SetBackgroundColour(DARK_PANEL)
         deck_sizer = wx.StaticBoxSizer(deck_box, wx.VERTICAL)
-        summary_column.Add(deck_sizer, 1, wx.EXPAND)
+
+        self.summary_text = wx.TextCtrl(
+            deck_box,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.NO_BORDER,
+        )
+        stylize_textctrl(self.summary_text, multiline=True)
+        self.summary_text.SetMinSize((-1, 90))
+        deck_sizer.Add(self.summary_text, 0, wx.EXPAND | wx.ALL, 6)
 
         self.deck_list = wx.ListBox(deck_box, style=wx.LB_SINGLE)
         stylize_listbox(self.deck_list)
@@ -295,7 +284,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.copy_button = self.deck_action_buttons.copy_button
         self.save_button = self.deck_action_buttons.save_button
 
-        return summary_column
+        return deck_sizer
 
     def _build_card_inspector(self, parent: wx.Window) -> wx.StaticBoxSizer:
         inspector_box = wx.StaticBox(parent, label="Card Inspector")
@@ -316,12 +305,11 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
         return inspector_sizer
 
-    def _build_deck_workspace(self, parent: wx.Window, parent_sizer: wx.BoxSizer) -> None:
+    def _build_deck_workspace(self, parent: wx.Window) -> wx.StaticBoxSizer:
         detail_box = wx.StaticBox(parent, label="Deck Workspace")
         detail_box.SetForegroundColour(LIGHT_TEXT)
         detail_box.SetBackgroundColour(DARK_PANEL)
         detail_sizer = wx.StaticBoxSizer(detail_box, wx.VERTICAL)
-        parent_sizer.Add(detail_sizer, 1, wx.EXPAND)
 
         self.deck_tabs = self._create_notebook(detail_box)
         detail_sizer.Add(self.deck_tabs, 1, wx.EXPAND | wx.ALL, 6)
@@ -359,6 +347,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_status_update=self._set_status,
         )
         self.deck_tabs.AddPage(self.deck_notes_panel, "Deck Notes")
+        return detail_sizer
 
     def _build_deck_tables_tab(self) -> None:
         self.deck_tables_page = wx.Panel(self.deck_tabs)
