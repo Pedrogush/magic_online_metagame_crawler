@@ -16,7 +16,15 @@ def configure_logging(logs_dir: Path) -> Path | None:
     Returns the file path in use when file logging is available, otherwise None.
     """
     logger.remove()
-    logger.add(sys.stderr, level="INFO", backtrace=True, diagnose=True, enqueue=True)
+    for stream_name in ("stderr", "stdout"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        try:
+            logger.add(stream, level="INFO", backtrace=True, diagnose=True, enqueue=True)
+            break
+        except TypeError:
+            continue
 
     log_file: Path | None = None
     try:
