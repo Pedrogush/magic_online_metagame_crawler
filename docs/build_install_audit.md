@@ -8,9 +8,9 @@ Last reviewed on Linux host (building Windows installer with Wine + Inno Setup).
 - PyInstaller bundles the `main.py` entrypoint; `magic_online_metagame_crawler.spec` only adds vendor data folders (`vendor/mtgo_format_data`, `vendor/mtgo_archetype_parser`, `vendor/mtgosdk`) plus `mtgo_bridge.exe` if it exists at the published path.
 
 ## Installer contents (`packaging/installer.iss`)
-- Installs the entire PyInstaller `dist` output and optionally `mtgo_bridge.exe` from `dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/.../publish/`.
+- Installs the entire PyInstaller `dist` output and the full bridge publish directory (including the bundled .NET runtime) from `dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/.../publish/` when present.
 - Copies vendor datasets into `{app}/vendor/...` only if those directories already exist at build time.
-- Does **not** bundle the .NET runtime/SDK; the bridge is built `--self-contained false`, so the target machine must have the required .NET runtime installed.
+- .NET runtime now ships via self-contained bridge publish (see Windows build script); no external runtime install required when the bridge is built.
 
 ## Python packaging gaps (`setup.py`)
 - Packages list is limited to `widgets`, `navigators`, and `utils`, omitting `controllers`, `services`, `repositories`, and other modules used at runtime.
