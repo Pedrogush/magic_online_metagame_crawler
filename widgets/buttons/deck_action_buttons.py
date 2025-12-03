@@ -1,7 +1,7 @@
 """
 Deck Action Buttons - Group of buttons for deck operations.
 
-Provides Load, Copy, Save, and Today's Average buttons with callback support.
+Provides Copy, Save, and Today's Average buttons with callback support.
 """
 
 from collections.abc import Callable
@@ -12,12 +12,11 @@ from utils.stylize import stylize_button
 
 
 class DeckActionButtons(wx.Panel):
-    """Panel containing deck action buttons (Load, Copy, Save, Today's Average)."""
+    """Panel containing deck action buttons (Copy, Save, Today's Average)."""
 
     def __init__(
         self,
         parent: wx.Window,
-        on_load: Callable[[], None] | None = None,
         on_copy: Callable[[], None] | None = None,
         on_save: Callable[[], None] | None = None,
         on_daily_average: Callable[[], None] | None = None,
@@ -27,14 +26,12 @@ class DeckActionButtons(wx.Panel):
 
         Args:
             parent: Parent window
-            on_load: Callback when Load Deck button clicked
             on_copy: Callback when Copy button clicked
             on_save: Callback when Save Deck button clicked
             on_daily_average: Callback when Today's Average button clicked
         """
         super().__init__(parent)
 
-        self.on_load = on_load
         self.on_copy = on_copy
         self.on_save = on_save
         self.on_daily_average = on_daily_average
@@ -45,13 +42,6 @@ class DeckActionButtons(wx.Panel):
         """Build the button panel UI."""
         button_row = wx.BoxSizer(wx.HORIZONTAL)
         self.SetSizer(button_row)
-
-        # Load Deck button
-        self.load_button = wx.Button(self, label="Load Deck")
-        stylize_button(self.load_button)
-        self.load_button.Disable()
-        self.load_button.Bind(wx.EVT_BUTTON, self._on_load_clicked)
-        button_row.Add(self.load_button, 0, wx.RIGHT, 6)
 
         # Today's Average button
         self.daily_average_button = wx.Button(self, label="Today's Average")
@@ -75,13 +65,6 @@ class DeckActionButtons(wx.Panel):
         button_row.Add(self.save_button, 0)
 
     # ============= Public API =============
-
-    def enable_load(self, enable: bool = True) -> None:
-        """Enable or disable the Load Deck button."""
-        if enable:
-            self.load_button.Enable()
-        else:
-            self.load_button.Disable()
 
     def enable_daily_average(self, enable: bool = True) -> None:
         """Enable or disable the Today's Average button."""
@@ -110,11 +93,6 @@ class DeckActionButtons(wx.Panel):
         self.enable_save(enable)
 
     # ============= Private Methods =============
-
-    def _on_load_clicked(self, _event: wx.Event) -> None:
-        """Handle Load Deck button click."""
-        if self.on_load:
-            self.on_load()
 
     def _on_daily_average_clicked(self, _event: wx.Event) -> None:
         """Handle Today's Average button click."""

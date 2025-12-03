@@ -282,7 +282,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         # Deck action buttons
         self.deck_action_buttons = DeckActionButtons(
             deck_box,
-            on_load=lambda: self.on_load_deck_clicked(None),
             on_copy=lambda: self.on_copy_clicked(None),
             on_save=lambda: self.on_save_clicked(None),
             on_daily_average=lambda: self.on_daily_average_clicked(None),
@@ -290,7 +289,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         deck_sizer.Add(self.deck_action_buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         # Keep references for backward compatibility
-        self.load_button = self.deck_action_buttons.load_button
         self.daily_average_button = self.deck_action_buttons.daily_average_button
         self.copy_button = self.deck_action_buttons.copy_button
         self.save_button = self.deck_action_buttons.save_button
@@ -504,7 +502,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.deck_list.Clear()
         self._clear_deck_display()
         self.daily_average_button.Disable()
-        self.load_button.Disable()
         self.copy_button.Disable()
         self.save_button.Disable()
 
@@ -535,7 +532,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
     def _on_deck_download_success(self, content: str) -> None:
         self._on_deck_content_ready(content, source="mtggoldfish")
-        self.load_button.Enable()
 
     def _has_deck_loaded(self) -> bool:
         return bool(self.zone_cards["main"] or self.zone_cards["side"])

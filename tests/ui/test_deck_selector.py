@@ -21,8 +21,6 @@ def test_deck_selector_loads_archetypes_and_mainboard_stats(
         assert frame.deck_list.GetCount() == 1
         frame.deck_list.SetSelection(0)
         frame.on_deck_selected(None)
-
-        frame.on_load_deck_clicked(None)
         pump_ui_events(wx.GetApp())
 
         assert "8 card" in frame.main_table.count_label.GetLabel()
