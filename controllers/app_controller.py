@@ -835,8 +835,7 @@ class AppController:
                 frame.collection_status_label.SetLabel,
                 _format_collection_label(info),
             )
-            wx.CallAfter(frame.main_table.set_cards, self.zone_cards["main"])
-            wx.CallAfter(frame.side_table.set_cards, self.zone_cards["side"])
+            wx.CallAfter(frame._render_pending_deck)
 
         # Define UI callback functions that marshal to UI thread
         self._ui_callbacks = {

@@ -306,8 +306,7 @@ class AppEventHandlers:
             card_count = len(self.controller.collection_service.get_inventory())
 
         self.collection_status_label.SetLabel(f"Collection: {filepath.name} ({card_count} entries)")
-        self.main_table.set_cards(self.zone_cards["main"])
-        self.side_table.set_cards(self.zone_cards["side"])
+        self._render_pending_deck()
 
     def _on_collection_fetch_failed(self: AppFrame, error_msg: str) -> None:
         self.controller.collection_service.clear_inventory()
@@ -443,10 +442,15 @@ class AppEventHandlers:
             # Update UI panels with card manager (marshalled to UI thread by controller)
             inspector = getattr(self, "card_inspector_panel", None)
             stats = getattr(self, "deck_stats_panel", None)
-            if inspector:
-                wx.CallAfter(inspector.set_card_manager, manager)
-            if stats:
-                wx.CallAfter(stats.set_card_manager, manager)
+
+            def apply_card_data() -> None:
+                if inspector:
+                    inspector.set_card_manager(manager)
+                if stats:
+                    stats.set_card_manager(manager)
+                self._render_pending_deck()
+
+            wx.CallAfter(apply_card_data)
 
         def on_error(error: Exception):
             # Show error dialog on UI thread
