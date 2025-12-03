@@ -228,8 +228,8 @@ if (-not $SkipDotNetBuild) {
         $DotNetCheck = Get-Command dotnet -ErrorAction SilentlyContinue
         if ($DotNetCheck) {
             Push-Location (Join-Path $ProjectRoot "dotnet\MTGOBridge")
-            Write-Info "Building .NET bridge..."
-            & dotnet publish -c Release -r win-x64 --self-contained false
+            Write-Info "Building .NET bridge as self-contained single file (bundles .NET runtime)..."
+            & dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
             Pop-Location
 
             if (-not (Test-Path $BridgePath)) {

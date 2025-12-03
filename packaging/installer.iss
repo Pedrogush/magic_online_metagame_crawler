@@ -46,12 +46,12 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 Source: "../dist/{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; All other files from PyInstaller bundle
 Source: "../dist/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; .NET Bridge executable
-#if FileExists('../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe')
-Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion
+; .NET Bridge executable + runtime (self-contained publish)
+#if DirExists('../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish')
+Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/*"; DestDir: "{app}/dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
-#if FileExists('../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/mtgo_bridge.exe')
-Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/mtgo_bridge.exe"; DestDir: "{app}"; Flags: ignoreversion
+#if DirExists('../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish')
+Source: "../dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish/*"; DestDir: "{app}/dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/publish"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 ; Vendor data directories (if they exist)
 #if DirExists('../vendor/mtgo_format_data')
