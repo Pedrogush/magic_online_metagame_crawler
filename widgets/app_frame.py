@@ -164,14 +164,17 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         middle_column = wx.BoxSizer(wx.VERTICAL)
         content_split.Add(middle_column, 2, wx.EXPAND | wx.RIGHT, 10)
 
-        deck_results = self._build_deck_results(right_panel)
-        middle_column.Add(deck_results, 0, wx.EXPAND | wx.BOTTOM, 10)
-
         deck_workspace = self._build_deck_workspace(right_panel)
         middle_column.Add(deck_workspace, 1, wx.EXPAND)
 
-        inspector_column = self._build_card_inspector(right_panel)
+        inspector_column = wx.BoxSizer(wx.VERTICAL)
         content_split.Add(inspector_column, 1, wx.EXPAND)
+
+        inspector_box = self._build_card_inspector(right_panel)
+        inspector_column.Add(inspector_box, 1, wx.EXPAND | wx.BOTTOM, 10)
+
+        deck_results = self._build_deck_results(right_panel)
+        inspector_column.Add(deck_results, 1, wx.EXPAND)
 
         return right_panel
 
