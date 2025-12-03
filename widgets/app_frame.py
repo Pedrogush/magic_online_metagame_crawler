@@ -74,6 +74,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.bulk_cache_age_spin: wx.SpinCtrl | None = None
         self._inspector_hover_timer: wx.Timer | None = None
         self._pending_hover: tuple[str, dict[str, Any]] | None = None
+        self._pending_deck_restore: bool = False
 
         self._build_ui()
         self._apply_window_preferences()
@@ -432,15 +433,23 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         # Restore left panel mode
         self._show_left_panel(state["left_mode"], force=True)
 
+        has_saved_deck = bool(state.get("zone_cards"))
+
         # Restore zone cards
-        if "zone_cards" in state:
-            self.main_table.set_cards(self.zone_cards["main"])
-            self.side_table.set_cards(self.zone_cards["side"])
-            if self.out_table:
-                self.out_table.set_cards(self.zone_cards["out"])
+        if has_saved_deck:
+            if self.controller.card_repo.is_card_data_ready():
+                self._render_current_deck()
+            else:
+                self._pending_deck_restore = True
+                self._set_status("Loading card database to restore saved deck...")
+                self.ensure_card_data_loaded()
 
         # Restore deck text
-        if "deck_text" in state:
+        if (
+            state.get("deck_text")
+            and self.controller.card_repo.is_card_data_ready()
+            and not has_saved_deck
+        ):
             self._update_stats(state["deck_text"])
             self.copy_button.Enable(True)
             self.save_button.Enable(True)
@@ -517,6 +526,26 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.deck_notes_panel.clear()
         self.sideboard_guide_panel.clear()
         self.card_inspector_panel.reset()
+
+    def _render_current_deck(self) -> None:
+        """Render the saved deck into the UI once card data is available."""
+        self.main_table.set_cards(self.zone_cards["main"])
+        self.side_table.set_cards(self.zone_cards["side"])
+        if self.out_table:
+            self.out_table.set_cards(self.zone_cards["out"])
+        deck_text = self.controller.deck_repo.get_current_deck_text()
+        if deck_text:
+            self._update_stats(deck_text)
+            self.copy_button.Enable(True)
+            self.save_button.Enable(True)
+        self._pending_deck_restore = False
+
+    def _render_pending_deck(self) -> None:
+        """Render a saved deck after card data finishes loading."""
+        if not self.controller.card_repo.is_card_data_ready():
+            return
+        if self._pending_deck_restore or self._has_deck_loaded():
+            self._render_current_deck()
 
     def _populate_archetype_list(self) -> None:
         archetype_names = [item.get("name", "Unknown") for item in self.filtered_archetypes]
