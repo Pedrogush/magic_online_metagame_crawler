@@ -5,7 +5,6 @@ import wx
 
 from utils.constants import DARK_PANEL, SUBDUED_TEXT
 from utils.mana_icon_factory import ManaIconFactory
-from utils.stylize import stylize_button
 from widgets.panels.card_box_panel import CardBoxPanel
 
 
@@ -47,10 +46,6 @@ class CardTablePanel(wx.Panel):
         self.count_label.SetForegroundColour(SUBDUED_TEXT)
         header.Add(self.count_label, 0, wx.ALIGN_CENTER_VERTICAL)
         header.AddStretchSpacer(1)
-        add_btn = wx.Button(self, label="Add Card")
-        stylize_button(add_btn)
-        add_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_add(self.zone))
-        header.Add(add_btn, 0)
         outer.Add(header, 0, wx.EXPAND | wx.BOTTOM, 4)
 
         self.scroller = wx.ScrolledWindow(self, style=wx.VSCROLL)
