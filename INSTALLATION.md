@@ -208,6 +208,11 @@ This downloads SVG mana symbols to `assets/mana_symbols/`.
 3. Click "Refresh Data"
 4. You should see current metagame archetypes
 
+## Logs
+
+- Running from source writes logs to `logs/mtgo_tools_<timestamp>.log` alongside the repository (mirrors terminal output).
+- Installed builds write logs to `%LOCALAPPDATA%\MTGO Metagame Deck Builder\logs\mtgo_tools_<timestamp>.log` so you can share the same startup output without a console attached.
+
 If this works, your installation is successful!
 
 ## Configuration
