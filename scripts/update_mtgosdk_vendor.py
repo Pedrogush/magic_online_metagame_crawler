@@ -10,7 +10,12 @@ import zipfile
 from pathlib import Path
 
 import requests
-from defusedxml.ElementTree import parse as safe_et_parse
+
+try:
+    from defusedxml.ElementTree import parse as safe_et_parse
+except ImportError:  # pragma: no cover
+    from xml.etree.ElementTree import parse as safe_et_parse  # type: ignore
+
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR_ROOT = ROOT / "vendor" / "mtgosdk"
