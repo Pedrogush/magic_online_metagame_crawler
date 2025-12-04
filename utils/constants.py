@@ -47,12 +47,13 @@ CACHE_DIR = BASE_DATA_DIR / "cache"
 DECKS_DIR = BASE_DATA_DIR / "decks"
 DECK_SAVE_DIR = DECKS_DIR
 LOGS_DIR = BASE_DATA_DIR / "logs"
+CARD_DATA_DIR = BASE_DATA_DIR / "data"
 
 
 def ensure_base_dirs() -> None:
     """Ensure base config/cache/deck/log directories exist without importing side effects."""
     BASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    for path in (CONFIG_DIR, CACHE_DIR, DECKS_DIR, LOGS_DIR):
+    for path in (CONFIG_DIR, CACHE_DIR, DECKS_DIR, LOGS_DIR, CARD_DATA_DIR):
         path.mkdir(parents=True, exist_ok=True)
 
 
