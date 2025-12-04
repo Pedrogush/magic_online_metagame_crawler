@@ -19,5 +19,6 @@ setuptools.setup(
         "beautifulsoup4",  # Web scraping MTGGoldfish
         "pymongo",  # Database for caching scraped data
         "pythonnet",  # MTGOSDK bridge integration
+        "defusedxml",  # Safe XML parsing for vendor scripts
     ],
 )
