@@ -32,6 +32,7 @@ for rel in [
     "vendor/mtgo_format_data",
     "vendor/mtgo_archetype_parser",
     "vendor/mtgosdk",
+    "assets/mana",
 ]:
     src = project_root / rel
     if src.exists():
