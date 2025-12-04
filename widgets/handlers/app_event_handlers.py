@@ -429,8 +429,8 @@ class AppEventHandlers:
         logger.error(f"Daily average error: {error}")
         try:
             progress_dialog.Close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Error closing progress dialog after failure: %s", exc)
         self.daily_average_button.Enable()
         wx.MessageBox(
             f"Failed to build daily average:\n{error}", "Daily Average", wx.OK | wx.ICON_ERROR

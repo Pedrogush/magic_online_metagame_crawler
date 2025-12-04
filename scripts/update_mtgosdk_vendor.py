@@ -13,8 +13,10 @@ import requests
 
 try:
     from defusedxml.ElementTree import parse as safe_et_parse
-except ImportError:  # pragma: no cover
-    from xml.etree.ElementTree import parse as safe_et_parse  # type: ignore
+except ImportError as exc:  # pragma: no cover
+    raise ImportError(
+        "defusedxml is required to safely parse NuGet metadata. Install via `pip install defusedxml`."
+    ) from exc
 
 
 ROOT = Path(__file__).resolve().parents[1]
