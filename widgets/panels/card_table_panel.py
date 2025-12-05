@@ -155,6 +155,32 @@ class CardTablePanel(wx.Panel):
         if previously_had_selection:
             self._notify_selection(None)
 
+    def get_selected_card(self) -> dict[str, Any] | None:
+        """Return the currently selected card in this table, if any."""
+        if self.active_panel:
+            return self.active_panel.card
+        return None
+
+    def focus_card(self, card_name: str) -> bool:
+        """Programmatically focus the given card by name."""
+        if not card_name:
+            return False
+        match = None
+        for widget in self.card_widgets:
+            if widget.card["name"].lower() == card_name.lower():
+                match = widget
+                break
+        if match is None:
+            return False
+        if self.active_panel and self.active_panel is not match:
+            self.active_panel.set_active(False)
+        self.active_panel = match
+        self.selected_name = match.card["name"]
+        match.set_active(True)
+        self.scroller.ScrollChildIntoView(match)
+        self._notify_selection(match.card)
+        return True
+
     def clear_selection(self) -> None:
         if self.active_panel:
             self.active_panel.set_active(False)
