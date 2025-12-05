@@ -70,8 +70,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.history_window: MatchHistoryFrame | None = None
         self.metagame_window: MetagameAnalysisFrame | None = None
         self.mana_keyboard_window: ManaKeyboardFrame | None = None
-        self.force_cache_checkbox: wx.CheckBox | None = None
-        self.bulk_cache_age_spin: wx.SpinCtrl | None = None
         self._inspector_hover_timer: wx.Timer | None = None
         self._pending_hover: tuple[str, dict[str, Any]] | None = None
         self._pending_deck_restore: bool = False
@@ -208,6 +206,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_download_card_images=lambda: show_image_download_dialog(
                 self, self.image_cache, self.image_downloader, self._set_status
             ),
+            on_update_card_database=lambda: self.controller.force_bulk_data_update(),
         )
 
     def _build_card_data_controls(self, parent: wx.Window) -> wx.Panel:
@@ -215,29 +214,6 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         panel.SetBackgroundColour(DARK_BG)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         panel.SetSizer(sizer)
-
-        self.force_cache_checkbox = wx.CheckBox(panel, label="Use cached card data only")
-        self.force_cache_checkbox.SetValue(self.controller.is_forcing_cached_bulk_data())
-        self.force_cache_checkbox.Bind(wx.EVT_CHECKBOX, self._on_force_cached_toggle)
-        sizer.Add(self.force_cache_checkbox, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
-
-        age_label = wx.StaticText(panel, label="Max cache age (days):")
-        age_label.SetForegroundColour(LIGHT_TEXT)
-        sizer.Add(age_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-
-        self.bulk_cache_age_spin = wx.SpinCtrl(
-            panel,
-            min=1,  # BULK_CACHE_MIN_AGE_DAYS
-            max=365,  # BULK_CACHE_MAX_AGE_DAYS
-        )
-        self.bulk_cache_age_spin.SetValue(self.controller.get_bulk_cache_age_days())
-        self.bulk_cache_age_spin.Bind(wx.EVT_SPINCTRL, self._on_bulk_age_changed)
-        self.bulk_cache_age_spin.Bind(wx.EVT_TEXT, self._on_bulk_age_changed)
-        sizer.Add(self.bulk_cache_age_spin, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-
-        hint = wx.StaticText(panel, label="Higher values reduce download frequency.")
-        hint.SetForegroundColour(SUBDUED_TEXT)
-        sizer.Add(hint, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
 
         source_label = wx.StaticText(panel, label="Deck data source:")
         source_label.SetForegroundColour(LIGHT_TEXT)

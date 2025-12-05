@@ -21,6 +21,7 @@ class ToolbarButtons(wx.Panel):
         on_open_metagame_analysis: Callable[[], None] | None = None,
         on_load_collection: Callable[[], None] | None = None,
         on_download_card_images: Callable[[], None] | None = None,
+        on_update_card_database: Callable[[], None] | None = None,
     ):
         """
         Initialize the toolbar button panel.
@@ -33,6 +34,7 @@ class ToolbarButtons(wx.Panel):
             on_open_metagame_analysis: Callback for "Metagame Analysis"
             on_load_collection: Callback for "Load Collection"
             on_download_card_images: Callback for "Download Card Images"
+            on_update_card_database: Callback for "Update Card Database"
         """
         super().__init__(parent)
 
@@ -50,6 +52,9 @@ class ToolbarButtons(wx.Panel):
         self.load_collection_button = self._add_button("Load Collection", on_load_collection)
         self.download_images_button = self._add_button(
             "Download Card Images", on_download_card_images
+        )
+        self.update_database_button = self._add_button(
+            "Update Card Database", on_update_card_database
         )
 
         self._button_row.AddStretchSpacer(1)

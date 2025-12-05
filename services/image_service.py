@@ -10,7 +10,6 @@ This module handles:
 
 import threading
 from collections.abc import Callable
-from datetime import datetime
 from typing import Any
 
 from loguru import logger
@@ -20,10 +19,6 @@ from utils.card_images import (
     BulkImageDownloader,
     ensure_printing_index_cache,
     get_cache,
-)
-from utils.constants import (
-    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
-    ONE_DAY_SECONDS,
 )
 
 
@@ -40,53 +35,17 @@ class ImageService:
 
     # ============= Bulk Data Management =============
 
-    def check_bulk_data_freshness(self, max_age_days: float | None = None) -> tuple[bool, str]:
+    def check_bulk_data_exists(self) -> tuple[bool, str]:
         """
-        Check if bulk data needs to be downloaded.
+        Check if bulk data exists.
 
         Returns:
-            Tuple of (needs_download: bool, reason: str)
+            Tuple of (exists: bool, reason: str)
         """
-        if self.image_downloader is None:
-            self.image_downloader = BulkImageDownloader(self.image_cache)
-
-        freshness_seconds = self._resolve_freshness_seconds(max_age_days)
-
         if not BULK_DATA_CACHE.exists():
-            return True, "Bulk data cache not found"
+            return False, "Bulk data cache not found"
 
-        # Try vendor metadata check first
-        try:
-            needs_download, metadata = self.image_downloader.is_bulk_data_outdated(
-                max_staleness_seconds=freshness_seconds
-            )
-            if not needs_download:
-                reason = f"Bulk data current (updated_at={metadata.get('updated_at')})"
-                logger.info(reason)
-                return False, reason
-
-            reason = f"Bulk data stale (updated_at={metadata.get('updated_at')})"
-            logger.info(reason)
-            return True, reason
-
-        except Exception as exc:
-            logger.warning(f"Failed to check bulk data metadata: {exc}")
-
-            # Fallback to age-based check
-            try:
-                age_seconds = datetime.now().timestamp() - BULK_DATA_CACHE.stat().st_mtime
-                if age_seconds < freshness_seconds:
-                    reason = f"Bulk data cache is recent ({age_seconds/3600:.1f}h old)"
-                    logger.info(reason)
-                    return False, reason
-
-                reason = f"Bulk data cache is stale ({age_seconds/3600:.1f}h old)"
-                logger.info(reason)
-                return True, reason
-
-            except Exception as exc2:
-                logger.warning(f"Failed to check bulk data age: {exc2}")
-                return False, f"Error checking cache: {exc2}"
+        return True, "Bulk data cache exists"
 
     def download_bulk_metadata_async(
         self,
@@ -321,18 +280,6 @@ class ImageService:
     def is_loading(self) -> bool:
         """Check if printing index is currently loading."""
         return self.printing_index_loading
-
-    @staticmethod
-    def _resolve_freshness_seconds(max_age_days: float | None) -> int:
-        """Convert day-based threshold into seconds with sane defaults."""
-        if max_age_days is None:
-            max_age_days = DEFAULT_BULK_DATA_MAX_AGE_DAYS
-        try:
-            days = max(float(max_age_days), 1.0)
-        except (TypeError, ValueError):
-            days = float(DEFAULT_BULK_DATA_MAX_AGE_DAYS)
-        seconds = int(days * ONE_DAY_SECONDS)
-        return max(seconds, ONE_DAY_SECONDS)
 
 
 # Global instance for backward compatibility
