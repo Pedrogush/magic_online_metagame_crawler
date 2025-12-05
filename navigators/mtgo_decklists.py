@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests
 from loguru import logger
 
-from utils.constants import MTGO_DECKLISTS_ENABLED, MTGO_DECK_CACHE_FILE
+from utils.constants import MTGO_DECK_CACHE_FILE, MTGO_DECKLISTS_ENABLED
 
 BASE_URL = "https://www.mtgo.com"
 DECKLIST_INDEX_URL = "https://www.mtgo.com/decklists/{year}/{month:02d}"
