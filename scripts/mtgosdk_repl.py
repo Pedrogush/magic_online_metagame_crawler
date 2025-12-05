@@ -488,10 +488,10 @@ def _generate_class_stub(typ) -> str:
 
         try:
             method_stub = _generate_method_stub(method)
+        except Exception as exc:
+            print(f"Skipping method stub for {method.Name}: {exc}")
+        else:
             lines.append(f"    {method_stub}")
-        except Exception:
-            # Skip problematic methods
-            continue
 
     if len(lines) == 2:  # Only class definition and docstring
         lines.append("    pass")

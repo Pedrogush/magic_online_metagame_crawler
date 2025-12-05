@@ -16,7 +16,7 @@ Key modifications:
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 - used to invoke trusted MTGO bridge helper
 from datetime import datetime
 from pathlib import Path
 
@@ -36,7 +36,7 @@ def get_current_username() -> str | None:
     try:
         result = subprocess.run(
             [BRIDGE_PATH, "username"], capture_output=True, text=True, timeout=10
-        )
+        )  # nosec B603 - args are fixed for bridge helper
 
         if result.returncode == 0:
             data = json.loads(result.stdout)
@@ -189,9 +189,6 @@ def locate_gamelog_directory_via_bridge() -> str | None:
     Returns:
         Path to GameLog directory if found, None otherwise
     """
-    import json
-    import subprocess
-
     try:
         from utils.constants import CONFIG
     except ImportError:
@@ -204,7 +201,7 @@ def locate_gamelog_directory_via_bridge() -> str | None:
     try:
         result = subprocess.run(
             [BRIDGE_PATH, "logfiles"], capture_output=True, text=True, timeout=10
-        )
+        )  # nosec B603 - bridge path/args are controlled
 
         if result.returncode == 0:
             data = json.loads(result.stdout)

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404 - used for controlled git operations
 import sys
 import tempfile
 from pathlib import Path
@@ -30,7 +30,8 @@ SOURCES = {
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> str:
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=True)
+    # Commands are internal git/poetry invocations; no shell usage
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=True)  # nosec B603
     return result.stdout.strip()
 
 

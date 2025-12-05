@@ -4,6 +4,7 @@ Last reviewed on Linux host (building Windows installer with Wine + Inno Setup).
 
 ## Build flow
 - `packaging/build_installer.ps1` (Windows) refreshes vendored data (`scripts/update_vendor_data.py`, `scripts/update_mtgosdk_vendor.py`), optionally builds the .NET bridge, then runs PyInstaller via `packaging/magic_online_metagame_crawler.spec` and invokes Inno Setup (`installer.iss`).
+- Both Windows and Linux build scripts fetch mana assets (`scripts/fetch_mana_assets.py`) when missing so PyInstaller bundles `assets/mana/**` for mana symbol rendering.
 - `packaging/build_installer.sh` (Linux) runs PyInstaller and Inno Setup under Wine but does **not** refresh vendor data or attempt a bridge build; it relies on those artifacts already existing in `vendor/` and `dotnet/MTGOBridge/bin/.../publish/`.
 - PyInstaller bundles the `main.py` entrypoint; `magic_online_metagame_crawler.spec` only adds vendor data folders (`vendor/mtgo_format_data`, `vendor/mtgo_archetype_parser`, `vendor/mtgosdk`) plus `mtgo_bridge.exe` if it exists at the published path.
 

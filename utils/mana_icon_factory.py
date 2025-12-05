@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 
 import wx
@@ -338,7 +339,7 @@ class ManaIconFactory:
     def _ensure_font_loaded(self) -> None:
         if ManaIconFactory._FONT_LOADED:
             return
-        font_path = Path(__file__).resolve().parents[1] / "assets" / "mana" / "fonts" / "mana.ttf"
+        font_path = self._assets_root() / "assets" / "mana" / "fonts" / "mana.ttf"
         if not font_path.exists():
             logger.debug("Mana font not found at %s; using fallback glyphs", font_path)
             return
@@ -351,7 +352,7 @@ class ManaIconFactory:
     def _load_css_resources(self) -> tuple[dict[str, str], dict[str, tuple[int, int, int]]]:
         glyphs: dict[str, str] = {}
         colors: dict[str, tuple[int, int, int]] = {}
-        css_path = Path(__file__).resolve().parents[1] / "assets" / "mana" / "css" / "mana.min.css"
+        css_path = self._assets_root() / "assets" / "mana" / "css" / "mana.min.css"
         if not css_path.exists():
             return glyphs, {k: tuple(v) for k, v in self.FALLBACK_COLORS.items()}
         css_text = css_path.read_text(encoding="utf-8")
@@ -381,6 +382,13 @@ class ManaIconFactory:
         for base, rgb in self.FALLBACK_COLORS.items():
             colors.setdefault(base, rgb)
         return glyphs, colors
+
+    def _assets_root(self) -> Path:
+        """Locate bundled assets in both source and PyInstaller builds."""
+        frozen_root = getattr(sys, "_MEIPASS", None)
+        if frozen_root:
+            return Path(frozen_root)
+        return Path(__file__).resolve().parents[1]
 
 
 def normalize_mana_query(raw: str) -> str:

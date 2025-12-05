@@ -102,6 +102,28 @@ try {
             New-Item -ItemType Directory -Force -Path $fullPath | Out-Null
         }
     }
+
+    $ManaDir = Join-Path $ProjectRoot "assets\mana"
+    if (-not (Test-Path $ManaDir)) {
+        Write-Info "Mana assets missing; fetching andrewgioia/mana…"
+        $FetchScript = Join-Path $ProjectRoot "scripts\fetch_mana_assets.py"
+        if (Test-Path $FetchScript) {
+            if (Test-Path $VendorPython) {
+                & $VendorPython $FetchScript
+            } elseif ($FallbackPython) {
+                & $FallbackPython.Source $FetchScript
+            } else {
+                Write-Warn "Python not found; cannot fetch mana assets."
+            }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "Mana assets fetch exited with code $LASTEXITCODE"
+            }
+        } else {
+            Write-Warn "Mana asset fetch script not found at $FetchScript"
+        }
+    } else {
+        Write-Info "Mana assets already present."
+    }
 } finally {
     Pop-Location
 }

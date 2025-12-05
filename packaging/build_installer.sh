@@ -99,6 +99,17 @@ if [ ! -f "main.py" ]; then
     exit 1
 fi
 
+# Ensure mana assets are present (needed for packaged icons)
+MANA_DIR="$PROJECT_ROOT/assets/mana"
+if [ ! -d "$MANA_DIR" ]; then
+    echo_info "Mana assets missing; fetching andrewgioia/mana…"
+    if ! python3 scripts/fetch_mana_assets.py; then
+        echo_warn "Failed to fetch mana assets; mana symbols will not render in the installer build."
+    fi
+else
+    echo_info "Mana assets already present."
+fi
+
 # Run PyInstaller with the spec file
 if [ -f "packaging/magic_online_metagame_crawler.spec" ]; then
     echo_info "Using existing spec file..."

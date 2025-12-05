@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import subprocess
+import subprocess  # nosec B404 - needed to invoke git clone of a trusted repo
 import sys
 from pathlib import Path
 
@@ -19,7 +19,8 @@ def _run_git_clone(url: str, target: Path, depth: int = 1) -> None:
         "--depth",
         str(depth),
     ]
-    subprocess.check_call(cmd)
+    # URL is controlled via CLI/default; only a git clone without shell
+    subprocess.check_call(cmd)  # nosec B603
 
 
 def main() -> int:

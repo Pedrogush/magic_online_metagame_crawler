@@ -10,7 +10,14 @@ import zipfile
 from pathlib import Path
 
 import requests
-from defusedxml.ElementTree import parse as safe_et_parse
+
+try:
+    from defusedxml.ElementTree import parse as safe_et_parse
+except ImportError as exc:  # pragma: no cover
+    raise ImportError(
+        "defusedxml is required to safely parse NuGet metadata. Install via `pip install defusedxml`."
+    ) from exc
+
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR_ROOT = ROOT / "vendor" / "mtgosdk"
