@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as _dt
-import subprocess
+import subprocess  # nosec B404 - used to invoke provided command without shell
 import sys
 from pathlib import Path
 
@@ -23,7 +23,8 @@ def main(argv: list[str]) -> int:
         print(f"Failed to write log entry: {exc}", file=sys.stderr)
         return 1
 
-    result = subprocess.run(command)
+    # Command is taken from trusted CLI args; executed without shell expansion
+    result = subprocess.run(command)  # nosec B603
     return result.returncode
 
 

@@ -32,6 +32,7 @@ for rel in [
     "vendor/mtgo_format_data",
     "vendor/mtgo_archetype_parser",
     "vendor/mtgosdk",
+    "assets/mana",
 ]:
     src = project_root / rel
     if src.exists():
@@ -47,7 +48,7 @@ bridge_candidates = [
     / "net9.0-windows7.0"
     / "win-x64"
     / "publish"
-    / "mtgo_bridge.exe",
+    / "MTGOBridge.exe",
     project_root
     / "dotnet"
     / "MTGOBridge"
@@ -55,11 +56,11 @@ bridge_candidates = [
     / "Release"
     / "net9.0-windows7.0"
     / "publish"
-    / "mtgo_bridge.exe",
+    / "MTGOBridge.exe",
 ]
 for candidate in bridge_candidates:
     if candidate.exists():
-        binaries.append((str(candidate), "mtgo_bridge.exe"))
+        binaries.append((str(candidate), "MTGOBridge.exe"))
         break
 
 entry_point = project_root / "main.py"

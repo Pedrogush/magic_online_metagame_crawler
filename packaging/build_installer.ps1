@@ -12,6 +12,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:HadWarning = $false
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
@@ -26,11 +27,42 @@ function Write-Info {
 function Write-Warn {
     param([string]$Message)
     Write-Host "[WARN] $Message" -ForegroundColor Yellow
+    $script:HadWarning = $true
 }
 
 function Write-Error-Custom {
     param([string]$Message)
     Write-Host "[ERROR] $Message" -ForegroundColor Red
+}
+
+function Fail-On-Warnings {
+    if ($script:HadWarning) {
+        Write-Error-Custom "Build aborted because a warning was raised."
+        exit 1
+    }
+}
+
+function Ensure-DefusedXml {
+    param([string]$PythonPath)
+
+    if (-not $PythonPath) {
+        Write-Warn "Python not found; cannot install defusedxml."
+        return
+    }
+
+    Write-Info "Ensuring defusedxml is installed..."
+    & $PythonPath -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('defusedxml') else 1)"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Info "defusedxml already installed."
+        return
+    }
+
+    Write-Info "Installing defusedxml..."
+    & $PythonPath -m pip install --upgrade defusedxml
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Custom "Failed to install defusedxml (exit code $LASTEXITCODE)."
+        exit 1
+    }
 }
 
 function Ensure-GitSync {
@@ -55,21 +87,40 @@ function Ensure-GitSync {
 # Ensure we are on the latest branch before building
 Ensure-GitSync
 
+# Step 0: clean previous dist output
+Write-Info "Cleaning dist directory..."
+if (Test-Path $DistDir) {
+    try {
+        Remove-Item -LiteralPath $DistDir -Recurse -Force -ErrorAction Stop
+        Write-Info "Removed existing dist directory."
+    } catch {
+        Write-Warn "Failed to delete dist directory: $_"
+    }
+} else {
+    Write-Info "No existing dist directory found."
+}
+
 # Step 0: ensure vendor data directories exist
 Write-Info "Updating vendor data..."
 Push-Location $ProjectRoot
 try {
     $VendorUpdateScript = Join-Path $ProjectRoot "scripts\update_vendor_data.py"
+    $VendorPython = Join-Path $ProjectRoot "env\Scripts\python.exe"
+    $FallbackPython = Get-Command python -ErrorAction SilentlyContinue
+    $PythonPath = $null
+    if (Test-Path $VendorPython) {
+        $PythonPath = $VendorPython
+    } elseif ($FallbackPython) {
+        $PythonPath = $FallbackPython.Source
+    }
+    Ensure-DefusedXml -PythonPath $PythonPath
+    Fail-On-Warnings
+
     if (-not (Test-Path $VendorUpdateScript)) {
         Write-Warn "Vendor update script not found; skipping vendor refresh."
     } else {
-        $VendorPython = Join-Path $ProjectRoot "env\Scripts\python.exe"
-        $FallbackPython = Get-Command python -ErrorAction SilentlyContinue
-
-        if (Test-Path $VendorPython) {
-            & $VendorPython $VendorUpdateScript
-        } elseif ($FallbackPython) {
-            & $FallbackPython.Source $VendorUpdateScript
+        if ($PythonPath) {
+            & $PythonPath $VendorUpdateScript
         } else {
             Write-Warn "Python not found; cannot update vendor data."
         }
@@ -81,10 +132,8 @@ try {
         $MtgoSdkScript = Join-Path $ProjectRoot "scripts\update_mtgosdk_vendor.py"
         if (Test-Path $MtgoSdkScript) {
             Write-Info "Updating MTGOSDK vendor data..."
-            if (Test-Path $VendorPython) {
-                & $VendorPython $MtgoSdkScript
-            } elseif ($FallbackPython) {
-                & $FallbackPython.Source $MtgoSdkScript
+            if ($PythonPath) {
+                & $PythonPath $MtgoSdkScript
             } else {
                 Write-Warn "Python not found; skipping MTGOSDK vendor update."
             }
@@ -102,9 +151,32 @@ try {
             New-Item -ItemType Directory -Force -Path $fullPath | Out-Null
         }
     }
+
+    $ManaDir = Join-Path $ProjectRoot "assets\mana"
+    if (-not (Test-Path $ManaDir)) {
+        Write-Info "Mana assets missing; fetching andrewgioia/mana…"
+        $FetchScript = Join-Path $ProjectRoot "scripts\fetch_mana_assets.py"
+        if (Test-Path $FetchScript) {
+            if (Test-Path $VendorPython) {
+                & $VendorPython $FetchScript
+            } elseif ($FallbackPython) {
+                & $FallbackPython.Source $FetchScript
+            } else {
+                Write-Warn "Python not found; cannot fetch mana assets."
+            }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "Mana assets fetch exited with code $LASTEXITCODE"
+            }
+        } else {
+            Write-Warn "Mana asset fetch script not found at $FetchScript"
+        }
+    } else {
+        Write-Info "Mana assets already present."
+    }
 } finally {
     Pop-Location
 }
+Fail-On-Warnings
 
 # Step 1: Check for Inno Setup
 function Get-EnvValue {
@@ -219,7 +291,7 @@ if (-not $SkipPyInstaller) {
 
 # Step 4: Check for .NET bridge (optional)
 if (-not $SkipDotNetBuild) {
-    $BridgePath = Join-Path $ProjectRoot "dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\mtgo_bridge.exe"
+    $BridgePath = Join-Path $ProjectRoot "dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\MTGOBridge.exe"
     if (-not (Test-Path $BridgePath)) {
         Write-Warn ".NET bridge not found at expected location: $BridgePath"
         Write-Warn "Attempting to build the .NET bridge..."
@@ -229,7 +301,7 @@ if (-not $SkipDotNetBuild) {
         if ($DotNetCheck) {
             Push-Location (Join-Path $ProjectRoot "dotnet\MTGOBridge")
             Write-Info "Building .NET bridge as self-contained single file (bundles .NET runtime)..."
-            & dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+            & dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -warnaserror
             Pop-Location
 
             if (-not (Test-Path $BridgePath)) {
@@ -245,6 +317,7 @@ if (-not $SkipDotNetBuild) {
         Write-Info ".NET bridge found at: $BridgePath"
     }
 }
+Fail-On-Warnings
 
 # Step 5: Create installer output directory
 Write-Info "Creating installer output directory..."
@@ -270,12 +343,15 @@ if (-not (Test-Path $InstallerFile)) {
 # Get installer size
 $InstallerSize = (Get-Item $InstallerFile).Length / 1MB
 $InstallerSizeFormatted = "{0:N2} MB" -f $InstallerSize
+$InstallerTimestamp = (Get-Item $InstallerFile).LastWriteTime
+Fail-On-Warnings
 
 Write-Info "=========================================="
 Write-Info "Installer build SUCCESSFUL!"
 Write-Info "=========================================="
 Write-Info "Installer location: $InstallerFile"
 Write-Info "Installer size: $InstallerSizeFormatted"
+Write-Info ("Installer timestamp: {0:yyyy-MM-dd HH:mm:ss zzz}" -f $InstallerTimestamp)
 Write-Info ""
 Write-Info "You can now run this installer to install the application."
 Write-Info "To test the installer, run: .\test_installer.ps1"

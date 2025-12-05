@@ -27,6 +27,8 @@ echo_info() {
 
 echo_warn() {
     echo -e "${YELLOW}[WARN]${NC} $1"
+    echo_error "Warning encountered; aborting build."
+    exit 1
 }
 
 echo_error() {
@@ -38,6 +40,33 @@ if [[ "$OSTYPE" != "linux-gnu"* ]]; then
     echo_error "This script is designed for Linux. For Windows, use build_installer.ps1 instead."
     exit 1
 fi
+
+ensure_defusedxml() {
+    local py_bin
+    py_bin="$(command -v python3 || true)"
+    if [[ -z "$py_bin" ]]; then
+        echo_warn "python3 not found; defusedxml is required."
+    fi
+
+    if "$py_bin" - <<'PY'; then
+import importlib.util, sys
+sys.exit(0 if importlib.util.find_spec("defusedxml") else 1)
+PY
+        echo_info "defusedxml already installed."
+        return
+    fi
+
+    echo_info "Installing defusedxml..."
+    if ! "$py_bin" -m pip install --upgrade defusedxml; then
+        echo_error "Failed to install defusedxml."
+        exit 1
+    fi
+}
+
+# Step 0: clean previous dist output
+echo_info "Cleaning dist directory..."
+rm -rf "$DIST_DIR"
+ensure_defusedxml
 
 # Step 1: Check for Wine
 echo_info "Checking for Wine..."
@@ -99,6 +128,17 @@ if [ ! -f "main.py" ]; then
     exit 1
 fi
 
+# Ensure mana assets are present (needed for packaged icons)
+MANA_DIR="$PROJECT_ROOT/assets/mana"
+if [ ! -d "$MANA_DIR" ]; then
+    echo_info "Mana assets missing; fetching andrewgioia/mana…"
+    if ! python3 scripts/fetch_mana_assets.py; then
+        echo_warn "Failed to fetch mana assets; mana symbols will not render in the installer build."
+    fi
+else
+    echo_info "Mana assets already present."
+fi
+
 # Run PyInstaller with the spec file
 if [ -f "packaging/magic_online_metagame_crawler.spec" ]; then
     echo_info "Using existing spec file..."
@@ -117,7 +157,7 @@ fi
 echo_info "PyInstaller build complete!"
 
 # Step 5: Check for .NET bridge (optional)
-BRIDGE_PATH="$PROJECT_ROOT/dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"
+BRIDGE_PATH="$PROJECT_ROOT/dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/MTGOBridge.exe"
 if [ ! -f "$BRIDGE_PATH" ]; then
     echo_warn ".NET bridge not found at expected location: $BRIDGE_PATH"
     echo_warn "The installer will still be created, but without the bridge executable."
@@ -149,12 +189,14 @@ fi
 
 # Get installer size
 INSTALLER_SIZE=$(du -h "$INSTALLER_FILE" | cut -f1)
+INSTALLER_TIMESTAMP=$(date -r "$INSTALLER_FILE" +"%Y-%m-%d %H:%M:%S %Z")
 
 echo_info "=========================================="
 echo_info "Installer build SUCCESSFUL!"
 echo_info "=========================================="
 echo_info "Installer location: $INSTALLER_FILE"
 echo_info "Installer size: $INSTALLER_SIZE"
+echo_info "Installer timestamp: $INSTALLER_TIMESTAMP"
 echo_info ""
 echo_info "You can now copy this installer to a Windows machine and run it."
 echo_info "To test the installer, run: ./test_installer.sh"

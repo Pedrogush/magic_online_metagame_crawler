@@ -211,8 +211,8 @@ class ImageDownloadDialog(wx.Dialog):
         if total:
             try:
                 dialog.SetRange(max(total, 1))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to update progress dialog range: %s", exc)
 
         # Clamp the reported completed count to the dialog range
         try:

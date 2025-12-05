@@ -10,10 +10,10 @@ from typing import Any
 from curl_cffi import requests
 from loguru import logger
 
-from utils.constants import ATOMIC_DATA_URL
+from utils.constants import ATOMIC_DATA_URL, CARD_DATA_DIR
 
 
-def load_card_manager(data_dir: Path | str = Path("data"), force: bool = False) -> CardDataManager:
+def load_card_manager(data_dir: Path | str = CARD_DATA_DIR, force: bool = False) -> CardDataManager:
     """
     Load and return a CardDataManager with the latest card data.
 
@@ -36,7 +36,7 @@ def load_card_manager(data_dir: Path | str = Path("data"), force: bool = False) 
 
 
 class CardDataManager:
-    def __init__(self, data_dir: Path | str = Path("data")):
+    def __init__(self, data_dir: Path | str = CARD_DATA_DIR):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.data_dir / "atomic_cards_index.json"

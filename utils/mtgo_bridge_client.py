@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import multiprocessing as mp
 import os
-import subprocess
+import subprocess  # nosec B404 - required to invoke MTGO bridge executable
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -90,7 +90,7 @@ def _command_worker(
             text=True,
             encoding="utf-8",
             check=False,
-        )
+        )  # nosec B603 - arguments are constructed internally
         if completed.returncode != 0:
             raise BridgeCommandError(
                 f"Bridge exited with code {completed.returncode}: {completed.stderr.strip()}"
@@ -230,7 +230,7 @@ def _watch_worker(
         text=True,
         encoding="utf-8",
         bufsize=1,
-    )
+    )  # nosec B603 - command is internal bridge watcher
 
     buffer = ""
     depth = 0

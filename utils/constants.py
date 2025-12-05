@@ -1,8 +1,18 @@
 """Constants file."""
 
+import sys
 from pathlib import Path
 
 BRIDGE_PATH = "dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/MTGOBridge.exe"
+APP_NAME = "MTGO Metagame Deck Builder"
+
+
+def _default_base_dir() -> Path:
+    """Return the writable base directory for config/cache/logging."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
 
 SUBDUED_TEXT = (185, 191, 202)
 DARK_BG = (20, 22, 27)
@@ -27,15 +37,19 @@ __all__ = [
     "ZONE_TITLES",
 ]
 
-CONFIG_DIR = Path("config")
-CACHE_DIR = Path("cache")
-DECKS_DIR = Path("decks")
+BASE_DATA_DIR = _default_base_dir()
+CONFIG_DIR = BASE_DATA_DIR / "config"
+CACHE_DIR = BASE_DATA_DIR / "cache"
+DECKS_DIR = BASE_DATA_DIR / "decks"
 DECK_SAVE_DIR = DECKS_DIR
+LOGS_DIR = BASE_DATA_DIR / "logs"
+CARD_DATA_DIR = BASE_DATA_DIR / "data"
 
 
 def ensure_base_dirs() -> None:
-    """Ensure base config/cache/deck directories exist without importing side effects."""
-    for path in (CONFIG_DIR, CACHE_DIR, DECKS_DIR):
+    """Ensure base config/cache/deck/log directories exist without importing side effects."""
+    BASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    for path in (CONFIG_DIR, CACHE_DIR, DECKS_DIR, LOGS_DIR, CARD_DATA_DIR):
         path.mkdir(parents=True, exist_ok=True)
 
 

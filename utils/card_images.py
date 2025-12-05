@@ -206,8 +206,8 @@ class CardImageCache:
                 win_path = Path(PureWindowsPath(raw))
                 if win_path.exists():
                     return win_path
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to normalize Windows path '%s': %s", raw, exc)
 
             # Translate Windows drive letters for WSL paths (e.g., C:\ -> /mnt/c/)
             if os.name != "nt" and len(raw) >= 3 and raw[1] == ":" and raw[2] in ("\\", "/"):
