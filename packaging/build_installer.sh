@@ -39,6 +39,10 @@ if [[ "$OSTYPE" != "linux-gnu"* ]]; then
     exit 1
 fi
 
+# Step 0: clean previous dist output
+echo_info "Cleaning dist directory..."
+rm -rf "$DIST_DIR"
+
 # Step 1: Check for Wine
 echo_info "Checking for Wine..."
 if ! command -v wine &> /dev/null; then
@@ -160,12 +164,14 @@ fi
 
 # Get installer size
 INSTALLER_SIZE=$(du -h "$INSTALLER_FILE" | cut -f1)
+INSTALLER_TIMESTAMP=$(date -r "$INSTALLER_FILE" +"%Y-%m-%d %H:%M:%S %Z")
 
 echo_info "=========================================="
 echo_info "Installer build SUCCESSFUL!"
 echo_info "=========================================="
 echo_info "Installer location: $INSTALLER_FILE"
 echo_info "Installer size: $INSTALLER_SIZE"
+echo_info "Installer timestamp: $INSTALLER_TIMESTAMP"
 echo_info ""
 echo_info "You can now copy this installer to a Windows machine and run it."
 echo_info "To test the installer, run: ./test_installer.sh"

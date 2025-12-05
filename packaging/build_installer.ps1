@@ -55,6 +55,19 @@ function Ensure-GitSync {
 # Ensure we are on the latest branch before building
 Ensure-GitSync
 
+# Step 0: clean previous dist output
+Write-Info "Cleaning dist directory..."
+if (Test-Path $DistDir) {
+    try {
+        Remove-Item -LiteralPath $DistDir -Recurse -Force -ErrorAction Stop
+        Write-Info "Removed existing dist directory."
+    } catch {
+        Write-Warn "Failed to delete dist directory: $_"
+    }
+} else {
+    Write-Info "No existing dist directory found."
+}
+
 # Step 0: ensure vendor data directories exist
 Write-Info "Updating vendor data..."
 Push-Location $ProjectRoot
@@ -292,12 +305,14 @@ if (-not (Test-Path $InstallerFile)) {
 # Get installer size
 $InstallerSize = (Get-Item $InstallerFile).Length / 1MB
 $InstallerSizeFormatted = "{0:N2} MB" -f $InstallerSize
+$InstallerTimestamp = (Get-Item $InstallerFile).LastWriteTime
 
 Write-Info "=========================================="
 Write-Info "Installer build SUCCESSFUL!"
 Write-Info "=========================================="
 Write-Info "Installer location: $InstallerFile"
 Write-Info "Installer size: $InstallerSizeFormatted"
+Write-Info ("Installer timestamp: {0:yyyy-MM-dd HH:mm:ss zzz}" -f $InstallerTimestamp)
 Write-Info ""
 Write-Info "You can now run this installer to install the application."
 Write-Info "To test the installer, run: .\test_installer.ps1"
