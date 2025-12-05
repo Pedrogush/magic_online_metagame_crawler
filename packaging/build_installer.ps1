@@ -291,7 +291,7 @@ if (-not $SkipPyInstaller) {
 
 # Step 4: Check for .NET bridge (optional)
 if (-not $SkipDotNetBuild) {
-    $BridgePath = Join-Path $ProjectRoot "dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\mtgo_bridge.exe"
+    $BridgePath = Join-Path $ProjectRoot "dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\MTGOBridge.exe"
     if (-not (Test-Path $BridgePath)) {
         Write-Warn ".NET bridge not found at expected location: $BridgePath"
         Write-Warn "Attempting to build the .NET bridge..."
@@ -301,7 +301,7 @@ if (-not $SkipDotNetBuild) {
         if ($DotNetCheck) {
             Push-Location (Join-Path $ProjectRoot "dotnet\MTGOBridge")
             Write-Info "Building .NET bridge as self-contained single file (bundles .NET runtime)..."
-            & dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+            & dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -warnaserror
             Pop-Location
 
             if (-not (Test-Path $BridgePath)) {

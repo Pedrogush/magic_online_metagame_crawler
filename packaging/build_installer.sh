@@ -157,7 +157,7 @@ fi
 echo_info "PyInstaller build complete!"
 
 # Step 5: Check for .NET bridge (optional)
-BRIDGE_PATH="$PROJECT_ROOT/dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/mtgo_bridge.exe"
+BRIDGE_PATH="$PROJECT_ROOT/dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/MTGOBridge.exe"
 if [ ! -f "$BRIDGE_PATH" ]; then
     echo_warn ".NET bridge not found at expected location: $BRIDGE_PATH"
     echo_warn "The installer will still be created, but without the bridge executable."
