@@ -27,6 +27,8 @@ echo_info() {
 
 echo_warn() {
     echo -e "${YELLOW}[WARN]${NC} $1"
+    echo_error "Warning encountered; aborting build."
+    exit 1
 }
 
 echo_error() {
@@ -39,9 +41,32 @@ if [[ "$OSTYPE" != "linux-gnu"* ]]; then
     exit 1
 fi
 
+ensure_defusedxml() {
+    local py_bin
+    py_bin="$(command -v python3 || true)"
+    if [[ -z "$py_bin" ]]; then
+        echo_warn "python3 not found; defusedxml is required."
+    fi
+
+    if "$py_bin" - <<'PY'; then
+import importlib.util, sys
+sys.exit(0 if importlib.util.find_spec("defusedxml") else 1)
+PY
+        echo_info "defusedxml already installed."
+        return
+    fi
+
+    echo_info "Installing defusedxml..."
+    if ! "$py_bin" -m pip install --upgrade defusedxml; then
+        echo_error "Failed to install defusedxml."
+        exit 1
+    fi
+}
+
 # Step 0: clean previous dist output
 echo_info "Cleaning dist directory..."
 rm -rf "$DIST_DIR"
+ensure_defusedxml
 
 # Step 1: Check for Wine
 echo_info "Checking for Wine..."
