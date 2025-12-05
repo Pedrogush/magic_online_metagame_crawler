@@ -79,6 +79,11 @@ exclude = '''
   | .*\.egg-info
 )/
 '''
+extend-exclude = '''
+/(
+    packaging/installer\.iss
+)/
+'''
 
 [tool.mypy]
 python_version = "3.11"
