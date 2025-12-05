@@ -23,6 +23,7 @@ from utils.constants import (
     ARCHETYPE_DECKS_CACHE_FILE,
     ARCHETYPE_LIST_CACHE_FILE,
     METAGAME_CACHE_TTL_SECONDS,
+    MTGO_DECKLISTS_ENABLED,
 )
 
 _USE_DEFAULT_MAX_AGE: Final = object()
@@ -338,6 +339,10 @@ class MetagameRepository:
         Returns:
             List of MTGO deck dictionaries formatted for UI display
         """
+        if not MTGO_DECKLISTS_ENABLED:
+            logger.info("MTGO decklists disabled; skipping MTGO deck lookup.")
+            return []
+
         if source_filter == "mtggoldfish":
             return []
 

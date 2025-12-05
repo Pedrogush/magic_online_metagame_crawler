@@ -1,5 +1,6 @@
 """Constants file."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -63,6 +64,8 @@ ARCHETYPE_CACHE_FILE = CACHE_DIR / "archetype_cache.json"
 ARCHETYPE_LIST_CACHE_FILE = CACHE_DIR / "archetype_list.json"
 MTGO_ARTICLES_CACHE_FILE = CACHE_DIR / "mtgo_articles.json"
 MTGO_DECK_CACHE_FILE = CACHE_DIR / "mtgo_decks.json"
+# Feature flag: disable MTGO decklist scraping until the new service is integrated.
+MTGO_DECKLISTS_ENABLED = os.getenv("MTGO_DECKLISTS_ENABLED", "false").lower() == "true"
 # Separate cache files to avoid collision between different data structures
 DECK_TEXT_CACHE_FILE = CACHE_DIR / "deck_text_cache.json"  # Individual deck content
 ARCHETYPE_DECKS_CACHE_FILE = CACHE_DIR / "archetype_decks_cache.json"  # Deck lists per archetype
@@ -83,6 +86,7 @@ __all__ = [
     "ARCHETYPE_LIST_CACHE_FILE",
     "MTGO_ARTICLES_CACHE_FILE",
     "MTGO_DECK_CACHE_FILE",
+    "MTGO_DECKLISTS_ENABLED",
     "DECK_TEXT_CACHE_FILE",
     "ARCHETYPE_DECKS_CACHE_FILE",
     "DECK_CACHE_FILE",

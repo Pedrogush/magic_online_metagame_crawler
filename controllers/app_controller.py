@@ -41,6 +41,7 @@ from utils.constants import (
     DECKS_DIR,
     DEFAULT_BULK_DATA_MAX_AGE_DAYS,
     FORMAT_OPTIONS,
+    MTGO_DECKLISTS_ENABLED,
     ensure_base_dirs,
 )
 from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
@@ -154,7 +155,10 @@ class AppController:
         self.frame = self.create_frame()
 
         # Start background MTGO data fetch
-        self._start_mtgo_background_fetch()
+        if MTGO_DECKLISTS_ENABLED:
+            self._start_mtgo_background_fetch()
+        else:
+            logger.info("MTGO decklists disabled; skipping background fetch.")
 
     # ============= Card Data Management =============
 
@@ -898,6 +902,10 @@ class AppController:
     def _start_mtgo_background_fetch(self) -> None:
         """Start background thread to fetch MTGO data continuously."""
         from services.mtgo_background_service import fetch_mtgo_data_background
+
+        if not MTGO_DECKLISTS_ENABLED:
+            logger.info("MTGO decklists disabled; background fetch not started.")
+            return
 
         def mtgo_fetch_task():
             """Background task to fetch MTGO data continuously."""

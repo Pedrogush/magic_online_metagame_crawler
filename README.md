@@ -7,6 +7,10 @@ A comprehensive desktop application for Magic: The Gathering Online (MTGO) playe
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
+> Note: MTGO decklist scraping is temporarily disabled while we move that feature to a new
+> service/API. The desktop app will fall back to MTGGoldfish-only data until the integration is
+> complete.
+
 ## Features
 
 ### 🎯 Metagame Analysis

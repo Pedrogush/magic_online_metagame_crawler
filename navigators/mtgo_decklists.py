@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests
 from loguru import logger
 
-from utils.constants import MTGO_DECK_CACHE_FILE
+from utils.constants import MTGO_DECKLISTS_ENABLED, MTGO_DECK_CACHE_FILE
 
 BASE_URL = "https://www.mtgo.com"
 DECKLIST_INDEX_URL = "https://www.mtgo.com/decklists/{year}/{month:02d}"
@@ -71,6 +71,10 @@ def fetch_decklist_index(year: int, month: int) -> list[dict[str, Any]]:
     Note: This always fetches fresh data since the index updates frequently (hourly/daily).
     Individual event pages are still cached since those are static.
     """
+    if not MTGO_DECKLISTS_ENABLED:
+        logger.info("MTGO decklists scraping disabled; returning empty index.")
+        return []
+
     url = DECKLIST_INDEX_URL.format(year=year, month=month)
     logger.info(f"Fetching decklist index for {year}/{month:02d}")
     try:
@@ -130,6 +134,10 @@ def _parse_deck_event(html: str) -> dict[str, Any]:
 
 def fetch_deck_event(url: str) -> dict[str, Any]:
     """Return the full deck event JSON for a decklist page."""
+    if not MTGO_DECKLISTS_ENABLED:
+        logger.info("MTGO decklists scraping disabled; returning empty payload.")
+        return {}
+
     cache = _load_cache()
     deck_cache = cache.setdefault("events", {})
     if url in deck_cache:
@@ -143,6 +151,10 @@ def fetch_deck_event(url: str) -> dict[str, Any]:
 
 
 def iter_deck_events(entries: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
+    if not MTGO_DECKLISTS_ENABLED:
+        logger.info("MTGO decklists scraping disabled; iterator yields nothing.")
+        return []
+
     for entry in entries:
         try:
             payload = fetch_deck_event(entry["url"])
@@ -162,6 +174,10 @@ __all__ = [
 
 def fetch_recent_event_history(limit: int = 10) -> list[dict[str, Any]]:
     """Return recent MTGO event results in the history format expected by the UI."""
+    if not MTGO_DECKLISTS_ENABLED:
+        logger.info("MTGO decklists scraping disabled; no event history available.")
+        return []
+
     now = datetime.now()
     entries = fetch_decklist_index(now.year, now.month)
     history: list[dict[str, Any]] = []
