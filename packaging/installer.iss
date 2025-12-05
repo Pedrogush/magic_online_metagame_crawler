@@ -67,11 +67,10 @@ Source: "../README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "../LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
-Name: "{localappdata}\MTGO Metagame Deck Builder"
-Name: "{localappdata}\MTGO Metagame Deck Builder\logs"
-Name: "{localappdata}\MTGO Metagame Deck Builder\config"
-Name: "{localappdata}\MTGO Metagame Deck Builder\cache"
-Name: "{localappdata}\MTGO Metagame Deck Builder\decks"
+Name: "{app}\logs"
+Name: "{app}\config"
+Name: "{app}\cache"
+Name: "{app}\decks"
 
 [Icons]
 ; Start Menu shortcuts

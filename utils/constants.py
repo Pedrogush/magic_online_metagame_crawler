@@ -11,10 +11,7 @@ APP_NAME = "MTGO Metagame Deck Builder"
 def _default_base_dir() -> Path:
     """Return the writable base directory for config/cache/logging."""
     if getattr(sys, "frozen", False):
-        local_appdata = os.getenv("LOCALAPPDATA")
-        if local_appdata:
-            return Path(local_appdata) / APP_NAME
-        return Path.home() / ".mtgo_metagame_deck_builder"
+        return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
 
 
