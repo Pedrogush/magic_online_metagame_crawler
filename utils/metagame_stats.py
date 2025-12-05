@@ -14,7 +14,7 @@ from loguru import logger
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
 from utils.archetype_classifier import ArchetypeClassifier
-from utils.constants import MTGO_DECK_CACHE_FILE
+from utils.constants import MTGO_DECK_CACHE_FILE, MTGO_DECKLISTS_ENABLED
 
 try:
     from datetime import UTC
@@ -60,6 +60,10 @@ def update_mtgo_deck_cache(
     max_events: int = 40,
 ) -> list[dict[str, Any]]:
     """Fetch recent MTGO decklists from mtgo.com and cache them locally."""
+    if not MTGO_DECKLISTS_ENABLED:
+        logger.info("MTGO decklists disabled; skipping cache update.")
+        return []
+
     now = datetime.now(UTC)
     start = now - timedelta(days=days)
 

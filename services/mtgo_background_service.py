@@ -13,10 +13,17 @@ from loguru import logger
 
 from navigators.mtgo_decklists import fetch_deck_event, fetch_decklist_index
 from utils.archetype_classifier import ArchetypeClassifier
-from utils.constants import CACHE_DIR
+from utils.constants import CACHE_DIR, MTGO_DECKLISTS_ENABLED
 from utils.deck_text_cache import get_deck_cache
 
 MTGO_METADATA_CACHE = CACHE_DIR / "mtgo_deck_metadata.json"
+
+
+def _mtgo_feature_disabled(message: str) -> bool:
+    if not MTGO_DECKLISTS_ENABLED:
+        logger.info(f"MTGO decklists disabled; {message}")
+        return True
+    return False
 
 
 def parse_mtgo_deck(raw_deck: dict) -> dict:
@@ -95,6 +102,9 @@ def save_mtgo_deck_metadata(archetype: str, mtg_format: str, deck_metadata: dict
         mtg_format: Format (e.g., "modern")
         deck_metadata: Deck metadata dictionary
     """
+    if _mtgo_feature_disabled("skip saving deck metadata"):
+        return
+
     cache_key = f"{mtg_format}:{archetype}"
 
     try:
@@ -136,6 +146,9 @@ def load_mtgo_deck_metadata(archetype: str, mtg_format: str) -> list[dict]:
     Returns:
         List of deck metadata dictionaries
     """
+    if _mtgo_feature_disabled("returning no cached metadata"):
+        return []
+
     cache_key = f"{mtg_format}:{archetype}"
 
     try:
@@ -164,6 +177,9 @@ def fetch_mtgo_events_for_period(
 
     Returns list of event URLs.
     """
+    if _mtgo_feature_disabled("skipping fetch_mtgo_events_for_period"):
+        return []
+
     logger.info(
         f"Fetching MTGO events for {mtg_format} from {start_date.date()} to {end_date.date()}"
     )
@@ -244,6 +260,9 @@ def process_mtgo_event(event_url: str, mtg_format: str = "modern", delay: float 
         mtg_format: Format for archetype classification (default: "modern")
         delay: Delay in seconds between requests (default: 2.0)
     """
+    if _mtgo_feature_disabled("skipping process_mtgo_event"):
+        return 0
+
     try:
         logger.info(f"Fetching MTGO event: {event_url}")
 
@@ -326,6 +345,14 @@ def fetch_mtgo_data_background(days: int = 7, mtg_format: str = "modern", delay:
     Returns:
         Dict with stats about the fetch operation
     """
+    if _mtgo_feature_disabled("skipping background fetch"):
+        return {
+            "events_found": 0,
+            "events_processed": 0,
+            "total_decks_cached": 0,
+            "elapsed_seconds": 0,
+        }
+
     logger.info(f"Starting MTGO background fetch for past {days} days")
 
     start_time = time.time()
