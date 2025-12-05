@@ -39,7 +39,6 @@ from utils.constants import (
     CONFIG_FILE,
     DECK_SELECTOR_SETTINGS_FILE,
     DECKS_DIR,
-    DEFAULT_BULK_DATA_MAX_AGE_DAYS,
     FORMAT_OPTIONS,
     ensure_base_dirs,
 )
@@ -48,9 +47,6 @@ from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_car
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
 GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
-
-BULK_CACHE_MIN_AGE_DAYS = 1
-BULK_CACHE_MAX_AGE_DAYS = 365
 
 
 class BackgroundWorker:
@@ -111,15 +107,6 @@ class AppController:
         except OSError as exc:
             logger.warning(f"Unable to create deck save directory '{self.deck_save_dir}': {exc}")
         self.config.setdefault("deck_selector_save_path", str(self.deck_save_dir))
-
-        # Bulk data settings
-        raw_force = self.settings.get("force_cached_bulk_data", False)
-        self._bulk_cache_force = self._coerce_bool(raw_force)
-        self._bulk_data_age_days = self._validate_bulk_cache_age(
-            self.settings.get("bulk_data_max_age_days", DEFAULT_BULK_DATA_MAX_AGE_DAYS)
-        )
-        self.settings.setdefault("force_cached_bulk_data", self._bulk_cache_force)
-        self.settings.setdefault("bulk_data_max_age_days", self._bulk_data_age_days)
 
         # Deck data source preference
         self._deck_data_source = self.settings.get("deck_data_source", "both")
@@ -459,11 +446,7 @@ class AppController:
 
     # ============= Bulk Data Management =============
 
-    def check_and_download_bulk_data(
-        self,
-        max_age_days: int | None = None,
-        force_cached: bool | None = None,
-    ) -> None:
+    def check_and_download_bulk_data(self) -> None:
         if self._bulk_check_worker_active:
             logger.debug("Bulk data check already running")
             return
@@ -474,43 +457,25 @@ class AppController:
         on_download_complete = callbacks.get("on_bulk_download_complete", lambda msg: None)
         on_download_failed = callbacks.get("on_bulk_download_failed", lambda msg: None)
 
-        max_age_days = max_age_days if max_age_days is not None else self._bulk_data_age_days
-        force_cached = force_cached if force_cached is not None else self._bulk_cache_force
-
-        status_msg = (
-            "Loading cached card image database…"
-            if force_cached
-            else "Checking card image database…"
-        )
-        on_status(status_msg)
+        on_status("Checking card image database…")
         self._bulk_check_worker_active = True
 
         def worker():
-            if force_cached:
-                return False, "Cached-only mode enabled"
-            return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
+            return self.image_service.check_bulk_data_exists()
 
         def success_handler(result: tuple[bool, str]):
             self._bulk_check_worker_active = False
-            needs_download, reason = result
+            exists, reason = result
 
-            if force_cached or not needs_download:
+            if exists:
                 self._load_bulk_data_into_memory(on_status)
-                if force_cached:
-                    on_status("Using cached card image database")
-                else:
-                    on_status("Card image database ready")
+                on_status("Card image database ready")
                 return
 
-            # Data is stale - load cached while downloading fresh
-            if not self.image_service.get_bulk_data():
-                self._load_bulk_data_into_memory(on_status)
-
-            logger.info(f"Bulk data needs update: {reason}")
+            logger.info(f"Bulk data needs download: {reason}")
             on_download_needed(reason)
             on_status("Downloading card image database...")
 
-            # Download in background
             def _on_download_complete(msg: str) -> None:
                 on_download_complete(msg)
                 self._load_bulk_data_into_memory(on_status, force=True)
@@ -526,7 +491,7 @@ class AppController:
 
         def error_handler(exc: Exception):
             self._bulk_check_worker_active = False
-            logger.warning(f"Failed to check bulk data freshness: {exc}")
+            logger.warning(f"Failed to check bulk data existence: {exc}")
             if not self.image_service.get_bulk_data():
                 self._load_bulk_data_into_memory(on_status)
             else:
@@ -569,6 +534,36 @@ class AppController:
         """Public wrapper for UI callers."""
         self._load_bulk_data_into_memory(on_status=on_status, force=force)
 
+    def force_bulk_data_update(self) -> None:
+        """Force download of bulk data regardless of current state."""
+        if self._bulk_check_worker_active:
+            logger.debug("Bulk data update already running")
+            return
+
+        callbacks = self._ui_callbacks
+        on_status = callbacks.get("on_status", lambda msg: None)
+        on_download_complete = callbacks.get("on_bulk_download_complete", lambda msg: None)
+        on_download_failed = callbacks.get("on_bulk_download_failed", lambda msg: None)
+
+        on_status("Downloading card image database...")
+        self._bulk_check_worker_active = True
+
+        def _on_download_complete(msg: str) -> None:
+            self._bulk_check_worker_active = False
+            on_download_complete(msg)
+            self._load_bulk_data_into_memory(on_status, force=True)
+
+        def _on_download_failed(msg: str) -> None:
+            self._bulk_check_worker_active = False
+            on_download_failed(msg)
+            on_status("Ready")
+
+        self.image_service.download_bulk_metadata_async(
+            on_success=_on_download_complete,
+            on_error=_on_download_failed,
+            force=True,
+        )
+
     # ============= Settings Management =============
 
     def _load_settings(self) -> dict[str, Any]:
@@ -600,8 +595,6 @@ class AppController:
             {
                 "format": self.current_format,
                 "left_mode": self.left_mode,
-                "force_cached_bulk_data": self._bulk_cache_force,
-                "bulk_data_max_age_days": self._bulk_data_age_days,
                 "deck_data_source": self._deck_data_source,
                 "saved_deck_text": self.deck_repo.get_current_deck_text(),
                 "saved_zone_cards": self._serialize_zone_cards(),
@@ -636,32 +629,6 @@ class AppController:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
-
-    def _validate_bulk_cache_age(self, value: Any) -> int:
-        try:
-            days = int(float(value))
-        except (TypeError, ValueError):
-            days = int(DEFAULT_BULK_DATA_MAX_AGE_DAYS)
-        return max(BULK_CACHE_MIN_AGE_DAYS, min(days, BULK_CACHE_MAX_AGE_DAYS))
-
-    def get_bulk_cache_age_days(self) -> int:
-        return self._bulk_data_age_days
-
-    def is_forcing_cached_bulk_data(self) -> bool:
-        return self._bulk_cache_force
-
-    def set_force_cached_bulk_data(self, enabled: bool) -> None:
-        if self._bulk_cache_force == enabled:
-            return
-        self._bulk_cache_force = enabled
-        self.settings["force_cached_bulk_data"] = enabled
-
-    def set_bulk_cache_age_days(self, days: int) -> None:
-        clamped = self._validate_bulk_cache_age(days)
-        if clamped == self._bulk_data_age_days:
-            return
-        self._bulk_data_age_days = clamped
-        self.settings["bulk_data_max_age_days"] = clamped
 
     def get_deck_data_source(self) -> str:
         return self._deck_data_source
@@ -804,10 +771,7 @@ class AppController:
                 callback()
 
         # Step 4: Check and download bulk data if needed (non-blocking)
-        self.check_and_download_bulk_data(
-            max_age_days=self._bulk_data_age_days,
-            force_cached=self._bulk_cache_force,
-        )
+        self.check_and_download_bulk_data()
 
         # Step 5: Check MTGO bridge status and start periodic checking
         self.check_mtgo_bridge_status()
