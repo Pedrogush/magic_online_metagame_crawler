@@ -7,6 +7,8 @@ import wx
 from loguru import logger
 
 from controllers.app_controller import get_deck_selector_controller
+from utils.constants import LOGS_DIR, ensure_base_dirs
+from utils.logging_config import configure_logging
 from widgets.splash_frame import LoadingFrame
 
 
@@ -67,6 +69,11 @@ class MetagameWxApp(wx.App):
 
 
 def main() -> None:
+    ensure_base_dirs()
+    log_file = configure_logging(LOGS_DIR)
+    if log_file:
+        logger.info(f"Writing logs to {log_file}")
+
     # Install global exception handler for exceptions outside of wx mainloop
     import sys
     import traceback

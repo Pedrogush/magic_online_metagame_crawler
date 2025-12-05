@@ -5,6 +5,7 @@ cache/
 decks/
 /assets/
 /stubs/
+/logs/
 dotnet/MTGOBridge/*
 !dotnet/MTGOBridge/Program.cs
 !dotnet/MTGOBridge/MTGOBridge.csproj
