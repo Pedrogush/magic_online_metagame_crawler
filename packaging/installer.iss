@@ -67,10 +67,11 @@ Source: "../README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "../LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
-Name: "{app}\logs"
-Name: "{app}\config"
-Name: "{app}\cache"
-Name: "{app}\decks"
+Name: "{app}\logs"; Permissions: users-modify
+Name: "{app}\config"; Permissions: users-modify
+Name: "{app}\cache"; Permissions: users-modify
+Name: "{app}\decks"; Permissions: users-modify
+Name: "{app}\data"; Permissions: users-modify
 
 [Icons]
 ; Start Menu shortcuts
