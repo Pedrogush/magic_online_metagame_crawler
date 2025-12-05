@@ -8,15 +8,17 @@ import json
 import shutil
 import zipfile
 from pathlib import Path
+import sys
 
 import requests
 
 try:
     from defusedxml.ElementTree import parse as safe_et_parse
 except ImportError as exc:  # pragma: no cover
-    raise ImportError(
-        "defusedxml is required to safely parse NuGet metadata. Install via `pip install defusedxml`."
-    ) from exc
+    safe_et_parse = None
+    _IMPORT_ERROR = exc
+else:
+    _IMPORT_ERROR = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +94,8 @@ def update_sources_json(version: str, commit: str | None) -> None:
 
 
 def resolve_commit(nuspec_path: Path) -> str | None:
+    if safe_et_parse is None:
+        return None
     root = safe_et_parse(nuspec_path).getroot()
     namespace = {"ns": root.tag.split("}")[0].strip("{")}
     repo = root.find("ns:metadata/ns:repository", namespace)
@@ -104,6 +108,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", help="Specific MTGOSDK version (defaults to latest)")
     args = parser.parse_args()
+
+    if safe_et_parse is None:
+        print(
+            "defusedxml not installed; skipping MTGOSDK vendor refresh. "
+            "Install via `pip install defusedxml` to enable.",
+            file=sys.stderr,
+        )
+        if _IMPORT_ERROR is not None:
+            print(f"Import error: {_IMPORT_ERROR}", file=sys.stderr)
+        return 0
 
     version = args.version or fetch_latest_version(PACKAGES[0])
     VENDOR_ROOT.mkdir(parents=True, exist_ok=True)
