@@ -25,6 +25,7 @@ from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.handlers.app_event_handlers import AppEventHandlers
 from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
 from widgets.handlers.sideboard_guide_handlers import SideboardGuideHandlers
+from widgets.handlers.tooltip_manager import TooltipManager
 from widgets.identify_opponent import MTGOpponentDeckSpy
 from widgets.mana_keyboard import ManaKeyboardFrame, open_mana_keyboard
 from widgets.match_history import MatchHistoryFrame
@@ -54,6 +55,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.controller: AppController = controller
         self.card_data_dialogs_disabled = False
         self._builder_search_pending = False
+        self.tooltip_manager = TooltipManager()
 
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
@@ -77,6 +79,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self._pending_deck_restore: bool = False
 
         self._build_ui()
+        self.tooltip_manager.apply_app_frame_tooltips(self)
         self._apply_window_preferences()
         self.SetMinSize((1260, 760))
         self.Centre(wx.BOTH)
@@ -205,6 +208,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_open_match_history=self.open_match_history,
             on_open_metagame_analysis=self.open_metagame_analysis,
             on_load_collection=lambda: self.controller.refresh_collection_from_bridge(force=True),
+            on_open_help=self.open_help_dialog,
             on_download_card_images=lambda: show_image_download_dialog(
                 self, self.image_cache, self.image_downloader, self._set_status
             ),

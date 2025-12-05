@@ -1,7 +1,7 @@
 """
 Toolbar Buttons - Shared utility buttons for the deck selector toolbar.
 
-Provides quick-access buttons for opponent tracking, timers, history, and data tasks.
+Provides quick-access buttons for MTGO utilities, analysis, and support tasks.
 """
 
 from collections.abc import Callable
@@ -20,6 +20,7 @@ class ToolbarButtons(wx.Panel):
         on_open_match_history: Callable[[], None] | None = None,
         on_open_metagame_analysis: Callable[[], None] | None = None,
         on_load_collection: Callable[[], None] | None = None,
+        on_open_help: Callable[[], None] | None = None,
         on_download_card_images: Callable[[], None] | None = None,
     ):
         """
@@ -32,27 +33,44 @@ class ToolbarButtons(wx.Panel):
             on_open_match_history: Callback for "Match History"
             on_open_metagame_analysis: Callback for "Metagame Analysis"
             on_load_collection: Callback for "Load Collection"
+            on_open_help: Callback for "Help & About"
             on_download_card_images: Callback for "Download Card Images"
         """
         super().__init__(parent)
 
-        self._button_row = wx.BoxSizer(wx.HORIZONTAL)
-        self.SetSizer(self._button_row)
+        root = wx.BoxSizer(wx.HORIZONTAL)
+        self.SetSizer(root)
+
+        mtgo_box = wx.StaticBox(self, label="MTGO Tools")
+        mtgo_box.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT))
+        mtgo_box_sizer = wx.StaticBoxSizer(mtgo_box, wx.HORIZONTAL)
+        root.Add(mtgo_box_sizer, 0, wx.RIGHT, 10)
 
         self.opponent_tracker_button = self._add_button(
-            "Opponent Tracker", on_open_opponent_tracker
+            "Opponent Tracker", on_open_opponent_tracker, mtgo_box_sizer
         )
-        self.timer_alert_button = self._add_button("Timer Alert", on_open_timer_alert)
-        self.match_history_button = self._add_button("Match History", on_open_match_history)
-        self.metagame_analysis_button = self._add_button(
-            "Metagame Analysis", on_open_metagame_analysis
+        self.timer_alert_button = self._add_button(
+            "Timer Alert", on_open_timer_alert, mtgo_box_sizer
         )
-        self.load_collection_button = self._add_button("Load Collection", on_load_collection)
-        self.download_images_button = self._add_button(
-            "Download Card Images", on_download_card_images
+        self.match_history_button = self._add_button(
+            "Match History", on_open_match_history, mtgo_box_sizer
+        )
+        self.load_collection_button = self._add_button(
+            "Load Collection", on_load_collection, mtgo_box_sizer, margin=0
         )
 
-        self._button_row.AddStretchSpacer(1)
+        utility_box = wx.StaticBox(self, label="Research & Utilities")
+        utility_box.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT))
+        utility_sizer = wx.StaticBoxSizer(utility_box, wx.HORIZONTAL)
+        root.Add(utility_sizer, 1, wx.EXPAND)
+
+        self.metagame_analysis_button = self._add_button(
+            "Metagame Analysis", on_open_metagame_analysis, utility_sizer
+        )
+        self.download_images_button = self._add_button(
+            "Download Card Images", on_download_card_images, utility_sizer
+        )
+        self.help_button = self._add_button("Help & About", on_open_help, utility_sizer, margin=0)
 
     # ============= Public API =============
 
@@ -66,7 +84,12 @@ class ToolbarButtons(wx.Panel):
     # ============= Helpers =============
 
     def _add_button(
-        self, label: str, handler: Callable[[], None] | None, *, margin: int = 6
+        self,
+        label: str,
+        handler: Callable[[], None] | None,
+        container: wx.BoxSizer,
+        *,
+        margin: int = 6,
     ) -> wx.Button:
         """Create a toolbar button and bind its handler if provided."""
         button = wx.Button(self, label=label)
@@ -74,7 +97,7 @@ class ToolbarButtons(wx.Panel):
             button.Bind(wx.EVT_BUTTON, lambda _evt, cb=handler: cb())
         else:  # pragma: no cover - defensive fallback
             button.Disable()
-        self._button_row.Add(button, 0, wx.RIGHT, margin)
+        container.Add(button, 0, wx.RIGHT, margin)
         return button
 
 

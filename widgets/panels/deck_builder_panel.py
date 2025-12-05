@@ -88,6 +88,9 @@ class DeckBuilderPanel(wx.Panel):
         self.results_ctrl: _SearchResultsView | None = None
         self.status_label: wx.StaticText | None = None
         self.results_cache: list[dict[str, Any]] = []
+        self.back_btn: wx.Button | None = None
+        self.all_mana_btn: wx.Button | None = None
+        self.clear_filters_btn: wx.Button | None = None
         self._search_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self._on_search_timer, self._search_timer)
 
@@ -106,10 +109,10 @@ class DeckBuilderPanel(wx.Panel):
         self.SetSizer(sizer)
 
         # Back button
-        back_btn = wx.Button(self, label="Deck Research")
-        stylize_button(back_btn)
-        back_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_back_clicked())
-        sizer.Add(back_btn, 0, wx.EXPAND | wx.ALL, 6)
+        self.back_btn = wx.Button(self, label="Deck Research")
+        stylize_button(self.back_btn)
+        self.back_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_back_clicked())
+        sizer.Add(self.back_btn, 0, wx.EXPAND | wx.ALL, 6)
 
         # Info label
         info = wx.StaticText(self, label="Deck Builder: search MTG cards by property.")
@@ -155,11 +158,11 @@ class DeckBuilderPanel(wx.Panel):
                 keyboard_row.AddStretchSpacer(1)
                 for token in ["W", "U", "B", "R", "G", "C", "X"]:
                     btn = create_mana_button(self, token, self._append_mana_symbol, self.mana_icons)
-                    keyboard_row.Add(btn, 0, wx.ALL, 2)
-                all_btn = wx.Button(self, label="All", size=(52, 28))
-                stylize_button(all_btn)
-                all_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._open_mana_keyboard())
-                keyboard_row.Add(all_btn, 0, wx.ALL, 2)
+                keyboard_row.Add(btn, 0, wx.ALL, 2)
+                self.all_mana_btn = wx.Button(self, label="All", size=(52, 28))
+                stylize_button(self.all_mana_btn)
+                self.all_mana_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._open_mana_keyboard())
+                keyboard_row.Add(self.all_mana_btn, 0, wx.ALL, 2)
                 keyboard_row.AddStretchSpacer(1)
                 sizer.Add(
                     keyboard_row, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.LEFT | wx.RIGHT | wx.BOTTOM, 4
@@ -229,10 +232,10 @@ class DeckBuilderPanel(wx.Panel):
 
         # Clear button
         controls = wx.BoxSizer(wx.HORIZONTAL)
-        clear_btn = wx.Button(self, label="Clear Filters")
-        stylize_button(clear_btn)
-        clear_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_clear())
-        controls.Add(clear_btn, 0, wx.RIGHT, 6)
+        self.clear_filters_btn = wx.Button(self, label="Clear Filters")
+        stylize_button(self.clear_filters_btn)
+        self.clear_filters_btn.Bind(wx.EVT_BUTTON, lambda _evt: self._on_clear())
+        controls.Add(self.clear_filters_btn, 0, wx.RIGHT, 6)
 
         # Radar toggle checkbox
         self.radar_cb = wx.CheckBox(self, label="Use Radar Filter")

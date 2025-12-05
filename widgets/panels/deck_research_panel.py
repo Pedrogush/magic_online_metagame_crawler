@@ -74,10 +74,10 @@ class DeckResearchPanel(wx.Panel):
         sizer.Add(self.archetype_list, 1, wx.EXPAND | wx.ALL, 6)
 
         # Reload button
-        refresh_button = wx.Button(self, label="Reload Archetypes")
-        stylize_button(refresh_button)
-        refresh_button.Bind(wx.EVT_BUTTON, lambda _evt: self._on_reload_archetypes())
-        sizer.Add(refresh_button, 0, wx.EXPAND | wx.ALL, 6)
+        self.refresh_button = wx.Button(self, label="Reload Archetypes")
+        stylize_button(self.refresh_button)
+        self.refresh_button.Bind(wx.EVT_BUTTON, lambda _evt: self._on_reload_archetypes())
+        sizer.Add(self.refresh_button, 0, wx.EXPAND | wx.ALL, 6)
 
     def get_selected_format(self) -> str:
         """Get the currently selected format."""

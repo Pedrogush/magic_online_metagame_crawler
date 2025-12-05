@@ -16,6 +16,7 @@ from loguru import logger
 
 from services.radar_service import CardFrequency, RadarData, RadarService, get_radar_service
 from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT
+from widgets.handlers.tooltip_manager import TooltipManager
 
 
 class RadarPanel(wx.Panel):
@@ -44,6 +45,7 @@ class RadarPanel(wx.Panel):
         self.on_export = on_export
         self.on_use_for_search = on_use_for_search
         self.current_radar: RadarData | None = None
+        self.tooltip_manager = TooltipManager()
 
         self._build_ui()
 
@@ -69,12 +71,19 @@ class RadarPanel(wx.Panel):
         self.export_btn = wx.Button(self, label="Export as Decklist")
         self.export_btn.Enable(False)
         self.export_btn.Bind(wx.EVT_BUTTON, self._on_export_clicked)
+        self.tooltip_manager.set(
+            self.export_btn, "Export the radar results as a decklist (mainboard + sideboard)."
+        )
         header_sizer.Add(self.export_btn, 0, wx.LEFT, 6)
 
         # Use for search button
         self.use_search_btn = wx.Button(self, label="Use for Search")
         self.use_search_btn.Enable(False)
         self.use_search_btn.Bind(wx.EVT_BUTTON, self._on_use_search_clicked)
+        self.tooltip_manager.set(
+            self.use_search_btn,
+            "Use the radar's card set as an additional filter in Deck Builder search.",
+        )
         header_sizer.Add(self.use_search_btn, 0, wx.LEFT, 6)
 
         # Summary statistics
@@ -100,7 +109,11 @@ class RadarPanel(wx.Panel):
         self.mainboard_list.AppendTextColumn("Max", width=60)
         self.mainboard_list.SetBackgroundColour(DARK_ALT)
         self.mainboard_list.SetForegroundColour(LIGHT_TEXT)
-        self._bind_tooltip_handlers(self.mainboard_list)
+        self.tooltip_manager.bind_radar_distribution_tooltips(
+            self.mainboard_list,
+            lambda: self.current_radar.mainboard_cards if self.current_radar else [],
+            lambda: self.current_radar.total_decks_analyzed if self.current_radar else 0,
+        )
         mainboard_box_sizer.Add(self.mainboard_list, 1, wx.EXPAND | wx.ALL, 6)
 
         # Sideboard section
@@ -117,7 +130,11 @@ class RadarPanel(wx.Panel):
         self.sideboard_list.AppendTextColumn("Max", width=60)
         self.sideboard_list.SetBackgroundColour(DARK_ALT)
         self.sideboard_list.SetForegroundColour(LIGHT_TEXT)
-        self._bind_tooltip_handlers(self.sideboard_list)
+        self.tooltip_manager.bind_radar_distribution_tooltips(
+            self.sideboard_list,
+            lambda: self.current_radar.sideboard_cards if self.current_radar else [],
+            lambda: self.current_radar.total_decks_analyzed if self.current_radar else 0,
+        )
         sideboard_box_sizer.Add(self.sideboard_list, 1, wx.EXPAND | wx.ALL, 6)
 
     # ============= Public API =============
@@ -187,72 +204,6 @@ class RadarPanel(wx.Panel):
                 ]
             )
 
-    def _bind_tooltip_handlers(self, list_ctrl: dv.DataViewListCtrl) -> None:
-        """Attach mouse handlers to update tooltips per row."""
-        list_ctrl.Bind(wx.EVT_MOTION, lambda event: self._on_list_mouse_move(list_ctrl, event))
-        list_ctrl.Bind(wx.EVT_LEAVE_WINDOW, lambda event: self._clear_tooltip(list_ctrl, event))
-
-    def _on_list_mouse_move(self, list_ctrl: dv.DataViewListCtrl, event: wx.MouseEvent) -> None:
-        """Show copy distribution tooltip for the row under the cursor."""
-        if not self.current_radar:
-            self._clear_tooltip(list_ctrl, event)
-            return
-
-        hit = list_ctrl.HitTest(event.GetPosition())
-        if not hit or len(hit) < 2:
-            self._clear_tooltip(list_ctrl, event)
-            return
-
-        item = hit[0]
-        if not item or not item.IsOk():
-            self._clear_tooltip(list_ctrl, event)
-            return
-
-        row = list_ctrl.ItemToRow(item)
-        if row == wx.NOT_FOUND:
-            self._clear_tooltip(list_ctrl, event)
-            return
-
-        cards = (
-            self.current_radar.mainboard_cards
-            if list_ctrl is self.mainboard_list
-            else self.current_radar.sideboard_cards
-        )
-        if row >= len(cards):
-            self._clear_tooltip(list_ctrl, event)
-            return
-
-        tooltip_text = self._format_distribution_tooltip(
-            cards[row],
-            self.current_radar.total_decks_analyzed,
-        )
-        current_tip = list_ctrl.GetToolTipText() if list_ctrl.GetToolTip() else ""
-        if tooltip_text and tooltip_text != current_tip:
-            list_ctrl.SetToolTip(tooltip_text)
-        elif not tooltip_text and current_tip:
-            list_ctrl.SetToolTip("")
-
-        event.Skip()
-
-    def _clear_tooltip(self, list_ctrl: dv.DataViewListCtrl, event: wx.Event | None = None) -> None:
-        """Remove any tooltip when leaving the control or losing hover context."""
-        if list_ctrl.GetToolTip():
-            list_ctrl.SetToolTip("")
-        if event:
-            event.Skip()
-
-    def _format_distribution_tooltip(self, card: CardFrequency, total_decks: int) -> str:
-        """Build tooltip text summarizing how many decks play each copy count."""
-        if total_decks <= 0:
-            return ""
-
-        lines = [f"{total_decks} decks analyzed"]
-        for copies, deck_count in card.copy_distribution.items():
-            copy_label = "copy" if copies == 1 else "copies"
-            lines.append(f"{deck_count} decks use {copies} {copy_label}")
-
-        return "\n".join(lines)
-
     def _on_export_clicked(self, event: wx.Event) -> None:
         """Handle export button click."""
         if self.current_radar and self.on_export:
@@ -297,6 +248,7 @@ class RadarDialog(wx.Dialog):
         self.current_radar: RadarData | None = None
         self.worker_thread: threading.Thread | None = None
         self.cancel_requested = False
+        self.tooltip_manager = TooltipManager()
 
         self._build_ui()
         self._load_archetypes()
@@ -321,11 +273,15 @@ class RadarDialog(wx.Dialog):
 
         self.generate_btn = wx.Button(self, label="Generate Radar")
         self.generate_btn.Bind(wx.EVT_BUTTON, self._on_generate_clicked)
+        self.tooltip_manager.set(
+            self.generate_btn, "Build radar statistics for the selected archetype."
+        )
         selection_sizer.Add(self.generate_btn, 0, wx.RIGHT, 6)
 
         self.cancel_btn = wx.Button(self, label="Cancel")
         self.cancel_btn.Bind(wx.EVT_BUTTON, self._on_cancel_clicked)
         self.cancel_btn.Enable(False)
+        self.tooltip_manager.set(self.cancel_btn, "Stop the current radar generation job.")
         selection_sizer.Add(self.cancel_btn, 0)
 
         # Progress gauge
@@ -348,6 +304,7 @@ class RadarDialog(wx.Dialog):
         # Close button
         close_btn = wx.Button(self, wx.ID_CLOSE, "Close")
         close_btn.Bind(wx.EVT_BUTTON, self._on_close)
+        self.tooltip_manager.set(close_btn, "Close the radar window.")
         sizer.Add(close_btn, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
 
     def _load_archetypes(self) -> None:
