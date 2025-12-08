@@ -35,6 +35,19 @@ echo_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+build_dotnet_bridge() {
+    if ! command -v dotnet &> /dev/null; then
+        echo_error ".NET SDK not found. Install .NET 9 SDK to build the bridge."
+        exit 1
+    fi
+
+    echo_info "Building .NET bridge as self-contained single file (bundled runtime)..."
+    (
+        cd "$PROJECT_ROOT/dotnet/MTGOBridge" && \
+            dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -warnaserror
+    )
+}
+
 # Check if running on Linux
 if [[ "$OSTYPE" != "linux-gnu"* ]]; then
     echo_error "This script is designed for Linux. For Windows, use build_installer.ps1 instead."
@@ -156,13 +169,18 @@ fi
 
 echo_info "PyInstaller build complete!"
 
-# Step 5: Check for .NET bridge (optional)
+# Step 5: Ensure .NET bridge is present (build if missing)
 BRIDGE_PATH="$PROJECT_ROOT/dotnet/MTGOBridge/bin/Release/net9.0-windows7.0/win-x64/publish/MTGOBridge.exe"
 if [ ! -f "$BRIDGE_PATH" ]; then
-    echo_warn ".NET bridge not found at expected location: $BRIDGE_PATH"
-    echo_warn "The installer will still be created, but without the bridge executable."
-    echo_warn "To include the bridge, build it first with: cd dotnet/MTGOBridge && dotnet publish -c Release -r win-x64"
+    echo_info ".NET bridge not found at expected location. Building..."
+    build_dotnet_bridge
+
+    if [ ! -f "$BRIDGE_PATH" ]; then
+        echo_error ".NET bridge build completed but executable not found at: $BRIDGE_PATH"
+        exit 1
+    fi
 fi
+echo_info ".NET bridge available at: $BRIDGE_PATH"
 
 # Step 6: Create installer output directory
 echo_info "Creating installer output directory..."

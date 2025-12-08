@@ -293,8 +293,7 @@ if (-not $SkipPyInstaller) {
 if (-not $SkipDotNetBuild) {
     $BridgePath = Join-Path $ProjectRoot "dotnet\MTGOBridge\bin\Release\net9.0-windows7.0\win-x64\publish\MTGOBridge.exe"
     if (-not (Test-Path $BridgePath)) {
-        Write-Warn ".NET bridge not found at expected location: $BridgePath"
-        Write-Warn "Attempting to build the .NET bridge..."
+        Write-Info ".NET bridge not found at expected location; building..."
 
         # Check for dotnet SDK
         $DotNetCheck = Get-Command dotnet -ErrorAction SilentlyContinue
@@ -305,13 +304,14 @@ if (-not $SkipDotNetBuild) {
             Pop-Location
 
             if (-not (Test-Path $BridgePath)) {
-                Write-Warn ".NET bridge build completed but executable not found. Installer will be created without it."
-            } else {
-                Write-Info ".NET bridge build complete!"
+                Write-Error-Custom ".NET bridge build completed but executable not found at $BridgePath"
+                exit 1
             }
+
+            Write-Info ".NET bridge build complete!"
         } else {
-            Write-Warn ".NET SDK not found. Installer will be created without the bridge."
-            Write-Warn "To include the bridge, install .NET 9 SDK and run: dotnet publish -c Release -r win-x64"
+            Write-Error-Custom ".NET SDK not found. Install .NET 9 SDK or rerun with -SkipDotNetBuild."
+            exit 1
         }
     } else {
         Write-Info ".NET bridge found at: $BridgePath"
