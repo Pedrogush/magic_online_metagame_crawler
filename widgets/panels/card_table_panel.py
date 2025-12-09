@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 import wx
+import wx.lib.scrolledpanel as scrolled
 
 from utils.constants import DARK_PANEL, SUBDUED_TEXT
 from utils.mana_icon_factory import ManaIconFactory
@@ -48,11 +49,11 @@ class CardTablePanel(wx.Panel):
         header.AddStretchSpacer(1)
         outer.Add(header, 0, wx.EXPAND | wx.BOTTOM, 4)
 
-        self.scroller = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        self.scroller = scrolled.ScrolledPanel(self, style=wx.VSCROLL)
         self.scroller.SetBackgroundColour(DARK_PANEL)
-        self.scroller.SetScrollRate(5, 5)
         self.grid_sizer = wx.GridSizer(0, 4, 8, 8)
         self.scroller.SetSizer(self.grid_sizer)
+        self.scroller.SetupScrolling(scroll_x=False, scroll_y=True, rate_x=5, rate_y=5)
         outer.Add(self.scroller, 1, wx.EXPAND)
 
     def set_cards(self, cards: list[dict[str, Any]]) -> None:
@@ -126,6 +127,7 @@ class CardTablePanel(wx.Panel):
             self.grid_sizer.Layout()
             self.scroller.Layout()
             self.scroller.FitInside()
+            self.scroller.SetupScrolling(scroll_x=False, scroll_y=True, rate_x=5, rate_y=5)
             self._restore_selection()
         finally:
             self.scroller.Thaw()
