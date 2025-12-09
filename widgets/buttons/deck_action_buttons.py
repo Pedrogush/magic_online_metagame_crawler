@@ -39,26 +39,24 @@ class DeckActionButtons(wx.Panel):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Build the button panel UI."""
+        from utils.i18n import t
+
         button_row = wx.BoxSizer(wx.HORIZONTAL)
         self.SetSizer(button_row)
 
-        # Today's Average button
-        self.daily_average_button = wx.Button(self, label="Today's Average")
+        self.daily_average_button = wx.Button(self, label=t("deck_results.daily_average_button"))
         stylize_button(self.daily_average_button)
         self.daily_average_button.Disable()
         self.daily_average_button.Bind(wx.EVT_BUTTON, self._on_daily_average_clicked)
         button_row.Add(self.daily_average_button, 0, wx.RIGHT, 6)
 
-        # Copy button
-        self.copy_button = wx.Button(self, label="Copy")
+        self.copy_button = wx.Button(self, label=t("deck_results.copy_button"))
         stylize_button(self.copy_button)
         self.copy_button.Disable()
         self.copy_button.Bind(wx.EVT_BUTTON, self._on_copy_clicked)
         button_row.Add(self.copy_button, 0, wx.RIGHT, 6)
 
-        # Save Deck button
-        self.save_button = wx.Button(self, label="Save Deck")
+        self.save_button = wx.Button(self, label=t("deck_results.save_button"))
         stylize_button(self.save_button)
         self.save_button.Disable()
         self.save_button.Bind(wx.EVT_BUTTON, self._on_save_clicked)

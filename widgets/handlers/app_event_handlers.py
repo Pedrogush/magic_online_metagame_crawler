@@ -397,6 +397,25 @@ class AppEventHandlers:
         self.controller.set_deck_data_source(source)
         self._schedule_settings_save()
 
+    def _on_language_changed(self: AppFrame, _event: wx.CommandEvent | None) -> None:
+        from utils.i18n import SUPPORTED_LANGUAGES, t
+
+        if not self.language_choice:
+            return
+        selection = self.language_choice.GetSelection()
+        if 0 <= selection < len(SUPPORTED_LANGUAGES):
+            language = SUPPORTED_LANGUAGES[selection]
+            self.controller.set_language(language)
+            self._schedule_settings_save()
+            logger.info(f"Language changed to: {language}")
+
+            lang_display = {"en": "English", "pt_br": "Português (BR)"}.get(language, language)
+            wx.MessageBox(
+                t("settings.language_changed", language=lang_display),
+                "MTGO Deck Research & Builder",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+
     def _on_daily_average_success(
         self, buffer: dict[str, float], deck_count: int, progress_dialog: wx.ProgressDialog
     ) -> None:

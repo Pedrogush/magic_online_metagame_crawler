@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "MTGO Deck Research & Builder",
+    "ready": "Ready"
+  },
+  "zones": {
+    "main": "Mainboard",
+    "side": "Sideboard",
+    "out": "Outboard"
+  },
+  "formats": {
+    "modern": "Modern",
+    "standard": "Standard",
+    "pioneer": "Pioneer",
+    "legacy": "Legacy",
+    "vintage": "Vintage",
+    "pauper": "Pauper",
+    "commander": "Commander",
+    "brawl": "Brawl",
+    "historic": "Historic"
+  },
+  "toolbar": {
+    "opponent_tracker": "Opponent Tracker",
+    "timer_alert": "Timer Alert",
+    "match_history": "Match History",
+    "metagame_analysis": "Metagame Analysis",
+    "load_collection": "Load Collection",
+    "download_images": "Download Card Images",
+    "update_database": "Update Card Database"
+  },
+  "research": {
+    "format_label": "Format",
+    "search_hint": "Search archetypes…",
+    "reload_button": "Reload Archetypes",
+    "loading": "Loading…"
+  },
+  "builder": {
+    "search_hint": "Search cards…",
+    "clear_button": "Clear"
+  },
+  "deck_workspace": {
+    "title": "Deck Workspace",
+    "tabs": {
+      "deck_tables": "Deck Tables",
+      "stats": "Stats",
+      "sideboard_guide": "Sideboard Guide",
+      "deck_notes": "Deck Notes"
+    }
+  },
+  "card_inspector": {
+    "title": "Card Inspector"
+  },
+  "deck_results": {
+    "title": "Deck Results",
+    "select_archetype": "Select an archetype to view decks.",
+    "copy_button": "Copy",
+    "save_button": "Save",
+    "daily_average_button": "Daily Average"
+  },
+  "collection": {
+    "not_loaded": "Collection inventory not loaded.",
+    "status": "Collection: {owned} owned, {missing} missing"
+  },
+  "data_source": {
+    "label": "Deck data source:",
+    "both": "Both",
+    "mtggoldfish": "MTGGoldfish",
+    "mtgo": "MTGO.com"
+  },
+  "settings": {
+    "language_label": "Language:",
+    "language_changed": "Language changed to {language}. Please restart the application."
+  },
+  "errors": {
+    "card_data_load_failed": "Failed to load card data",
+    "deck_download_failed": "Failed to download deck",
+    "collection_load_failed": "Failed to load collection"
+  }
+}

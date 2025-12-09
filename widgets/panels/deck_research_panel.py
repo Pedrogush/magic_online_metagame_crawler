@@ -43,13 +43,13 @@ class DeckResearchPanel(wx.Panel):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        """Build the research panel UI."""
+        from utils.i18n import t
+
         self.SetBackgroundColour(DARK_PANEL)
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.SetSizer(sizer)
 
-        # Format selection
-        format_label = wx.StaticText(self, label="Format")
+        format_label = wx.StaticText(self, label=t("research.format_label"))
         stylize_label(format_label)
         sizer.Add(format_label, 0, wx.TOP | wx.LEFT | wx.RIGHT, 6)
 
@@ -59,22 +59,19 @@ class DeckResearchPanel(wx.Panel):
         self.format_choice.Bind(wx.EVT_CHOICE, lambda _evt: self._on_format_changed())
         sizer.Add(self.format_choice, 0, wx.EXPAND | wx.ALL, 6)
 
-        # Search control
         self.search_ctrl = wx.SearchCtrl(self, style=wx.TE_PROCESS_ENTER)
         self.search_ctrl.ShowSearchButton(True)
-        self.search_ctrl.SetHint("Search archetypes…")
+        self.search_ctrl.SetHint(t("research.search_hint"))
         self.search_ctrl.Bind(wx.EVT_TEXT, lambda _evt: self._on_archetype_filter())
         stylize_textctrl(self.search_ctrl)
         sizer.Add(self.search_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
-        # Archetype list
         self.archetype_list = wx.ListBox(self, style=wx.LB_SINGLE)
         stylize_listbox(self.archetype_list)
         self.archetype_list.Bind(wx.EVT_LISTBOX, lambda _evt: self._on_archetype_selected())
         sizer.Add(self.archetype_list, 1, wx.EXPAND | wx.ALL, 6)
 
-        # Reload button
-        refresh_button = wx.Button(self, label="Reload Archetypes")
+        refresh_button = wx.Button(self, label=t("research.reload_button"))
         stylize_button(refresh_button)
         refresh_button.Bind(wx.EVT_BUTTON, lambda _evt: self._on_reload_archetypes())
         sizer.Add(refresh_button, 0, wx.EXPAND | wx.ALL, 6)
@@ -93,9 +90,10 @@ class DeckResearchPanel(wx.Panel):
         return idx if idx != wx.NOT_FOUND else -1
 
     def set_loading_state(self) -> None:
-        """Set the panel to loading state."""
+        from utils.i18n import t
+
         self.archetype_list.Clear()
-        self.archetype_list.Append("Loading…")
+        self.archetype_list.Append(t("research.loading"))
         self.archetype_list.Disable()
 
     def set_error_state(self) -> None:

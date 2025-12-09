@@ -44,6 +44,7 @@ from utils.constants import (
     ensure_base_dirs,
 )
 from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
+from utils.i18n import SUPPORTED_LANGUAGES, init_i18n
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
@@ -83,6 +84,16 @@ class AppController:
     def __init__(self):
         ensure_base_dirs()
 
+        # Settings management - load first to get language preference
+        self.settings = self._load_settings()
+
+        # Initialize i18n system with user's language preference
+        language = self.settings.get("language", "en")
+        if language not in SUPPORTED_LANGUAGES:
+            language = "en"
+        init_i18n(language)
+        self.settings.setdefault("language", language)
+
         # Services and repositories
         self.deck_repo = get_deck_repository()
         self.metagame_repo = get_metagame_repository()
@@ -93,8 +104,7 @@ class AppController:
         self.image_service = get_image_service()
         self.store_service = get_store_service()
 
-        # Settings management
-        self.settings = self._load_settings()
+        # Format management
         self.current_format = self.settings.get("format", "Modern")
         if self.current_format not in FORMAT_OPTIONS:
             self.current_format = "Modern"
@@ -645,6 +655,20 @@ class AppController:
             return
         self._deck_data_source = source
         self.settings["deck_data_source"] = source
+
+    def get_language(self) -> str:
+        return self.settings.get("language", "en")
+
+    def set_language(self, language: str) -> None:
+        from utils.i18n import get_i18n
+
+        if language not in SUPPORTED_LANGUAGES:
+            logger.warning(f"Invalid language: {language}, defaulting to 'en'")
+            language = "en"
+        if self.get_language() == language:
+            return
+        self.settings["language"] = language
+        get_i18n().set_language(language)
 
     def restore_session_state(self) -> dict[str, Any]:
         result: dict[str, Any] = {"left_mode": self.left_mode}

@@ -23,38 +23,31 @@ class ToolbarButtons(wx.Panel):
         on_download_card_images: Callable[[], None] | None = None,
         on_update_card_database: Callable[[], None] | None = None,
     ):
-        """
-        Initialize the toolbar button panel.
+        from utils.i18n import t
 
-        Args:
-            parent: Parent window
-            on_open_opponent_tracker: Callback for "Opponent Tracker"
-            on_open_timer_alert: Callback for "Timer Alert"
-            on_open_match_history: Callback for "Match History"
-            on_open_metagame_analysis: Callback for "Metagame Analysis"
-            on_load_collection: Callback for "Load Collection"
-            on_download_card_images: Callback for "Download Card Images"
-            on_update_card_database: Callback for "Update Card Database"
-        """
         super().__init__(parent)
 
         self._button_row = wx.BoxSizer(wx.HORIZONTAL)
         self.SetSizer(self._button_row)
 
         self.opponent_tracker_button = self._add_button(
-            "Opponent Tracker", on_open_opponent_tracker
+            t("toolbar.opponent_tracker"), on_open_opponent_tracker
         )
-        self.timer_alert_button = self._add_button("Timer Alert", on_open_timer_alert)
-        self.match_history_button = self._add_button("Match History", on_open_match_history)
+        self.timer_alert_button = self._add_button(t("toolbar.timer_alert"), on_open_timer_alert)
+        self.match_history_button = self._add_button(
+            t("toolbar.match_history"), on_open_match_history
+        )
         self.metagame_analysis_button = self._add_button(
-            "Metagame Analysis", on_open_metagame_analysis
+            t("toolbar.metagame_analysis"), on_open_metagame_analysis
         )
-        self.load_collection_button = self._add_button("Load Collection", on_load_collection)
+        self.load_collection_button = self._add_button(
+            t("toolbar.load_collection"), on_load_collection
+        )
         self.download_images_button = self._add_button(
-            "Download Card Images", on_download_card_images
+            t("toolbar.download_images"), on_download_card_images
         )
         self.update_database_button = self._add_button(
-            "Update Card Database", on_update_card_database
+            t("toolbar.update_database"), on_update_card_database
         )
 
         self._button_row.AddStretchSpacer(1)

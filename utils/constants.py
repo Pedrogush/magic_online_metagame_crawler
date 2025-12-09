@@ -28,6 +28,19 @@ ZONE_TITLES = {
     "out": "Outboard",
 }
 
+
+def get_zone_title(zone: str) -> str:
+    from utils.i18n import t
+
+    return t(f"zones.{zone}")
+
+
+def get_format_name(format_key: str) -> str:
+    from utils.i18n import t
+
+    return t(f"formats.{format_key.lower()}")
+
+
 __all__ = [
     "SUBDUED_TEXT",
     "DARK_BG",
@@ -36,6 +49,8 @@ __all__ = [
     "DARK_ACCENT",
     "LIGHT_TEXT",
     "ZONE_TITLES",
+    "get_zone_title",
+    "get_format_name",
 ]
 
 BASE_DATA_DIR = _default_base_dir()

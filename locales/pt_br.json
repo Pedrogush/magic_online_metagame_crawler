@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "MTGO Pesquisa e Construtor de Decks",
+    "ready": "Pronto"
+  },
+  "zones": {
+    "main": "Principal",
+    "side": "Sideboard",
+    "out": "Removidos"
+  },
+  "formats": {
+    "modern": "Moderno",
+    "standard": "Padrão",
+    "pioneer": "Pioneiro",
+    "legacy": "Legado",
+    "vintage": "Vintage",
+    "pauper": "Pauper",
+    "commander": "Commander",
+    "brawl": "Brawl",
+    "historic": "Histórico"
+  },
+  "toolbar": {
+    "opponent_tracker": "Rastreador de Oponentes",
+    "timer_alert": "Alerta de Tempo",
+    "match_history": "Histórico de Partidas",
+    "metagame_analysis": "Análise de Metagame",
+    "load_collection": "Carregar Coleção",
+    "download_images": "Baixar Imagens de Cartas",
+    "update_database": "Atualizar Base de Dados"
+  },
+  "research": {
+    "format_label": "Formato",
+    "search_hint": "Buscar arquétipos…",
+    "reload_button": "Recarregar Arquétipos",
+    "loading": "Carregando…"
+  },
+  "builder": {
+    "search_hint": "Buscar cartas…",
+    "clear_button": "Limpar"
+  },
+  "deck_workspace": {
+    "title": "Área de Trabalho do Deck",
+    "tabs": {
+      "deck_tables": "Tabelas do Deck",
+      "stats": "Estatísticas",
+      "sideboard_guide": "Guia de Sideboard",
+      "deck_notes": "Notas do Deck"
+    }
+  },
+  "card_inspector": {
+    "title": "Inspetor de Cartas"
+  },
+  "deck_results": {
+    "title": "Resultados de Decks",
+    "select_archetype": "Selecione um arquétipo para ver decks.",
+    "copy_button": "Copiar",
+    "save_button": "Salvar",
+    "daily_average_button": "Média Diária"
+  },
+  "collection": {
+    "not_loaded": "Inventário da coleção não carregado.",
+    "status": "Coleção: {owned} possui, {missing} faltando"
+  },
+  "data_source": {
+    "label": "Fonte de dados de deck:",
+    "both": "Ambos",
+    "mtggoldfish": "MTGGoldfish",
+    "mtgo": "MTGO.com"
+  },
+  "settings": {
+    "language_label": "Idioma:",
+    "language_changed": "Idioma alterado para {language}. Por favor, reinicie o aplicativo."
+  },
+  "errors": {
+    "card_data_load_failed": "Falha ao carregar dados das cartas",
+    "deck_download_failed": "Falha ao baixar deck",
+    "collection_load_failed": "Falha ao carregar coleção"
+  }
+}

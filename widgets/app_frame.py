@@ -48,7 +48,9 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         controller: "AppController",
         parent: wx.Window | None = None,
     ):
-        super().__init__(parent, title="MTGO Deck Research & Builder", size=(1380, 860))
+        from utils.i18n import t
+
+        super().__init__(parent, title=t("app.title"), size=(1380, 860))
 
         # Store controller reference - ALL state and business logic goes through this
         self.controller: AppController = controller
@@ -103,10 +105,12 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         root_sizer.Add(right_panel, 1, wx.EXPAND | wx.ALL, 10)
 
     def _setup_status_bar(self) -> None:
+        from utils.i18n import t
+
         self.status_bar = self.CreateStatusBar()
         self.status_bar.SetBackgroundColour(DARK_PANEL)
         self.status_bar.SetForegroundColour(LIGHT_TEXT)
-        self._set_status("Ready")
+        self._set_status(t("app.ready"))
 
     def _build_left_panel(self, parent: wx.Window) -> wx.Panel:
         left_panel = wx.Panel(parent)
@@ -211,27 +215,50 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _build_card_data_controls(self, parent: wx.Window) -> wx.Panel:
+        from utils.i18n import SUPPORTED_LANGUAGES, t
+
         panel = wx.Panel(parent)
         panel.SetBackgroundColour(DARK_BG)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         panel.SetSizer(sizer)
 
-        source_label = wx.StaticText(panel, label="Deck data source:")
+        source_label = wx.StaticText(panel, label=t("data_source.label"))
         source_label.SetForegroundColour(LIGHT_TEXT)
         sizer.Add(source_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
 
-        self.deck_source_choice = wx.Choice(panel, choices=["Both", "MTGGoldfish", "MTGO.com"])
+        self.deck_source_choice = wx.Choice(
+            panel,
+            choices=[t("data_source.both"), t("data_source.mtggoldfish"), t("data_source.mtgo")],
+        )
         current_source = self.controller.get_deck_data_source()
         source_map = {"both": 0, "mtggoldfish": 1, "mtgo": 2}
         self.deck_source_choice.SetSelection(source_map.get(current_source, 0))
         self.deck_source_choice.Bind(wx.EVT_CHOICE, self._on_deck_source_changed)
-        sizer.Add(self.deck_source_choice, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self.deck_source_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
+
+        lang_label = wx.StaticText(panel, label=t("settings.language_label"))
+        lang_label.SetForegroundColour(LIGHT_TEXT)
+        sizer.Add(lang_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+
+        lang_display_map = {"en": "English", "pt_br": "Português (BR)"}
+        lang_choices = [lang_display_map.get(lang, lang) for lang in SUPPORTED_LANGUAGES]
+        self.language_choice = wx.Choice(panel, choices=lang_choices)
+        current_lang = self.controller.get_language()
+        try:
+            lang_index = SUPPORTED_LANGUAGES.index(current_lang)
+        except ValueError:
+            lang_index = 0
+        self.language_choice.SetSelection(lang_index)
+        self.language_choice.Bind(wx.EVT_CHOICE, self._on_language_changed)
+        sizer.Add(self.language_choice, 0, wx.ALIGN_CENTER_VERTICAL)
 
         sizer.AddStretchSpacer(1)
         return panel
 
     def _build_deck_results(self, parent: wx.Window) -> wx.StaticBoxSizer:
-        deck_box = wx.StaticBox(parent, label="Deck Results")
+        from utils.i18n import t
+
+        deck_box = wx.StaticBox(parent, label=t("deck_results.title"))
         deck_box.SetForegroundColour(LIGHT_TEXT)
         deck_box.SetBackgroundColour(DARK_PANEL)
         deck_sizer = wx.StaticBoxSizer(deck_box, wx.VERTICAL)
@@ -266,7 +293,9 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return deck_sizer
 
     def _build_card_inspector(self, parent: wx.Window) -> wx.StaticBoxSizer:
-        inspector_box = wx.StaticBox(parent, label="Card Inspector")
+        from utils.i18n import t
+
+        inspector_box = wx.StaticBox(parent, label=t("card_inspector.title"))
         inspector_box.SetForegroundColour(LIGHT_TEXT)
         inspector_box.SetBackgroundColour(DARK_PANEL)
         inspector_sizer = wx.StaticBoxSizer(inspector_box, wx.VERTICAL)
@@ -285,7 +314,9 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return inspector_sizer
 
     def _build_deck_workspace(self, parent: wx.Window) -> wx.StaticBoxSizer:
-        detail_box = wx.StaticBox(parent, label="Deck Workspace")
+        from utils.i18n import t
+
+        detail_box = wx.StaticBox(parent, label=t("deck_workspace.title"))
         detail_box.SetForegroundColour(LIGHT_TEXT)
         detail_box.SetBackgroundColour(DARK_PANEL)
         detail_sizer = wx.StaticBoxSizer(detail_box, wx.VERTICAL)
@@ -491,8 +522,10 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _clear_deck_display(self) -> None:
+        from utils.i18n import t
+
         self.controller.deck_repo.set_current_deck(None)
-        self.summary_text.ChangeValue("Select an archetype to view decks.")
+        self.summary_text.ChangeValue(t("deck_results.select_archetype"))
         self.zone_cards = {"main": [], "side": [], "out": []}
         self.main_table.set_cards([])
         self.side_table.set_cards([])
