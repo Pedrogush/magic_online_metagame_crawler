@@ -8,6 +8,7 @@ import wx
 import wx.lib.scrolledpanel as scrolled
 
 from utils.constants import DARK_ALT, DARK_PANEL, LIGHT_TEXT, SUBDUED_TEXT
+from utils.ui_text import get_copy
 
 
 class SideboardCardSelector(wx.Panel):
@@ -99,13 +100,17 @@ class SideboardCardSelector(wx.Panel):
 
             # Button: Set to 0 (↓ down arrow)
             zero_btn = wx.Button(btn_panel, label="↓", size=(28, 28))
-            zero_btn.SetToolTip("Set to 0")
+            zero_btn.SetToolTip(get_copy("tooltips.sideboard_selector.set_zero", "Set to 0"))
             zero_btn.Bind(wx.EVT_BUTTON, lambda evt, name=card_name: self._set_zero(name))
             btn_sizer.Add(zero_btn, 0, wx.LEFT, 2)
 
             # Button: Set to max (↑ up arrow)
             max_btn = wx.Button(btn_panel, label="↑", size=(28, 28))
-            max_btn.SetToolTip(f"Set to max ({max_qty})")
+            max_btn.SetToolTip(
+                get_copy(
+                    "tooltips.sideboard_selector.set_max", "Set to max ({max_qty})", max_qty=max_qty
+                )
+            )
             max_btn.Bind(
                 wx.EVT_BUTTON, lambda evt, name=card_name, max_q=max_qty: self._set_max(name, max_q)
             )

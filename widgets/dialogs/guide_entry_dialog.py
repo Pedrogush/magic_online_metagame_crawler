@@ -7,6 +7,7 @@ from typing import Any
 import wx
 
 from utils.constants import DARK_ALT, DARK_BG, LIGHT_TEXT
+from utils.ui_text import get_copy
 from widgets.panels.sideboard_card_selector import SideboardCardSelector
 
 
@@ -108,15 +109,21 @@ class GuideEntryDialog(wx.Dialog):
         )
         self.notes_ctrl.SetBackgroundColour(DARK_ALT)
         self.notes_ctrl.SetForegroundColour(LIGHT_TEXT)
-        self.notes_ctrl.SetHint("Strategy notes for this matchup")
+        self.notes_ctrl.SetHint(get_copy("hints.guide.notes", "Strategy notes for this matchup"))
         panel_sizer.Add(self.notes_ctrl, 0, wx.EXPAND | wx.ALL, 4)
 
         # Enable double entries checkbox
-        self.enable_double_checkbox = wx.CheckBox(panel, label="Enable double entries")
+        enable_double_label = get_copy(
+            "labels.guide.enable_double_entries", "Enable double entries"
+        )
+        self.enable_double_checkbox = wx.CheckBox(panel, label=enable_double_label)
         self.enable_double_checkbox.SetForegroundColour(LIGHT_TEXT)
         self.enable_double_checkbox.SetToolTip(
-            "If unchecked, will overwrite existing entries for this archetype. "
-            "If checked, will add new entry even if archetype already exists."
+            get_copy(
+                "tooltips.guide.enable_double_entries",
+                "If unchecked, will overwrite existing entries for this archetype. "
+                "If checked, will add new entry even if archetype already exists.",
+            )
         )
         panel_sizer.Add(self.enable_double_checkbox, 0, wx.ALL, 8)
 
