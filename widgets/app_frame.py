@@ -82,6 +82,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.Bind(wx.EVT_SIZE, self.on_window_change)
         self.Bind(wx.EVT_MOVE, self.on_window_change)
+        self.Bind(wx.EVT_CHAR_HOOK, self._on_hotkey)
 
     # ------------------------------------------------------------------ UI ------------------------------------------------------------------
     def _build_ui(self) -> None:

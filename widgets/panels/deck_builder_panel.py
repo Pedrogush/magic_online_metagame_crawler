@@ -378,6 +378,13 @@ class DeckBuilderPanel(wx.Panel):
             return None
         return self.results_cache[idx]
 
+    def get_selected_result(self) -> dict[str, Any] | None:
+        """Return the currently selected search result, if any."""
+        if not self.results_ctrl:
+            return None
+        selected = self.results_ctrl.GetFirstSelected()
+        return self.get_result_at_index(selected) if selected != wx.NOT_FOUND else None
+
     def _on_search(self) -> None:
         """Trigger search callback."""
         self._on_search_callback()

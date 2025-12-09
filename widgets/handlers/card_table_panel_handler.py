@@ -11,6 +11,7 @@ from utils.constants import ZONE_TITLES
 
 if TYPE_CHECKING:
     from widgets.app_frame import AppFrame
+    from widgets.panels.card_table_panel import CardTablePanel
 
 
 class CardTablePanelHandler:
@@ -104,6 +105,106 @@ class CardTablePanelHandler:
         self.zone_cards.setdefault(zone, []).append({"name": name, "qty": max(1, qty)})
         self.zone_cards[zone].sort(key=lambda item: item["name"].lower())
         self._after_zone_change(zone)
+
+    # ------------------------------------------------------------------ Keyboard shortcuts -------------------------------------------------
+    def _on_hotkey(self: AppFrame, event: wx.KeyEvent) -> None:
+        if not event.ControlDown():
+            event.Skip()
+            return
+
+        key_code = event.GetKeyCode()
+        handled = False
+
+        if key_code in (ord("D"), ord("d")):
+            self._show_left_panel("builder")
+            handled = True
+        elif key_code in (ord("R"), ord("r")):
+            self._show_left_panel("research")
+            handled = True
+        elif key_code in (ord("1"), wx.WXK_NUMPAD1):
+            handled = self._handle_increment_shortcut()
+        elif key_code in (ord("2"), wx.WXK_NUMPAD2):
+            handled = self._handle_decrement_shortcut()
+
+        if handled:
+            return
+        event.Skip()
+
+    def _handle_increment_shortcut(self: AppFrame) -> bool:
+        selection = self._get_selected_zone_card()
+        if selection:
+            zone, card = selection
+            self._handle_zone_delta(zone, card["name"], 1)
+            self._focus_card_in_zone(zone, card["name"])
+            return True
+
+        search_card = self._get_selected_search_card()
+        if search_card:
+            zone = self._get_active_zone_for_add()
+            name = search_card.get("name")
+            if name:
+                self._handle_zone_delta(zone, name, 1)
+                self._focus_card_in_zone(zone, name)
+                return True
+        return False
+
+    def _handle_decrement_shortcut(self: AppFrame) -> bool:
+        selection = self._get_selected_zone_card()
+        if selection is None:
+            return False
+        zone, card = selection
+        if zone not in {"main", "side"}:
+            return False
+        self._handle_zone_delta(zone, card["name"], -1)
+        self._focus_card_in_zone(zone, card["name"])
+        return True
+
+    def _get_selected_zone_card(self: AppFrame) -> tuple[str, dict[str, Any]] | None:
+        for zone, table in (
+            ("main", self.main_table),
+            ("side", self.side_table),
+            ("out", self.out_table),
+        ):
+            if not table:
+                continue
+            selected = table.get_selected_card()
+            if selected:
+                return zone, selected
+        return None
+
+    def _get_selected_search_card(self: AppFrame) -> dict[str, Any] | None:
+        if not self.builder_panel:
+            return None
+        return self.builder_panel.get_selected_result()
+
+    def _get_active_zone_for_add(self: AppFrame) -> str:
+        if not self.zone_notebook:
+            return "main"
+        selection = self.zone_notebook.GetSelection()
+        for zone, table in (
+            ("main", self.main_table),
+            ("side", self.side_table),
+            ("out", self.out_table),
+        ):
+            if table and self.zone_notebook.GetPageIndex(table) == selection:
+                return zone if zone in {"main", "side"} else "main"
+        return "main"
+
+    def _focus_card_in_zone(self: AppFrame, zone: str, card_name: str) -> None:
+        table = self._get_table_for_zone(zone)
+        if not table:
+            return
+        self._collapse_other_zone_tables(zone)
+        table.focus_card(card_name)
+
+    def _get_table_for_zone(self: AppFrame, zone: str) -> CardTablePanel | None:
+        if zone == "main":
+            return self.main_table
+        if zone == "side":
+            return self.side_table
+        if zone == "out":
+            return self.out_table
+        return None
 
     def _collapse_other_zone_tables(self, active_zone: str) -> None:
         tables = {

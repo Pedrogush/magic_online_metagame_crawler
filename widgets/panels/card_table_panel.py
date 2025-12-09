@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 import wx
+import wx.lib.scrolledpanel as scrolled
 
 from utils.constants import DARK_PANEL, SUBDUED_TEXT
 from utils.mana_icon_factory import ManaIconFactory
@@ -48,11 +49,11 @@ class CardTablePanel(wx.Panel):
         header.AddStretchSpacer(1)
         outer.Add(header, 0, wx.EXPAND | wx.BOTTOM, 4)
 
-        self.scroller = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        self.scroller = scrolled.ScrolledPanel(self, style=wx.VSCROLL)
         self.scroller.SetBackgroundColour(DARK_PANEL)
-        self.scroller.SetScrollRate(5, 5)
         self.grid_sizer = wx.GridSizer(0, 4, 8, 8)
         self.scroller.SetSizer(self.grid_sizer)
+        self.scroller.SetupScrolling(scroll_x=False, scroll_y=True, rate_x=5, rate_y=5)
         outer.Add(self.scroller, 1, wx.EXPAND)
 
     def set_cards(self, cards: list[dict[str, Any]]) -> None:
@@ -126,6 +127,7 @@ class CardTablePanel(wx.Panel):
             self.grid_sizer.Layout()
             self.scroller.Layout()
             self.scroller.FitInside()
+            self.scroller.SetupScrolling(scroll_x=False, scroll_y=True, rate_x=5, rate_y=5)
             self._restore_selection()
         finally:
             self.scroller.Thaw()
@@ -154,6 +156,32 @@ class CardTablePanel(wx.Panel):
         self.selected_name = None
         if previously_had_selection:
             self._notify_selection(None)
+
+    def get_selected_card(self) -> dict[str, Any] | None:
+        """Return the currently selected card in this table, if any."""
+        if self.active_panel:
+            return self.active_panel.card
+        return None
+
+    def focus_card(self, card_name: str) -> bool:
+        """Programmatically focus the given card by name."""
+        if not card_name:
+            return False
+        match = None
+        for widget in self.card_widgets:
+            if widget.card["name"].lower() == card_name.lower():
+                match = widget
+                break
+        if match is None:
+            return False
+        if self.active_panel and self.active_panel is not match:
+            self.active_panel.set_active(False)
+        self.active_panel = match
+        self.selected_name = match.card["name"]
+        match.set_active(True)
+        self.scroller.ScrollChildIntoView(match)
+        self._notify_selection(match.card)
+        return True
 
     def clear_selection(self) -> None:
         if self.active_panel:
