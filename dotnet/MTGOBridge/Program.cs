@@ -640,7 +640,7 @@ static IReadOnlyList<MatchSummary> ExtractTournamentMatches(object tournament)
     return result;
 }
 
-static T SafeGet<T>(object target, string propertyName, T defaultValue = default!)
+static T SafeGet<T>(object? target, string propertyName, T defaultValue = default!)
 {
     if (target is null)
     {
