@@ -1,0 +1,19 @@
+{
+  "tooltips": {
+    "guide.enable_double_entries": "If unchecked, overwrite existing entries for this archetype. If checked, add a new entry even if the archetype already exists.",
+    "guide.import.enable_double_entries": "If unchecked, overwrite existing entries for matching archetypes. If checked, add entries even if archetypes already exist.",
+    "sideboard_selector.set_zero": "Set to 0",
+    "sideboard_selector.set_max": "Set to max ({max_qty})"
+  },
+  "hints": {
+    "guide.notes": "Strategy notes for this matchup"
+  },
+  "labels": {
+    "guide.enable_double_entries": "Enable double entries"
+  },
+  "messages": {
+    "guide.select_entry_edit": "Select an entry to edit.",
+    "guide.select_entry_remove": "Select an entry to remove.",
+    "guide.exclude_prompt": "Select archetypes to exclude from the printed guide."
+  }
+}

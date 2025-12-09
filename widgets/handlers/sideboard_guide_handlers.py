@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import wx
 from loguru import logger
 
+from utils.ui_text import get_copy
 from widgets.dialogs.guide_entry_dialog import GuideEntryDialog
 
 if TYPE_CHECKING:
@@ -133,7 +134,9 @@ class SideboardGuideHandlers:
         index = self.sideboard_guide_panel.get_selected_index()
         if index is None:
             wx.MessageBox(
-                "Select an entry to edit.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
+                get_copy("messages.guide.select_entry_edit", "Select an entry to edit."),
+                "Sideboard Guide",
+                wx.OK | wx.ICON_INFORMATION,
             )
             return
         data = self.sideboard_guide_entries[index]
@@ -157,7 +160,9 @@ class SideboardGuideHandlers:
         index = self.sideboard_guide_panel.get_selected_index()
         if index is None:
             wx.MessageBox(
-                "Select an entry to remove.", "Sideboard Guide", wx.OK | wx.ICON_INFORMATION
+                get_copy("messages.guide.select_entry_remove", "Select an entry to remove."),
+                "Sideboard Guide",
+                wx.OK | wx.ICON_INFORMATION,
             )
             return
         del self.sideboard_guide_entries[index]
@@ -168,7 +173,10 @@ class SideboardGuideHandlers:
         archetype_names = [item.get("name", "") for item in self.archetypes]
         dlg = wx.MultiChoiceDialog(
             self,
-            "Select archetypes to exclude from the printed guide.",
+            get_copy(
+                "messages.guide.exclude_prompt",
+                "Select archetypes to exclude from the printed guide.",
+            ),
             "Sideboard Guide",
             archetype_names,
         )
@@ -234,10 +242,16 @@ class SideboardGuideHandlers:
         panel = wx.Panel(options_dlg)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        enable_double_checkbox = wx.CheckBox(panel, label="Enable double entries")
+        enable_double_label = get_copy(
+            "labels.guide.enable_double_entries", "Enable double entries"
+        )
+        enable_double_checkbox = wx.CheckBox(panel, label=enable_double_label)
         enable_double_checkbox.SetToolTip(
-            "If unchecked, will overwrite existing entries for matching archetypes. "
-            "If checked, will add entries even if archetypes already exist."
+            get_copy(
+                "tooltips.guide.import.enable_double_entries",
+                "If unchecked, will overwrite existing entries for matching archetypes. "
+                "If checked, will add entries even if archetypes already exist.",
+            )
         )
         sizer.Add(enable_double_checkbox, 0, wx.ALL, 12)
 
