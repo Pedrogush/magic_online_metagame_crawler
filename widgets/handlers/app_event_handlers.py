@@ -209,6 +209,7 @@ class AppEventHandlers:
         if self.mana_keyboard_window and self.mana_keyboard_window.IsShown():
             self.mana_keyboard_window.Destroy()
             self.mana_keyboard_window = None
+        self.controller.shutdown()
         event.Skip()
 
     # Async Callback Handlers

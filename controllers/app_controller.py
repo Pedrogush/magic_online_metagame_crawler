@@ -39,6 +39,7 @@ from utils.constants import (
     MTGO_DECKLISTS_ENABLED,
     ensure_base_dirs,
 )
+from utils.managed_executor import ManagedExecutor
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
@@ -141,6 +142,11 @@ class AppController:
 
         self._bulk_check_worker_active = False
         self._ui_callbacks: dict[str, Callable[..., Any]] = {}
+
+        # Managed executor for background tasks with lifecycle control
+        self._executor = ManagedExecutor()
+        self._mtgo_bridge_consecutive_failures = 0
+
         self.frame = self.create_frame()
 
         # Start background MTGO data fetch
@@ -690,14 +696,26 @@ class AppController:
 
         def mtgo_status_check_task():
             """Background task to check MTGO bridge status every 30 seconds."""
-            while True:
+            while not self._executor.is_stopped():
                 time.sleep(30)
+                if self._executor.is_stopped():
+                    break
                 try:
                     self.check_mtgo_bridge_status()
+                    self._mtgo_bridge_consecutive_failures = 0
+                except mtgo_bridge_client.BridgeCommandError as exc:
+                    self._mtgo_bridge_consecutive_failures += 1
+                    if self._mtgo_bridge_consecutive_failures >= 10:
+                        logger.warning(
+                            f"MTGO bridge failed {self._mtgo_bridge_consecutive_failures} times in a row. "
+                            "Stopping status checks (likely on unsupported platform)."
+                        )
+                        break
+                    logger.debug(f"MTGO status check failed: {exc}")
                 except Exception as exc:
                     logger.error(f"MTGO status check failed: {exc}", exc_info=True)
 
-        BackgroundWorker(mtgo_status_check_task).start()
+        self._executor.submit(mtgo_status_check_task)
 
     def _start_mtgo_background_fetch(self) -> None:
         """Start background thread to fetch MTGO data continuously."""
@@ -709,11 +727,12 @@ class AppController:
 
         def mtgo_fetch_task():
             """Background task to fetch MTGO data continuously."""
-            # Formats to fetch (in priority order)
             formats = ["modern", "standard", "pioneer", "legacy"]
 
-            while True:
+            while not self._executor.is_stopped():
                 for mtg_format in formats:
+                    if self._executor.is_stopped():
+                        break
                     try:
                         logger.info(f"Starting MTGO background fetch for {mtg_format}...")
                         stats = fetch_mtgo_data_background(days=7, mtg_format=mtg_format, delay=2.0)
@@ -727,14 +746,23 @@ class AppController:
                             f"MTGO background fetch failed for {mtg_format}: {exc}", exc_info=True
                         )
 
-                # Wait 1 hour before fetching again
+                if self._executor.is_stopped():
+                    break
+
                 logger.info(
                     "MTGO background fetch cycle complete. Waiting 1 hour before next cycle..."
                 )
-                time.sleep(3600)
+                for _ in range(360):
+                    if self._executor.is_stopped():
+                        break
+                    time.sleep(10)
 
-        # Start the background thread
-        BackgroundWorker(mtgo_fetch_task).start()
+        self._executor.submit(mtgo_fetch_task)
+
+    def shutdown(self, timeout: float = 10.0) -> None:
+        """Shutdown all background workers gracefully."""
+        logger.info("Shutting down AppController background workers...")
+        self._executor.shutdown(timeout=timeout)
 
 
 # Singleton instance
