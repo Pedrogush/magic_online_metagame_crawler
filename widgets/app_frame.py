@@ -405,7 +405,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         return None
 
     def _restore_session_state(self) -> None:
-        state = self.controller.restore_session_state()
+        state = self.controller.session_manager.restore_session_state(self.controller.zone_cards)
 
         # Restore left panel mode
         self._show_left_panel(state["left_mode"], force=True)
@@ -445,7 +445,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         )
 
     def _apply_window_preferences(self) -> None:
-        state = self.controller.restore_session_state()
+        state = self.controller.session_manager.restore_session_state(self.controller.zone_cards)
 
         # Apply window size
         if "window_size" in state:

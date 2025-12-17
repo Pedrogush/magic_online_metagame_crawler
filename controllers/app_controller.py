@@ -430,7 +430,7 @@ class AppController:
             exists, reason = result
 
             if exists:
-                self._load_bulk_data_into_memory(on_status)
+                self.load_bulk_data_into_memory(on_status)
                 on_status("Card image database ready")
                 return
 
@@ -440,7 +440,7 @@ class AppController:
 
             def _on_download_complete(msg: str) -> None:
                 on_download_complete(msg)
-                self._load_bulk_data_into_memory(on_status, force=True)
+                self.load_bulk_data_into_memory(on_status, force=True)
 
             def _on_download_failed(msg: str) -> None:
                 on_download_failed(msg)
@@ -455,13 +455,13 @@ class AppController:
             self._bulk_check_worker_active = False
             logger.warning(f"Failed to check bulk data existence: {exc}")
             if not self.image_service.get_bulk_data():
-                self._load_bulk_data_into_memory(on_status)
+                self.load_bulk_data_into_memory(on_status)
             else:
                 on_status("Ready")
 
         BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
 
-    def _load_bulk_data_into_memory(
+    def load_bulk_data_into_memory(
         self, on_status: Callable[[str], None], force: bool = False
     ) -> None:
         on_status("Preparing card printings cache…")
@@ -490,12 +490,6 @@ class AppController:
         if not started:
             on_status("Ready")
 
-    def load_bulk_data_into_memory(
-        self, on_status: Callable[[str], None], force: bool = False
-    ) -> None:
-        """Public wrapper for UI callers."""
-        self._load_bulk_data_into_memory(on_status=on_status, force=force)
-
     def force_bulk_data_update(self) -> None:
         """Force download of bulk data regardless of current state."""
         if self._bulk_check_worker_active:
@@ -513,7 +507,7 @@ class AppController:
         def _on_download_complete(msg: str) -> None:
             self._bulk_check_worker_active = False
             on_download_complete(msg)
-            self._load_bulk_data_into_memory(on_status, force=True)
+            self.load_bulk_data_into_memory(on_status, force=True)
 
         def _on_download_failed(msg: str) -> None:
             self._bulk_check_worker_active = False
@@ -550,9 +544,6 @@ class AppController:
         self._deck_data_source = source
         self.session_manager.update_deck_data_source(source)
 
-    def restore_session_state(self) -> dict[str, Any]:
-        return self.session_manager.restore_session_state(self.zone_cards)
-
     # ============= Business Logic Methods =============
 
     def download_deck(
@@ -569,28 +560,6 @@ class AppController:
             return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
         BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
-
-    def check_bulk_data_freshness(self, max_age_days: int) -> tuple[bool, str]:
-        return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
-
-    def download_bulk_data(
-        self, on_success: Callable[[str], None], on_error: Callable[[str], None]
-    ) -> None:
-        self.image_service.download_bulk_metadata_async(on_success=on_success, on_error=on_error)
-
-    def start_daily_average_build(
-        self,
-        on_success: Callable[[dict[str, float], int], None],
-        on_error: Callable[[Exception], None],
-        on_status: Callable[[str], None],
-        on_progress: Callable[[int, int], None] | None = None,
-    ) -> tuple[bool, str]:
-        return self.build_daily_average_deck(
-            on_success=on_success,
-            on_error=on_error,
-            on_status=on_status,
-            on_progress=on_progress,
-        )
 
     # ============= State Accessors =============
 
