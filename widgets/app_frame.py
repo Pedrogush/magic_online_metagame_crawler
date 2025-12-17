@@ -21,7 +21,6 @@ from utils.mana_icon_factory import ManaIconFactory
 from utils.stylize import stylize_listbox, stylize_textctrl
 from widgets.buttons.deck_action_buttons import DeckActionButtons
 from widgets.buttons.toolbar_buttons import ToolbarButtons
-from widgets.dialogs.image_download_dialog import show_image_download_dialog
 from widgets.handlers.app_event_handlers import AppEventHandlers
 from widgets.handlers.card_table_panel_handler import CardTablePanelHandler
 from widgets.handlers.sideboard_guide_handlers import SideboardGuideHandlers
@@ -204,9 +203,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
             on_open_match_history=self.open_match_history,
             on_open_metagame_analysis=self.open_metagame_analysis,
             on_load_collection=lambda: self.controller.refresh_collection_from_bridge(force=True),
-            on_download_card_images=lambda: show_image_download_dialog(
-                self, self.image_cache, self.image_downloader, self._set_status
-            ),
+            on_download_card_images=self._start_image_download,
             on_update_card_database=lambda: self.controller.force_bulk_data_update(),
         )
 
@@ -228,6 +225,25 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         sizer.Add(self.deck_source_choice, 0, wx.ALIGN_CENTER_VERTICAL)
 
         sizer.AddStretchSpacer(1)
+
+        # Image download progress (top-right above inspector)
+        self.image_progress_panel = wx.Panel(panel)
+        self.image_progress_panel.SetBackgroundColour(DARK_BG)
+        progress_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.image_progress_panel.SetSizer(progress_sizer)
+
+        self.image_progress_label = wx.StaticText(self.image_progress_panel, label="Images: idle")
+        self.image_progress_label.SetForegroundColour(SUBDUED_TEXT)
+        progress_sizer.Add(self.image_progress_label, 0, wx.ALIGN_RIGHT | wx.BOTTOM, 2)
+
+        self.image_progress_gauge = wx.Gauge(
+            self.image_progress_panel, range=100, style=wx.GA_SMOOTH
+        )
+        self.image_progress_gauge.SetMinSize((240, 16))
+        self.image_progress_gauge.Hide()
+        progress_sizer.Add(self.image_progress_gauge, 0, wx.ALIGN_RIGHT)
+
+        sizer.Add(self.image_progress_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
         return panel
 
     def _build_deck_results(self, parent: wx.Window) -> wx.StaticBoxSizer:
@@ -403,6 +419,46 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
         dialog.Destroy()
         return None
+
+    # ------------------------------------------------------------------ Image download handling --------------------------------------------
+    def _start_image_download(self) -> None:
+        """Request card image download via controller."""
+        self._show_image_progress("Starting card image download…", 0, 100, show_gauge=True)
+        self.controller.start_image_download()
+
+    def _show_image_progress(
+        self, message: str, value: int, maximum: int, show_gauge: bool = True
+    ) -> None:
+        self.image_progress_label.SetLabel(message)
+        self.image_progress_gauge.SetRange(max(1, maximum))
+        self.image_progress_gauge.SetValue(min(value, maximum))
+        if show_gauge:
+            self.image_progress_gauge.Show()
+        self.image_progress_panel.Layout()
+
+    def _update_image_download_progress(self, completed: int, total: int, message: str) -> None:
+        maximum = max(1, total or self.image_progress_gauge.GetRange())
+        self.image_progress_gauge.SetRange(maximum)
+        self.image_progress_gauge.Show()
+        self.image_progress_gauge.SetValue(min(completed, maximum))
+        status = f"Downloading card images… {completed}/{total or '…'}"
+        self._set_status(status)
+        self.image_progress_label.SetLabel(f"{message} ({completed}/{total or '…'})")
+        self.image_progress_panel.Layout()
+
+    def _on_image_download_complete(self, downloaded: int, total: int) -> None:
+        maximum = max(1, total or self.image_progress_gauge.GetRange())
+        self.image_progress_gauge.SetRange(maximum)
+        self.image_progress_gauge.SetValue(maximum)
+        self.image_progress_label.SetLabel(f"Images downloaded: {downloaded}/{total or '…'}")
+        self._set_status("Card images downloaded")
+        self.image_progress_panel.Layout()
+
+    def _on_image_download_failed(self, error_msg: str) -> None:
+        self.image_progress_gauge.Hide()
+        self.image_progress_label.SetLabel(f"Images download failed: {error_msg}")
+        self._set_status(f"Card image download failed: {error_msg}")
+        self.image_progress_panel.Layout()
 
     def _restore_session_state(self) -> None:
         state = self.controller.session_manager.restore_session_state(self.controller.zone_cards)

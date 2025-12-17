@@ -8,6 +8,7 @@ for the UI layer to interact with application logic.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable
@@ -33,6 +34,7 @@ from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils import mtgo_bridge_client
 from utils.card_data import CardDataManager
+from utils.card_images import BULK_DATA_CACHE, BulkImageDownloader
 from utils.constants import (
     CACHE_DIR,
     COLLECTION_CACHE_MAX_AGE_SECONDS,
@@ -130,6 +132,8 @@ class AppController:
         self.loading_archetypes = False
         self.loading_decks = False
         self.loading_daily_average = False
+        self._image_download_lock = threading.Lock()
+        self.image_download_active = False
 
         # Load stores
         self.notes_store_path = NOTES_STORE
@@ -666,6 +670,15 @@ class AppController:
                 frame._on_bulk_data_downloaded, msg
             ),
             "on_bulk_download_failed": lambda msg: wx.CallAfter(frame._on_bulk_data_failed, msg),
+            "on_image_download_progress": lambda completed, total, message: wx.CallAfter(
+                frame._on_image_download_progress, completed, total, message
+            ),
+            "on_image_download_complete": lambda downloaded, total: wx.CallAfter(
+                frame._on_image_download_complete, downloaded, total
+            ),
+            "on_image_download_failed": lambda msg: wx.CallAfter(
+                frame._on_image_download_failed, msg
+            ),
             "on_mtgo_status_change": lambda ready: wx.CallAfter(
                 frame.toolbar.enable_mtgo_buttons, ready
             ),
@@ -735,6 +748,78 @@ class AppController:
 
         # Start the background thread
         BackgroundWorker(mtgo_fetch_task).start()
+
+    # ============= Image Download Management =============
+
+    def start_image_download(self) -> None:
+        """Start card image download in background and stream progress to UI."""
+        callbacks = self._ui_callbacks
+        on_status = callbacks.get("on_status", lambda msg: None)
+        on_progress = callbacks.get(
+            "on_image_download_progress", lambda completed, total, msg: None
+        )
+        on_complete = callbacks.get("on_image_download_complete", lambda downloaded, total: None)
+        on_failed = callbacks.get("on_image_download_failed", lambda msg: None)
+
+        with self._image_download_lock:
+            if self.image_download_active:
+                on_status("Card image download already running")
+                return
+            self.image_download_active = True
+
+        on_status("Starting card image download…")
+
+        def worker():
+            downloader = self.image_service.image_downloader
+            if downloader is None:
+                downloader = BulkImageDownloader(self.image_service.image_cache)
+                self.image_service.image_downloader = downloader
+
+            try:
+                if not BULK_DATA_CACHE.exists():
+                    on_progress(0, 1, "Downloading bulk metadata…")
+                    success, msg = downloader.download_bulk_metadata(force=False)
+                    if not success:
+                        on_failed(msg)
+                        return
+
+                total_cards = self._load_bulk_total()
+                if total_cards:
+                    on_progress(0, total_cards, "Downloading card images…")
+
+                def progress_callback(completed: int, total: int, message: str) -> None:
+                    on_progress(completed, total, message)
+
+                result = downloader.download_all_images(
+                    size="normal",
+                    progress_callback=progress_callback,
+                )
+
+                if result.get("success"):
+                    downloaded = result.get("downloaded", 0)
+                    total = result.get("total", total_cards)
+                    on_complete(downloaded, total or 0)
+                else:
+                    on_failed(result.get("error", "Unknown error"))
+            except Exception as exc:  # pragma: no cover - IO heavy
+                logger.exception("Card image download failed")
+                on_failed(str(exc))
+            finally:
+                with self._image_download_lock:
+                    self.image_download_active = False
+
+        BackgroundWorker(worker).start()
+
+    def _load_bulk_total(self) -> int:
+        """Return the number of cards in bulk data, if available."""
+        if not BULK_DATA_CACHE.exists():
+            return 0
+        try:
+            with BULK_DATA_CACHE.open("r", encoding="utf-8") as fh:
+                return len(json.load(fh))
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.debug(f"Failed to read bulk data for total count: {exc}")
+            return 0
 
 
 # Singleton instance
