@@ -90,31 +90,63 @@ def find_dependencies(modules: dict) -> dict[str, set[str]]:
 def generate_mermaid(categories: dict, dependencies: dict, modules: dict) -> str:
     lines = ["graph TB"]
 
-    for category, module_list in categories.items():
+    key_modules = {
+        "Controllers": "app_controller",
+        "Services": ["deck_service", "collection_service", "search_service"],
+        "Repositories": ["card_repository", "deck_repository", "metagame_repository"],
+        "UI": ["app_frame", "deck_builder_panel", "card_table_panel"],
+        "Utils": ["card_data", "archetype_classifier", "mtgo_bridge_client"],
+        "Navigators": ["mtggoldfish"],
+    }
+
+    for category, patterns in key_modules.items():
+        if isinstance(patterns, str):
+            patterns = [patterns]
+
         lines.append(f"\n    subgraph {category}")
-        for module in sorted(module_list)[:8]:
-            module_id = module.replace(".", "_")
-            classes = modules.get(module, {}).get("classes", [])
-            class_str = "<br/>".join(classes[:3])
-            if len(classes) > 3:
-                class_str += f"<br/>+{len(classes)-3} more"
-            label = module.split(".")[-1]
-            if class_str:
-                lines.append(f'        {module_id}["{label}<br/>{class_str}"]')
-            else:
-                lines.append(f'        {module_id}["{label}"]')
+        count = 0
+        for module_name, module_info in modules.items():
+            if count >= 3:
+                break
+            if any(pattern in module_name for pattern in patterns):
+                module_id = module_name.replace(".", "_")
+                label = module_name.split(".")[-1]
+                classes = module_info.get("classes", [])
+                if classes:
+                    class_list = ", ".join(classes[:2])
+                    lines.append(f'        {module_id}["{label}<br/>{class_list}"]')
+                else:
+                    lines.append(f'        {module_id}["{label}"]')
+                count += 1
         lines.append("    end")
 
-    lines.append("\n    %% Dependencies")
-    seen = set()
-    for module, deps in sorted(dependencies.items())[:50]:
-        module_id = module.replace(".", "_")
-        for dep in sorted(deps)[:3]:
-            dep_id = dep.replace(".", "_")
-            edge = (module_id, dep_id)
-            if edge not in seen:
-                lines.append(f"    {module_id} --> {dep_id}")
-                seen.add(edge)
+    lines.append("\n    %% Key Dependencies")
+    layer_deps = [
+        ("Controllers", "Services"),
+        ("Controllers", "UI"),
+        ("Services", "Repositories"),
+        ("Services", "Utils"),
+        ("Repositories", "Utils"),
+        ("Repositories", "Navigators"),
+    ]
+
+    for source_cat, target_cat in layer_deps:
+        source_patterns = key_modules.get(source_cat, [])
+        target_patterns = key_modules.get(target_cat, [])
+
+        if isinstance(source_patterns, str):
+            source_patterns = [source_patterns]
+        if isinstance(target_patterns, str):
+            target_patterns = [target_patterns]
+
+        source_modules = [
+            m.replace(".", "_") for m in modules.keys() if any(p in m for p in source_patterns)
+        ][:1]
+        target_modules = [
+            m.replace(".", "_") for m in modules.keys() if any(p in m for p in target_patterns)
+        ][:1]
+        if source_modules and target_modules:
+            lines.append(f"    {source_modules[0]} --> {target_modules[0]}")
 
     lines.append("\n    %% Styling")
     lines.append("    classDef controller fill:#ff9999,stroke:#333,stroke-width:2px")
@@ -124,18 +156,23 @@ def generate_mermaid(categories: dict, dependencies: dict, modules: dict) -> str
     lines.append("    classDef util fill:#cc99ff,stroke:#333,stroke-width:2px")
     lines.append("    classDef nav fill:#ffff99,stroke:#333,stroke-width:2px")
 
-    for module in categories.get("Controllers", []):
-        lines.append(f"    class {module.replace('.', '_')} controller")
-    for module in categories.get("Services", []):
-        lines.append(f"    class {module.replace('.', '_')} service")
-    for module in categories.get("Repositories", []):
-        lines.append(f"    class {module.replace('.', '_')} repo")
-    for module in categories.get("UI", []):
-        lines.append(f"    class {module.replace('.', '_')} ui")
-    for module in categories.get("Utils", []):
-        lines.append(f"    class {module.replace('.', '_')} util")
-    for module in categories.get("Navigators", []):
-        lines.append(f"    class {module.replace('.', '_')} nav")
+    style_map = {
+        "Controllers": "controller",
+        "Services": "service",
+        "Repositories": "repo",
+        "UI": "ui",
+        "Utils": "util",
+        "Navigators": "nav",
+    }
+
+    for category, style_class in style_map.items():
+        for module_name in modules.keys():
+            patterns = key_modules.get(category, [])
+            if isinstance(patterns, str):
+                patterns = [patterns]
+            if any(pattern in module_name for pattern in patterns):
+                module_id = module_name.replace(".", "_")
+                lines.append(f"    class {module_id} {style_class}")
 
     return "\n".join(lines)
 
