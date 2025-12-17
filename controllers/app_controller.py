@@ -8,7 +8,6 @@ for the UI layer to interact with application logic.
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 from collections.abc import Callable
@@ -22,12 +21,13 @@ if TYPE_CHECKING:
 
     from widgets.app_frame import AppFrame
 
-from navigators.mtggoldfish import download_deck, get_archetypes
+from controllers.session_manager import DeckSelectorSessionManager
 from repositories.card_repository import get_card_repository
 from repositories.deck_repository import get_deck_repository
 from repositories.metagame_repository import get_metagame_repository
 from services.collection_service import get_collection_service
 from services.deck_service import get_deck_service
+from services.deck_workflow_service import DeckWorkflowService
 from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
@@ -36,14 +36,9 @@ from utils.card_data import CardDataManager
 from utils.constants import (
     CACHE_DIR,
     COLLECTION_CACHE_MAX_AGE_SECONDS,
-    CONFIG_FILE,
-    DECK_SELECTOR_SETTINGS_FILE,
-    DECKS_DIR,
-    FORMAT_OPTIONS,
     MTGO_DECKLISTS_ENABLED,
     ensure_base_dirs,
 )
-from utils.deck import read_curr_deck_file, sanitize_filename, sanitize_zone_cards
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
@@ -80,40 +75,47 @@ class BackgroundWorker:
 
 class AppController:
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        deck_repo=None,
+        metagame_repo=None,
+        card_repo=None,
+        deck_service=None,
+        search_service=None,
+        collection_service=None,
+        image_service=None,
+        store_service=None,
+        session_manager: DeckSelectorSessionManager | None = None,
+        deck_workflow_service: DeckWorkflowService | None = None,
+    ):
         ensure_base_dirs()
 
         # Services and repositories
-        self.deck_repo = get_deck_repository()
-        self.metagame_repo = get_metagame_repository()
-        self.card_repo = get_card_repository()
-        self.deck_service = get_deck_service()
-        self.search_service = get_search_service()
-        self.collection_service = get_collection_service()
-        self.image_service = get_image_service()
-        self.store_service = get_store_service()
+        self.deck_repo = deck_repo or get_deck_repository()
+        self.metagame_repo = metagame_repo or get_metagame_repository()
+        self.card_repo = card_repo or get_card_repository()
+        self.deck_service = deck_service or get_deck_service()
+        self.search_service = search_service or get_search_service()
+        self.collection_service = collection_service or get_collection_service()
+        self.image_service = image_service or get_image_service()
+        self.store_service = store_service or get_store_service()
+
+        self.session_manager = session_manager or DeckSelectorSessionManager(self.deck_repo)
+        self.workflow_service = deck_workflow_service or DeckWorkflowService(
+            deck_repo=self.deck_repo,
+            metagame_repo=self.metagame_repo,
+            deck_service=self.deck_service,
+        )
 
         # Settings management
-        self.settings = self._load_settings()
-        self.current_format = self.settings.get("format", "Modern")
-        if self.current_format not in FORMAT_OPTIONS:
-            self.current_format = "Modern"
-
-        # Config management
-        self.config = self._load_config()
-        default_deck_dir = Path(self.config.get("deck_selector_save_path") or DECKS_DIR)
-        self.deck_save_dir = default_deck_dir.expanduser()
-        try:
-            self.deck_save_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            logger.warning(f"Unable to create deck save directory '{self.deck_save_dir}': {exc}")
-        self.config.setdefault("deck_selector_save_path", str(self.deck_save_dir))
+        self.current_format = self.session_manager.get_current_format()
 
         # Deck data source preference
-        self._deck_data_source = self.settings.get("deck_data_source", "both")
-        if self._deck_data_source not in ("mtggoldfish", "mtgo", "both"):
-            self._deck_data_source = "both"
-        self.settings.setdefault("deck_data_source", self._deck_data_source)
+        self._deck_data_source = self.session_manager.get_deck_data_source()
+
+        # Config-backed deck save directory
+        self.deck_save_dir = self.session_manager.ensure_deck_save_dir()
 
         # Application state
         self.archetypes: list[dict[str, Any]] = []
@@ -121,7 +123,7 @@ class AppController:
         self.zone_cards: dict[str, list[dict[str, Any]]] = {"main": [], "side": [], "out": []}
         self.sideboard_guide_entries: list[dict[str, str]] = []
         self.sideboard_exclusions: list[str] = []
-        self.left_mode = "builder" if self.settings.get("left_mode") == "builder" else "research"
+        self.left_mode = self.session_manager.get_left_mode()
 
         # Thread-safe loading state flags
         self._loading_lock = threading.Lock()
@@ -196,7 +198,7 @@ class AppController:
         on_status(f"Loading archetypes for {self.current_format}…")
 
         def loader(fmt: str):
-            return get_archetypes(fmt.lower(), allow_stale=not force)
+            return self.workflow_service.fetch_archetypes(fmt, force=force)
 
         def success_handler(archetypes: list[dict[str, Any]]):
             with self._loading_lock:
@@ -236,12 +238,12 @@ class AppController:
         source_filter = self.get_deck_data_source()
 
         def loader(arch: dict[str, Any]):
-            return self.metagame_repo.get_decks_for_archetype(arch, source_filter=source_filter)
+            return self.workflow_service.load_decks_for_archetype(arch, source_filter=source_filter)
 
         def success_handler(decks: list[dict[str, Any]]):
             with self._loading_lock:
                 self.loading_decks = False
-            self.deck_repo.set_decks_list(decks)
+            self.workflow_service.set_decks_list(decks)
             on_success(name, decks)
 
         def error_handler(error: Exception):
@@ -276,33 +278,13 @@ class AppController:
         source_filter = self.get_deck_data_source()
 
         def worker(number: str):
-            download_deck(number, source_filter=source_filter)
-            return read_curr_deck_file()
+            return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
         BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
 
     def build_deck_text(self, zone_cards: dict[str, list[dict[str, Any]]] | None = None) -> str:
-        deck_text = self.deck_repo.get_current_deck_text()
-        if deck_text:
-            return deck_text
-
         zones = zone_cards if zone_cards is not None else self.zone_cards
-        if zones:
-            try:
-                deck_text = self.deck_service.build_deck_text_from_zones(zones)
-            except Exception as exc:  # pragma: no cover - defensive log
-                logger.debug(f"Failed to build deck text from zones: {exc}")
-            else:
-                if deck_text:
-                    return deck_text
-
-        current_deck = self.deck_repo.get_current_deck() or {}
-        for key in ("deck_text", "content", "text"):
-            value = current_deck.get(key)
-            if value:
-                return value
-
-        return ""
+        return self.workflow_service.build_deck_text(zones)
 
     def save_deck(
         self,
@@ -311,28 +293,13 @@ class AppController:
         format_name: str,
         deck: dict[str, Any] | None = None,
     ) -> tuple[Path, int | None]:
-        safe_name = sanitize_filename(deck_name or "saved_deck") or "saved_deck"
-        file_path = self.deck_save_dir / f"{safe_name}.txt"
-        with file_path.open("w", encoding="utf-8") as fh:
-            fh.write(deck_content)
-
-        deck_id = None
-        try:
-            deck_id = self.deck_repo.save_to_db(
-                deck_name=deck_name,
-                deck_content=deck_content,
-                format_type=format_name,
-                archetype=deck.get("name") if deck else None,
-                player=deck.get("player") if deck else None,
-                source="mtggoldfish" if deck else "manual",
-                metadata=deck or {},
-            )
-        except Exception as exc:  # pragma: no cover - best effort
-            logger.warning(f"Deck saved to file but not database: {exc}")
-        else:
-            logger.info(f"Deck saved to database: {deck_name} (ID: {deck_id})")
-
-        return file_path, deck_id
+        return self.workflow_service.save_deck(
+            deck_name=deck_name,
+            deck_content=deck_content,
+            format_name=format_name,
+            deck=deck,
+            deck_save_dir=self.deck_save_dir,
+        )
 
     def build_daily_average_deck(
         self,
@@ -359,19 +326,10 @@ class AppController:
         source_filter = self.get_deck_data_source()
 
         def worker(rows: list[dict[str, Any]]):
-            def progress_callback(index: int, total: int) -> None:
-                if on_progress:
-                    on_progress(index, total)
-
-            def download_with_filter(deck_num: str) -> None:
-                download_deck(deck_num, source_filter=source_filter)
-
-            return self.deck_repo.build_daily_average_deck(
+            return self.workflow_service.build_daily_average_buffer(
                 rows,
-                download_with_filter,
-                read_curr_deck_file,
-                self.deck_service.add_deck_to_buffer,
-                progress_callback=progress_callback,
+                source_filter=source_filter,
+                on_progress=on_progress,
             )
 
         def success_handler(buffer: dict[str, float]):
@@ -472,7 +430,7 @@ class AppController:
             exists, reason = result
 
             if exists:
-                self._load_bulk_data_into_memory(on_status)
+                self.load_bulk_data_into_memory(on_status)
                 on_status("Card image database ready")
                 return
 
@@ -482,7 +440,7 @@ class AppController:
 
             def _on_download_complete(msg: str) -> None:
                 on_download_complete(msg)
-                self._load_bulk_data_into_memory(on_status, force=True)
+                self.load_bulk_data_into_memory(on_status, force=True)
 
             def _on_download_failed(msg: str) -> None:
                 on_download_failed(msg)
@@ -497,13 +455,13 @@ class AppController:
             self._bulk_check_worker_active = False
             logger.warning(f"Failed to check bulk data existence: {exc}")
             if not self.image_service.get_bulk_data():
-                self._load_bulk_data_into_memory(on_status)
+                self.load_bulk_data_into_memory(on_status)
             else:
                 on_status("Ready")
 
         BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
 
-    def _load_bulk_data_into_memory(
+    def load_bulk_data_into_memory(
         self, on_status: Callable[[str], None], force: bool = False
     ) -> None:
         on_status("Preparing card printings cache…")
@@ -532,12 +490,6 @@ class AppController:
         if not started:
             on_status("Ready")
 
-    def load_bulk_data_into_memory(
-        self, on_status: Callable[[str], None], force: bool = False
-    ) -> None:
-        """Public wrapper for UI callers."""
-        self._load_bulk_data_into_memory(on_status=on_status, force=force)
-
     def force_bulk_data_update(self) -> None:
         """Force download of bulk data regardless of current state."""
         if self._bulk_check_worker_active:
@@ -555,7 +507,7 @@ class AppController:
         def _on_download_complete(msg: str) -> None:
             self._bulk_check_worker_active = False
             on_download_complete(msg)
-            self._load_bulk_data_into_memory(on_status, force=True)
+            self.load_bulk_data_into_memory(on_status, force=True)
 
         def _on_download_failed(msg: str) -> None:
             self._bulk_check_worker_active = False
@@ -568,71 +520,17 @@ class AppController:
             force=True,
         )
 
-    # ============= Settings Management =============
-
-    def _load_settings(self) -> dict[str, Any]:
-        if not DECK_SELECTOR_SETTINGS_FILE.exists():
-            return {}
-        try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except json.JSONDecodeError as exc:
-            logger.warning(f"Failed to load deck selector settings: {exc}")
-            return {}
-
-    def _load_config(self) -> dict[str, Any]:
-        if not CONFIG_FILE.exists():
-            logger.debug(f"{CONFIG_FILE} not found; using default deck save path")
-            return {}
-        try:
-            with CONFIG_FILE.open("r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except json.JSONDecodeError as exc:
-            logger.warning(f"Invalid {CONFIG_FILE} ({exc}); using default deck save path")
-            return {}
-
     def save_settings(
         self, window_size: tuple[int, int] | None = None, screen_pos: tuple[int, int] | None = None
     ) -> None:
-        data = dict(self.settings)
-        data.update(
-            {
-                "format": self.current_format,
-                "left_mode": self.left_mode,
-                "deck_data_source": self._deck_data_source,
-                "saved_deck_text": self.deck_repo.get_current_deck_text(),
-                "saved_zone_cards": self._serialize_zone_cards(),
-            }
+        self.session_manager.save(
+            current_format=self.current_format,
+            left_mode=self.left_mode,
+            deck_data_source=self._deck_data_source,
+            zone_cards=self.zone_cards,
+            window_size=window_size,
+            screen_pos=screen_pos,
         )
-
-        if window_size:
-            data["window_size"] = list(window_size)
-        if screen_pos:
-            data["screen_pos"] = list(screen_pos)
-
-        current_deck = self.deck_repo.get_current_deck()
-        if current_deck:
-            data["saved_deck_info"] = current_deck
-        elif "saved_deck_info" in data:
-            data.pop("saved_deck_info")
-
-        try:
-            with DECK_SELECTOR_SETTINGS_FILE.open("w", encoding="utf-8") as fh:
-                json.dump(data, fh, indent=2)
-        except OSError as exc:
-            logger.warning(f"Unable to persist deck selector settings: {exc}")
-        self.settings = data
-
-    def _serialize_zone_cards(self) -> dict[str, list[dict[str, Any]]]:
-        return {zone: sanitize_zone_cards(cards) for zone, cards in self.zone_cards.items()}
-
-    @staticmethod
-    def _coerce_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(value)
 
     def get_deck_data_source(self) -> str:
         return self._deck_data_source
@@ -644,47 +542,7 @@ class AppController:
         if self._deck_data_source == source:
             return
         self._deck_data_source = source
-        self.settings["deck_data_source"] = source
-
-    def restore_session_state(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"left_mode": self.left_mode}
-
-        # Restore zone cards
-        saved_zones = self.settings.get("saved_zone_cards") or {}
-        changed = False
-        for zone in ("main", "side", "out"):
-            entries = saved_zones.get(zone, [])
-            if not isinstance(entries, list):
-                continue
-            sanitized = sanitize_zone_cards(entries)
-            if sanitized:
-                self.zone_cards[zone] = sanitized
-                changed = True
-        if changed:
-            result["zone_cards"] = self.zone_cards
-
-        # Restore deck text
-        saved_text = self.settings.get("saved_deck_text", "")
-        if saved_text:
-            self.deck_repo.set_current_deck_text(saved_text)
-            result["deck_text"] = saved_text
-
-        # Restore deck info
-        saved_deck = self.settings.get("saved_deck_info")
-        if isinstance(saved_deck, dict):
-            self.deck_repo.set_current_deck(saved_deck)
-            result["deck_info"] = saved_deck
-
-        # Window preferences
-        window_size = self.settings.get("window_size")
-        if isinstance(window_size, list) and len(window_size) == 2:
-            result["window_size"] = tuple(window_size)
-
-        screen_pos = self.settings.get("screen_pos")
-        if isinstance(screen_pos, list) and len(screen_pos) == 2:
-            result["screen_pos"] = tuple(screen_pos)
-
-        return result
+        self.session_manager.update_deck_data_source(source)
 
     # ============= Business Logic Methods =============
 
@@ -696,34 +554,12 @@ class AppController:
         on_status: Callable[[str], None],
     ) -> None:
         on_status("Downloading deck…")
+        source_filter = self.get_deck_data_source()
 
         def worker(number: str):
-            download_deck(number)
-            return read_curr_deck_file()
+            return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
         BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
-
-    def check_bulk_data_freshness(self, max_age_days: int) -> tuple[bool, str]:
-        return self.image_service.check_bulk_data_freshness(max_age_days=max_age_days)
-
-    def download_bulk_data(
-        self, on_success: Callable[[str], None], on_error: Callable[[str], None]
-    ) -> None:
-        self.image_service.download_bulk_metadata_async(on_success=on_success, on_error=on_error)
-
-    def start_daily_average_build(
-        self,
-        on_success: Callable[[dict[str, float], int], None],
-        on_error: Callable[[Exception], None],
-        on_status: Callable[[str], None],
-        on_progress: Callable[[int, int], None] | None = None,
-    ) -> tuple[bool, str]:
-        return self.build_daily_average_deck(
-            on_success=on_success,
-            on_error=on_error,
-            on_status=on_status,
-            on_progress=on_progress,
-        )
 
     # ============= State Accessors =============
 
