@@ -157,7 +157,7 @@ class AppController:
             on_status(f"Card database load failed: {error}")
             on_error(error)
 
-        BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
+        self._worker.submit(worker, on_success=success_handler, on_error=error_handler)
 
     # ============= Archetype Management =============
 
@@ -191,12 +191,12 @@ class AppController:
             logger.error(f"Failed to fetch archetypes: {error}")
             on_error(error)
 
-        BackgroundWorker(
+        self._worker.submit(
             loader,
             self.current_format,
             on_success=success_handler,
             on_error=error_handler,
-        ).start()
+        )
 
     def load_decks_for_archetype(
         self,
@@ -230,12 +230,12 @@ class AppController:
             logger.error(f"Failed to load decks: {error}")
             on_error(error)
 
-        BackgroundWorker(
+        self._worker.submit(
             loader,
             archetype,
             on_success=success_handler,
             on_error=error_handler,
-        ).start()
+        )
 
     # ============= Deck Management =============
 
@@ -258,7 +258,7 @@ class AppController:
         def worker(number: str):
             return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
-        BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+        self._worker.submit(worker, deck_number, on_success=on_success, on_error=on_error)
 
     def build_deck_text(self, zone_cards: dict[str, list[dict[str, Any]]] | None = None) -> str:
         zones = zone_cards if zone_cards is not None else self.zone_cards
@@ -321,12 +321,12 @@ class AppController:
             logger.error(f"Daily average error: {error}")
             on_error(error)
 
-        BackgroundWorker(
+        self._worker.submit(
             worker,
             todays_decks,
             on_success=success_handler,
             on_error=error_handler,
-        ).start()
+        )
 
         return True, f"Processing {len(todays_decks)} decks"
 
@@ -437,7 +437,7 @@ class AppController:
             else:
                 on_status("Ready")
 
-        BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
+        self._worker.submit(worker, on_success=success_handler, on_error=error_handler)
 
     def load_bulk_data_into_memory(
         self, on_status: Callable[[str], None], force: bool = False
@@ -537,7 +537,7 @@ class AppController:
         def worker(number: str):
             return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
-        BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+        self._worker.submit(worker, deck_number, on_success=on_success, on_error=on_error)
 
     # ============= State Accessors =============
 
