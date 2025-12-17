@@ -2,7 +2,7 @@
 Image Service - Business logic for card image and bulk data management.
 
 This module handles:
-- Bulk data freshness checking
+- Bulk data existence checking
 - Bulk metadata downloading
 - Printing index loading
 - Image cache management
@@ -21,6 +21,8 @@ from utils.card_images import (
     get_cache,
 )
 
+DOWNLOAD_IN_PROGRESS_MSG = "Bulk data download already in progress"
+
 
 class ImageService:
     """Service for managing card image bulk data and printing indices."""
@@ -31,7 +33,9 @@ class ImageService:
         self.image_downloader: BulkImageDownloader | None = None
         self.bulk_data_by_name: dict[str, list[dict[str, Any]]] | None = None
         self.printing_index_loading: bool = False
-        self._bulk_check_worker_active: bool = False
+        self.bulk_download_in_progress: bool = False
+        self._download_lock = threading.Lock()
+        self._load_lock = threading.Lock()
 
     # ============= Bulk Data Management =============
 
@@ -65,6 +69,14 @@ class ImageService:
             self.image_downloader = BulkImageDownloader(self.image_cache)
 
         def worker():
+            with self._download_lock:
+                if self.bulk_download_in_progress:
+                    logger.info("{}; skipping new request", DOWNLOAD_IN_PROGRESS_MSG)
+                    on_error(DOWNLOAD_IN_PROGRESS_MSG)
+                    return
+                self.bulk_download_in_progress = True
+
+            logger.info("Starting bulk data download (force={})", force)
             try:
                 success, msg = self.image_downloader.download_bulk_metadata(force=force)
                 if success:
@@ -74,149 +86,12 @@ class ImageService:
             except Exception as exc:
                 logger.exception("Failed to download bulk data")
                 on_error(str(exc))
+            finally:
+                with self._download_lock:
+                    self.bulk_download_in_progress = False
+                logger.info("Finished bulk data download")
 
         threading.Thread(target=worker, daemon=True).start()
-
-    def ensure_data_ready(
-        self,
-        *,
-        force_cached: bool,
-        max_age_days: int,
-        worker_factory: Callable[..., Any],
-        set_status: Callable[[str], None],
-        on_load_success: Callable[[dict[str, list[dict[str, Any]]], dict[str, Any]], None],
-        on_load_error: Callable[[str], None],
-        on_download_success: Callable[[str], None],
-        on_download_error: Callable[[str], None],
-        on_check_failed: Callable[[Exception], None],
-    ) -> None:
-        """
-        Coordinate card image bulk data lifecycle.
-
-        Checks freshness, loads cached data, or initiates download as needed.
-
-        Args:
-            force_cached: If True, skip freshness check and use cached data only
-            max_age_days: Maximum age of bulk data before triggering download
-            worker_factory: Factory function to create background workers
-            set_status: Callback to update status text
-            on_load_success: Callback for successful bulk data load
-            on_load_error: Callback for failed bulk data load
-            on_download_success: Callback for successful download
-            on_download_error: Callback for failed download
-            on_check_failed: Callback for freshness check failure
-        """
-        if self._bulk_check_worker_active:
-            logger.debug("Bulk data check already running")
-            return
-
-        status_msg = (
-            "Loading cached card image database…"
-            if force_cached
-            else "Checking card image database…"
-        )
-        set_status(status_msg)
-        self._bulk_check_worker_active = True
-
-        def worker():
-            if force_cached:
-                return False, "Cached-only mode enabled"
-            return self.check_bulk_data_freshness(max_age_days=max_age_days)
-
-        def on_success(result: tuple[bool, str]) -> None:
-            self._bulk_check_worker_active = False
-            needs_download, reason = result
-            self._handle_check_result(
-                needs_download=needs_download,
-                reason=reason,
-                force_cached=force_cached,
-                set_status=set_status,
-                on_load_success=on_load_success,
-                on_load_error=on_load_error,
-                on_download_success=on_download_success,
-                on_download_error=on_download_error,
-            )
-
-        def on_error(exc: Exception) -> None:
-            self._bulk_check_worker_active = False
-            on_check_failed(exc)
-
-        worker_factory(worker, on_success=on_success, on_error=on_error).start()
-
-    def _handle_check_result(
-        self,
-        *,
-        needs_download: bool,
-        reason: str,
-        force_cached: bool,
-        set_status: Callable[[str], None],
-        on_load_success: Callable[[dict[str, list[dict[str, Any]]], dict[str, Any]], None],
-        on_load_error: Callable[[str], None],
-        on_download_success: Callable[[str], None],
-        on_download_error: Callable[[str], None],
-    ) -> None:
-        """Handle the result of bulk data freshness check."""
-        if force_cached or not needs_download:
-            self._load_bulk_data(
-                set_status=set_status,
-                force=force_cached,
-                on_success=on_load_success,
-                on_error=on_load_error,
-            )
-            if force_cached:
-                set_status("Using cached card image database")
-            else:
-                set_status("Card image database ready")
-            return
-
-        if not self.bulk_data_by_name:
-            self._load_bulk_data(
-                set_status=set_status,
-                force=False,
-                on_success=on_load_success,
-                on_error=on_load_error,
-            )
-
-        logger.info(f"Bulk data needs update: {reason}")
-        set_status("Downloading card image database...")
-        self.download_bulk_metadata_async(
-            on_success=on_download_success,
-            on_error=on_download_error,
-        )
-
-    def _load_bulk_data(
-        self,
-        *,
-        set_status: Callable[[str], None],
-        force: bool,
-        on_success: Callable[[dict[str, list[dict[str, Any]]], dict[str, Any]], None],
-        on_error: Callable[[str], None],
-    ) -> None:
-        """Load bulk data from cache."""
-        set_status("Preparing card printings cache…")
-        started = self.load_printing_index_async(
-            force=force,
-            on_success=on_success,
-            on_error=on_error,
-        )
-        if not started:
-            set_status("Ready")
-
-    def load_bulk_data_direct(
-        self,
-        *,
-        force: bool,
-        set_status: Callable[[str], None],
-        on_load_success: Callable[[dict[str, list[dict[str, Any]]], dict[str, Any]], None],
-        on_load_error: Callable[[str], None],
-    ) -> None:
-        """Expose bulk data loading for fallback flows."""
-        self._load_bulk_data(
-            set_status=set_status,
-            force=force,
-            on_success=on_load_success,
-            on_error=on_load_error,
-        )
 
     # ============= Printing Index Management =============
 
@@ -237,15 +112,18 @@ class ImageService:
         Returns:
             True if load was started, False if skipped
         """
-        if self.printing_index_loading and not force:
-            logger.debug("Printing index already loading")
-            return False
+        with self._load_lock:
+            if self.printing_index_loading and not force:
+                logger.debug("Printing index already loading")
+                return False
 
-        if self.bulk_data_by_name and not force:
-            logger.debug("Printing index already loaded")
-            return False
+            if self.bulk_data_by_name and not force:
+                logger.debug("Printing index already loaded")
+                return False
 
-        self.printing_index_loading = True
+            self.printing_index_loading = True
+
+        logger.info("Starting printing index load (force={})", force)
 
         def worker():
             try:
@@ -257,29 +135,39 @@ class ImageService:
                         "total_printings", sum(len(v) for v in data.values())
                     ),
                 }
+                with self._load_lock:
+                    self.bulk_data_by_name = data
                 on_success(data, stats)
             except Exception as exc:
                 logger.exception("Failed to prepare card printings index")
                 on_error(str(exc))
+            finally:
+                with self._load_lock:
+                    self.printing_index_loading = False
+                logger.info("Finished printing index load")
 
         threading.Thread(target=worker, daemon=True).start()
         return True
 
     def set_bulk_data(self, bulk_data: dict[str, list[dict[str, Any]]]) -> None:
         """Set the bulk data reference."""
-        self.bulk_data_by_name = bulk_data
+        with self._load_lock:
+            self.bulk_data_by_name = bulk_data
 
     def clear_printing_index_loading(self) -> None:
         """Clear the printing index loading flag."""
-        self.printing_index_loading = False
+        with self._load_lock:
+            self.printing_index_loading = False
 
     def get_bulk_data(self) -> dict[str, list[dict[str, Any]]] | None:
         """Get the current bulk data."""
-        return self.bulk_data_by_name
+        with self._load_lock:
+            return self.bulk_data_by_name
 
     def is_loading(self) -> bool:
         """Check if printing index is currently loading."""
-        return self.printing_index_loading
+        with self._load_lock:
+            return self.printing_index_loading
 
 
 # Global instance for backward compatibility
