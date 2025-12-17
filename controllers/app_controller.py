@@ -32,6 +32,7 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils import mtgo_bridge_client
+from utils.background_worker import BackgroundWorker
 from utils.card_data import CardDataManager
 from utils.constants import (
     CACHE_DIR,
@@ -39,39 +40,10 @@ from utils.constants import (
     MTGO_DECKLISTS_ENABLED,
     ensure_base_dirs,
 )
-from utils.managed_executor import ManagedExecutor
 
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
 GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
-
-
-class BackgroundWorker:
-    def __init__(
-        self,
-        func: Callable,
-        *args,
-        on_success: Callable | None = None,
-        on_error: Callable | None = None,
-    ) -> None:
-        self.func = func
-        self.args = args
-        self.on_success = on_success
-        self.on_error = on_error
-
-    def start(self) -> None:
-        threading.Thread(target=self._run, daemon=True).start()
-
-    def _run(self) -> None:
-        try:
-            result = self.func(*self.args)
-        except Exception as exc:
-            logger.exception(f"Background task failed: {exc}")
-            if self.on_error:
-                self.on_error(exc)
-            return
-        if self.on_success:
-            self.on_success(result)
 
 
 class AppController:
@@ -143,8 +115,8 @@ class AppController:
         self._bulk_check_worker_active = False
         self._ui_callbacks: dict[str, Callable[..., Any]] = {}
 
-        # Managed executor for background tasks with lifecycle control
-        self._executor = ManagedExecutor()
+        # Background worker for tasks with lifecycle control
+        self._worker = BackgroundWorker()
         self._mtgo_bridge_consecutive_failures = 0
 
         self.frame = self.create_frame()
@@ -696,9 +668,9 @@ class AppController:
 
         def mtgo_status_check_task():
             """Background task to check MTGO bridge status every 30 seconds."""
-            while not self._executor.is_stopped():
+            while not self._worker.is_stopped():
                 time.sleep(30)
-                if self._executor.is_stopped():
+                if self._worker.is_stopped():
                     break
                 try:
                     self.check_mtgo_bridge_status()
@@ -715,7 +687,7 @@ class AppController:
                 except Exception as exc:
                     logger.error(f"MTGO status check failed: {exc}", exc_info=True)
 
-        self._executor.submit(mtgo_status_check_task)
+        self._worker.submit(mtgo_status_check_task)
 
     def _start_mtgo_background_fetch(self) -> None:
         """Start background thread to fetch MTGO data continuously."""
@@ -729,9 +701,9 @@ class AppController:
             """Background task to fetch MTGO data continuously."""
             formats = ["modern", "standard", "pioneer", "legacy"]
 
-            while not self._executor.is_stopped():
+            while not self._worker.is_stopped():
                 for mtg_format in formats:
-                    if self._executor.is_stopped():
+                    if self._worker.is_stopped():
                         break
                     try:
                         logger.info(f"Starting MTGO background fetch for {mtg_format}...")
@@ -746,23 +718,23 @@ class AppController:
                             f"MTGO background fetch failed for {mtg_format}: {exc}", exc_info=True
                         )
 
-                if self._executor.is_stopped():
+                if self._worker.is_stopped():
                     break
 
                 logger.info(
                     "MTGO background fetch cycle complete. Waiting 1 hour before next cycle..."
                 )
                 for _ in range(360):
-                    if self._executor.is_stopped():
+                    if self._worker.is_stopped():
                         break
                     time.sleep(10)
 
-        self._executor.submit(mtgo_fetch_task)
+        self._worker.submit(mtgo_fetch_task)
 
     def shutdown(self, timeout: float = 10.0) -> None:
         """Shutdown all background workers gracefully."""
         logger.info("Shutting down AppController background workers...")
-        self._executor.shutdown(timeout=timeout)
+        self._worker.shutdown(timeout=timeout)
 
 
 # Singleton instance
