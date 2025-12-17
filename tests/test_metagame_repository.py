@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from repositories.metagame_repository import MetagameRepository
+from repositories.metagame_repository import MetagameRepository, _parse_deck_date
 
 
 def _write_cache(path, payload):
@@ -185,9 +185,52 @@ def test_save_cached_archetypes_update_existing_format(metagame_repo, archetype_
 # ============= Deck Cache Tests =============
 
 
-# NOTE: test_load_cached_decks_success, test_load_cached_decks_expired, and
-# test_save_cached_decks_new_file were removed because they tested DECK_CACHE_FILE
-# which no longer exists in metagame_repository.
+def test_load_cached_decks_expired(metagame_repo, archetype_deck_cache_file):
+    """Deck cache past max_age should be treated as a miss."""
+    _write_cache(
+        archetype_deck_cache_file,
+        {"url": {"timestamp": time.time() - 7200, "items": [{"name": "Old Deck"}]}},
+    )
+
+    result = metagame_repo._load_cached_decks("url", max_age=3600)
+
+    assert result is None
+
+
+def test_load_cached_decks_invalid_json(metagame_repo, archetype_deck_cache_file):
+    """Corrupt deck cache should be ignored."""
+    archetype_deck_cache_file.write_text("{not json", encoding="utf-8")
+
+    assert metagame_repo._load_cached_decks("url") is None
+
+
+def test_get_decks_returns_stale_cache_when_fetch_fails(
+    archetype_cache_file, archetype_deck_cache_file, monkeypatch
+):
+    """Ensure stale deck cache is returned when MTGGoldfish fetch fails."""
+    repo = MetagameRepository(
+        cache_ttl=1,
+        archetype_list_cache_file=archetype_cache_file,
+        archetype_decks_cache_file=archetype_deck_cache_file,
+    )
+    stale_items = [{"name": "UR Murktide", "source": "mtggoldfish"}]
+    _write_cache(
+        archetype_deck_cache_file,
+        {"Modern": {"timestamp": time.time() - 3600, "items": stale_items}},
+    )
+
+    def fake_get_decks(_href):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "repositories.metagame_repository.get_archetype_decks",
+        fake_get_decks,
+    )
+    monkeypatch.setattr(repo, "_get_mtgo_decks_from_db", lambda *_: [])
+
+    result = repo.get_decks_for_archetype({"href": "Modern", "name": "Modern"})
+
+    assert result == stale_items
 
 
 # ============= Stale Fallback Tests =============
@@ -219,8 +262,122 @@ def test_get_archetypes_returns_stale_cache_when_fetch_fails(
     assert repo.get_archetypes_for_format("Modern") == stale_items
 
 
-# NOTE: test_get_decks_returns_stale_cache_when_fetch_fails removed because it
-# tested DECK_CACHE_FILE which no longer exists.
+def test_get_archetypes_recovers_from_corrupt_cache(
+    archetype_cache_file, archetype_deck_cache_file, monkeypatch
+):
+    """Corrupt archetype cache should be overwritten after a successful fetch."""
+    repo = MetagameRepository(
+        archetype_list_cache_file=archetype_cache_file,
+        archetype_decks_cache_file=archetype_deck_cache_file,
+    )
+    archetype_cache_file.write_text("{bad json", encoding="utf-8")
+    fresh_archetypes = [{"name": "Living End", "url": "/archetype/living-end"}]
+    monkeypatch.setattr(
+        "repositories.metagame_repository.get_archetypes", lambda _format: fresh_archetypes
+    )
+
+    result = repo.get_archetypes_for_format("Modern")
+
+    assert result == fresh_archetypes
+    cached = json.loads(archetype_cache_file.read_text(encoding="utf-8"))
+    assert cached["Modern"]["items"] == fresh_archetypes
+
+
+def test_get_decks_recovers_from_corrupt_cache(
+    archetype_cache_file, archetype_deck_cache_file, monkeypatch
+):
+    """Corrupt deck cache should be overwritten after a successful fetch."""
+    repo = MetagameRepository(
+        archetype_list_cache_file=archetype_cache_file,
+        archetype_decks_cache_file=archetype_deck_cache_file,
+    )
+    archetype_deck_cache_file.write_text("{bad json", encoding="utf-8")
+    fresh_decks = [{"name": "Living End", "date": "2024-03-05", "source": "mtggoldfish"}]
+    monkeypatch.setattr(
+        "repositories.metagame_repository.get_archetype_decks", lambda _href: fresh_decks
+    )
+    monkeypatch.setattr(repo, "_get_mtgo_decks_from_db", lambda *_: [])
+
+    result = repo.get_decks_for_archetype({"href": "modern-living-end", "name": "Living End"})
+
+    assert result == fresh_decks
+    cached = json.loads(archetype_deck_cache_file.read_text(encoding="utf-8"))
+    assert cached["modern-living-end"]["items"] == fresh_decks
+
+
+# ============= Deck Date Parsing and Sorting Tests =============
+
+
+def test_parse_deck_date_supports_common_formats():
+    """Date parser should handle MTGGoldfish and MTGO formats."""
+    assert _parse_deck_date("2024-03-09") == (2024, 3, 9)
+    assert _parse_deck_date("03/09/2024") == (2024, 3, 9)
+    assert _parse_deck_date("not a date") == (0, 0, 0)
+
+
+def test_merge_and_sort_decks_is_deterministic(metagame_repo):
+    """Merged decks should sort by date while remaining stable for ties."""
+    mtggoldfish_decks = [
+        {"name": "GF Latest", "date": "2024-03-04", "source": "mtggoldfish"},
+        {"name": "GF Old", "date": "03/02/2024", "source": "mtggoldfish"},
+    ]
+    mtgo_decks = [
+        {"name": "MTGO Top", "date": "03/05/2024", "source": "mtgo"},
+        {"name": "MTGO Tie", "date": "2024-03-04", "source": "mtgo"},
+    ]
+
+    result = metagame_repo._merge_and_sort_decks(mtggoldfish_decks, mtgo_decks)
+
+    assert [deck["name"] for deck in result] == [
+        "MTGO Top",
+        "GF Latest",
+        "MTGO Tie",
+        "GF Old",
+    ]
+
+
+def test_get_decks_respects_source_filters_and_sorting(
+    archetype_cache_file, archetype_deck_cache_file, monkeypatch
+):
+    """Source filters should produce deterministic sorted results."""
+    repo = MetagameRepository(
+        archetype_list_cache_file=archetype_cache_file,
+        archetype_decks_cache_file=archetype_deck_cache_file,
+    )
+    mtggoldfish_decks = [
+        {"name": "GF New", "date": "2024-03-04", "source": "mtggoldfish", "number": "1"},
+        {"name": "GF Old", "date": "03/02/2024", "source": "mtggoldfish", "number": "2"},
+    ]
+    mtgo_decks = [
+        {"name": "MTGO New", "date": "03/05/2024", "source": "mtgo", "number": "3"},
+        {"name": "MTGO Old", "date": "2024-03-01", "source": "mtgo", "number": "4"},
+    ]
+    archetype = {"href": "test-decks", "name": "Test"}
+
+    monkeypatch.setattr(
+        "repositories.metagame_repository.get_archetype_decks",
+        lambda _href: mtggoldfish_decks,
+    )
+
+    def fake_mtgo(_name, source_filter):
+        if source_filter == "mtggoldfish":
+            return []
+        return mtgo_decks
+
+    monkeypatch.setattr(repo, "_get_mtgo_decks_from_db", fake_mtgo)
+
+    combined = repo.get_decks_for_archetype(archetype, force_refresh=True)
+    assert [deck["name"] for deck in combined] == ["MTGO New", "GF New", "GF Old", "MTGO Old"]
+
+    goldfish_only = repo.get_decks_for_archetype(
+        archetype, force_refresh=True, source_filter="mtggoldfish"
+    )
+    assert [deck["name"] for deck in goldfish_only] == ["GF New", "GF Old"]
+    assert all(deck["source"] == "mtggoldfish" for deck in goldfish_only)
+
+    mtgo_only = repo.get_decks_for_archetype(archetype, force_refresh=True, source_filter="mtgo")
+    assert [deck["name"] for deck in mtgo_only] == ["MTGO New", "MTGO Old"]
+    assert all(deck["source"] == "mtgo" for deck in mtgo_only)
 
 
 # ============= Clear Cache Tests =============
