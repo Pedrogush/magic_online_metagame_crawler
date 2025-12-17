@@ -9,6 +9,7 @@ This module handles all metagame-related data fetching including:
 
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -27,6 +28,27 @@ from utils.constants import (
 )
 
 _USE_DEFAULT_MAX_AGE: Final = object()
+
+
+def _parse_deck_date(date_str: str) -> tuple[int, int, int]:
+    """
+    Parse deck date strings in supported formats.
+
+    Supported formats:
+    - YYYY-MM-DD (MTGGoldfish)
+    - MM/DD/YYYY (MTGO exports)
+    """
+    if not date_str:
+        return (0, 0, 0)
+
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            parsed = datetime.strptime(date_str, fmt)
+            return (parsed.year, parsed.month, parsed.day)
+        except (TypeError, ValueError):
+            continue
+
+    return (0, 0, 0)
 
 
 class MetagameRepository:
@@ -220,17 +242,17 @@ class MetagameRepository:
             mtg_format: MTG format
             items: List of archetype dictionaries
         """
-        try:
-            # Load existing cache
-            if self.archetype_list_cache_file.exists():
+        data: dict[str, Any] = {}
+        if self.archetype_list_cache_file.exists():
+            try:
                 with self.archetype_list_cache_file.open("r", encoding="utf-8") as fh:
                     data = json.load(fh)
-            else:
-                data = {}
+            except json.JSONDecodeError as exc:
+                logger.warning(f"Archetype cache invalid, rebuilding: {exc}")
 
-            # Update entry for this format
-            data[mtg_format] = {"timestamp": time.time(), "items": items}
+        data[mtg_format] = {"timestamp": time.time(), "items": items}
 
+        try:
             # Save back
             self.archetype_list_cache_file.parent.mkdir(parents=True, exist_ok=True)
             with self.archetype_list_cache_file.open("w", encoding="utf-8") as fh:
@@ -288,17 +310,17 @@ class MetagameRepository:
             archetype_url: URL identifying the archetype
             items: List of deck dictionaries
         """
-        try:
-            # Load existing cache
-            if self.archetype_decks_cache_file.exists():
+        data: dict[str, Any] = {}
+        if self.archetype_decks_cache_file.exists():
+            try:
                 with self.archetype_decks_cache_file.open("r", encoding="utf-8") as fh:
                     data = json.load(fh)
-            else:
-                data = {}
+            except json.JSONDecodeError as exc:
+                logger.warning(f"Deck cache invalid, rebuilding: {exc}")
 
-            # Update entry for this archetype
-            data[archetype_url] = {"timestamp": time.time(), "items": items}
+        data[archetype_url] = {"timestamp": time.time(), "items": items}
 
+        try:
             # Save back
             self.archetype_decks_cache_file.parent.mkdir(parents=True, exist_ok=True)
             with self.archetype_decks_cache_file.open("w", encoding="utf-8") as fh:
@@ -376,22 +398,7 @@ class MetagameRepository:
         """
         all_decks = mtggoldfish_decks + mtgo_decks
 
-        def parse_date(date_str: str) -> tuple:
-            if not date_str:
-                return (0, 0, 0)
-            try:
-                parts = date_str.split("-")
-                if len(parts) == 3:
-                    return (int(parts[0]), int(parts[1]), int(parts[2]))
-                elif "/" in date_str:
-                    parts = date_str.split("/")
-                    if len(parts) == 3:
-                        return (int(parts[2]), int(parts[0]), int(parts[1]))
-            except (ValueError, IndexError):
-                pass
-            return (0, 0, 0)
-
-        all_decks.sort(key=lambda d: parse_date(d.get("date", "")), reverse=True)
+        all_decks.sort(key=lambda d: _parse_deck_date(d.get("date", "")), reverse=True)
         return all_decks
 
     def clear_cache(self) -> None:
