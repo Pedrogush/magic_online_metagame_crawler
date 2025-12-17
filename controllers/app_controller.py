@@ -751,7 +751,7 @@ class AppController:
 
     # ============= Image Download Management =============
 
-    def start_image_download(self) -> None:
+    def start_image_download(self, *, size: str = "normal", max_cards: int | None = None) -> None:
         """Start card image download in background and stream progress to UI."""
         callbacks = self._ui_callbacks
         on_status = callbacks.get("on_status", lambda msg: None)
@@ -767,7 +767,7 @@ class AppController:
                 return
             self.image_download_active = True
 
-        on_status("Starting card image download…")
+        on_status(f"Starting card image download ({size}, limit={max_cards or 'all'})…")
 
         def worker():
             downloader = self.image_service.image_downloader
@@ -783,15 +783,16 @@ class AppController:
                         on_failed(msg)
                         return
 
-                total_cards = self._load_bulk_total()
+                total_cards = self._load_bulk_total(max_cards=max_cards)
                 if total_cards:
-                    on_progress(0, total_cards, "Downloading card images…")
+                    on_progress(0, total_cards, f"Downloading card images ({size})…")
 
                 def progress_callback(completed: int, total: int, message: str) -> None:
                     on_progress(completed, total, message)
 
                 result = downloader.download_all_images(
-                    size="normal",
+                    size=size,
+                    max_cards=max_cards,
                     progress_callback=progress_callback,
                 )
 
@@ -810,13 +811,16 @@ class AppController:
 
         BackgroundWorker(worker).start()
 
-    def _load_bulk_total(self) -> int:
+    def _load_bulk_total(self, max_cards: int | None = None) -> int:
         """Return the number of cards in bulk data, if available."""
         if not BULK_DATA_CACHE.exists():
             return 0
         try:
             with BULK_DATA_CACHE.open("r", encoding="utf-8") as fh:
-                return len(json.load(fh))
+                total = len(json.load(fh))
+                if max_cards:
+                    return min(total, max_cards)
+                return total
         except Exception as exc:  # pragma: no cover - best effort
             logger.debug(f"Failed to read bulk data for total count: {exc}")
             return 0

@@ -226,7 +226,39 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
 
         sizer.AddStretchSpacer(1)
 
-        # Image download progress (top-right above inspector)
+        # Image download options + progress (top-right above inspector)
+        download_panel = wx.Panel(panel)
+        download_panel.SetBackgroundColour(DARK_BG)
+        download_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        download_panel.SetSizer(download_sizer)
+
+        self.image_quality_choice = wx.Choice(
+            download_panel, choices=["Small", "Normal", "Large", "PNG"]
+        )
+        self.image_quality_choice.SetSelection(1)  # Default to Normal
+        download_sizer.Add(
+            wx.StaticText(download_panel, label="Quality:"),
+            0,
+            wx.RIGHT | wx.ALIGN_CENTER_VERTICAL,
+            4,
+        )
+        download_sizer.Add(self.image_quality_choice, 0, wx.RIGHT, 8)
+
+        self.image_amount_choice = wx.Choice(
+            download_panel, choices=["100 (test)", "1k", "5k", "10k", "All"]
+        )
+        self.image_amount_choice.SetSelection(0)
+        download_sizer.Add(
+            wx.StaticText(download_panel, label="Amount:"),
+            0,
+            wx.RIGHT | wx.ALIGN_CENTER_VERTICAL,
+            4,
+        )
+        download_sizer.Add(self.image_amount_choice, 0)
+
+        sizer.Add(download_panel, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+
+        # Progress indicator
         self.image_progress_panel = wx.Panel(panel)
         self.image_progress_panel.SetBackgroundColour(DARK_BG)
         progress_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -423,8 +455,19 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
     # ------------------------------------------------------------------ Image download handling --------------------------------------------
     def _start_image_download(self) -> None:
         """Request card image download via controller."""
-        self._show_image_progress("Starting card image download…", 0, 100, show_gauge=True)
-        self.controller.start_image_download()
+        quality_map = {0: "small", 1: "normal", 2: "large", 3: "png"}
+        amount_map = {0: 100, 1: 1000, 2: 5000, 3: 10000, 4: None}
+
+        quality = quality_map.get(self.image_quality_choice.GetSelection(), "normal")
+        max_cards = amount_map.get(self.image_amount_choice.GetSelection(), None)
+
+        self._show_image_progress(
+            f"Starting card image download ({quality}, limit={max_cards or 'all'})…",
+            0,
+            max_cards or 100,
+            show_gauge=True,
+        )
+        self.controller.start_image_download(size=quality, max_cards=max_cards)
 
     def _show_image_progress(
         self, message: str, value: int, maximum: int, show_gauge: bool = True
@@ -445,6 +488,10 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
         self._set_status(status)
         self.image_progress_label.SetLabel(f"{message} ({completed}/{total or '…'})")
         self.image_progress_panel.Layout()
+
+    def _on_image_download_progress(self, completed: int, total: int, message: str) -> None:
+        """Adapter for controller callbacks."""
+        self._update_image_download_progress(completed, total, message)
 
     def _on_image_download_complete(self, downloaded: int, total: int) -> None:
         maximum = max(1, total or self.image_progress_gauge.GetRange())
