@@ -32,6 +32,7 @@ from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
 from utils import mtgo_bridge_client
+from utils.background_worker import BackgroundWorker
 from utils.card_data import CardDataManager
 from utils.constants import (
     CACHE_DIR,
@@ -43,34 +44,6 @@ from utils.constants import (
 NOTES_STORE = CACHE_DIR / "deck_notes.json"
 OUTBOARD_STORE = CACHE_DIR / "deck_outboard.json"
 GUIDE_STORE = CACHE_DIR / "deck_sbguides.json"
-
-
-class BackgroundWorker:
-    def __init__(
-        self,
-        func: Callable,
-        *args,
-        on_success: Callable | None = None,
-        on_error: Callable | None = None,
-    ) -> None:
-        self.func = func
-        self.args = args
-        self.on_success = on_success
-        self.on_error = on_error
-
-    def start(self) -> None:
-        threading.Thread(target=self._run, daemon=True).start()
-
-    def _run(self) -> None:
-        try:
-            result = self.func(*self.args)
-        except Exception as exc:
-            logger.exception(f"Background task failed: {exc}")
-            if self.on_error:
-                self.on_error(exc)
-            return
-        if self.on_success:
-            self.on_success(result)
 
 
 class AppController:
@@ -141,6 +114,11 @@ class AppController:
 
         self._bulk_check_worker_active = False
         self._ui_callbacks: dict[str, Callable[..., Any]] = {}
+
+        # Background worker for tasks with lifecycle control
+        self._worker = BackgroundWorker()
+        self._mtgo_bridge_consecutive_failures = 0
+
         self.frame = self.create_frame()
 
         # Start background MTGO data fetch
@@ -179,7 +157,7 @@ class AppController:
             on_status(f"Card database load failed: {error}")
             on_error(error)
 
-        BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
+        self._worker.submit(worker, on_success=success_handler, on_error=error_handler)
 
     # ============= Archetype Management =============
 
@@ -213,12 +191,12 @@ class AppController:
             logger.error(f"Failed to fetch archetypes: {error}")
             on_error(error)
 
-        BackgroundWorker(
+        self._worker.submit(
             loader,
             self.current_format,
             on_success=success_handler,
             on_error=error_handler,
-        ).start()
+        )
 
     def load_decks_for_archetype(
         self,
@@ -252,12 +230,12 @@ class AppController:
             logger.error(f"Failed to load decks: {error}")
             on_error(error)
 
-        BackgroundWorker(
+        self._worker.submit(
             loader,
             archetype,
             on_success=success_handler,
             on_error=error_handler,
-        ).start()
+        )
 
     # ============= Deck Management =============
 
@@ -280,7 +258,7 @@ class AppController:
         def worker(number: str):
             return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
-        BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+        self._worker.submit(worker, deck_number, on_success=on_success, on_error=on_error)
 
     def build_deck_text(self, zone_cards: dict[str, list[dict[str, Any]]] | None = None) -> str:
         zones = zone_cards if zone_cards is not None else self.zone_cards
@@ -343,12 +321,12 @@ class AppController:
             logger.error(f"Daily average error: {error}")
             on_error(error)
 
-        BackgroundWorker(
+        self._worker.submit(
             worker,
             todays_decks,
             on_success=success_handler,
             on_error=error_handler,
-        ).start()
+        )
 
         return True, f"Processing {len(todays_decks)} decks"
 
@@ -459,7 +437,7 @@ class AppController:
             else:
                 on_status("Ready")
 
-        BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
+        self._worker.submit(worker, on_success=success_handler, on_error=error_handler)
 
     def load_bulk_data_into_memory(
         self, on_status: Callable[[str], None], force: bool = False
@@ -559,7 +537,7 @@ class AppController:
         def worker(number: str):
             return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
-        BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+        self._worker.submit(worker, deck_number, on_success=on_success, on_error=on_error)
 
     # ============= State Accessors =============
 
@@ -690,14 +668,26 @@ class AppController:
 
         def mtgo_status_check_task():
             """Background task to check MTGO bridge status every 30 seconds."""
-            while True:
+            while not self._worker.is_stopped():
                 time.sleep(30)
+                if self._worker.is_stopped():
+                    break
                 try:
                     self.check_mtgo_bridge_status()
+                    self._mtgo_bridge_consecutive_failures = 0
+                except mtgo_bridge_client.BridgeCommandError as exc:
+                    self._mtgo_bridge_consecutive_failures += 1
+                    if self._mtgo_bridge_consecutive_failures >= 10:
+                        logger.warning(
+                            f"MTGO bridge failed {self._mtgo_bridge_consecutive_failures} times in a row. "
+                            "Stopping status checks (likely on unsupported platform)."
+                        )
+                        break
+                    logger.debug(f"MTGO status check failed: {exc}")
                 except Exception as exc:
                     logger.error(f"MTGO status check failed: {exc}", exc_info=True)
 
-        BackgroundWorker(mtgo_status_check_task).start()
+        self._worker.submit(mtgo_status_check_task)
 
     def _start_mtgo_background_fetch(self) -> None:
         """Start background thread to fetch MTGO data continuously."""
@@ -709,11 +699,12 @@ class AppController:
 
         def mtgo_fetch_task():
             """Background task to fetch MTGO data continuously."""
-            # Formats to fetch (in priority order)
             formats = ["modern", "standard", "pioneer", "legacy"]
 
-            while True:
+            while not self._worker.is_stopped():
                 for mtg_format in formats:
+                    if self._worker.is_stopped():
+                        break
                     try:
                         logger.info(f"Starting MTGO background fetch for {mtg_format}...")
                         stats = fetch_mtgo_data_background(days=7, mtg_format=mtg_format, delay=2.0)
@@ -727,14 +718,23 @@ class AppController:
                             f"MTGO background fetch failed for {mtg_format}: {exc}", exc_info=True
                         )
 
-                # Wait 1 hour before fetching again
+                if self._worker.is_stopped():
+                    break
+
                 logger.info(
                     "MTGO background fetch cycle complete. Waiting 1 hour before next cycle..."
                 )
-                time.sleep(3600)
+                for _ in range(360):
+                    if self._worker.is_stopped():
+                        break
+                    time.sleep(10)
 
-        # Start the background thread
-        BackgroundWorker(mtgo_fetch_task).start()
+        self._worker.submit(mtgo_fetch_task)
+
+    def shutdown(self, timeout: float = 10.0) -> None:
+        """Shutdown all background workers gracefully."""
+        logger.info("Shutting down AppController background workers...")
+        self._worker.shutdown(timeout=timeout)
 
 
 # Singleton instance
