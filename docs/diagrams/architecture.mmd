@@ -1,56 +1,44 @@
 graph TB
 
     subgraph Controllers
-        magic_online_metagame_crawler_controllers___init__["__init__"]
-        magic_online_metagame_crawler_controllers_app_controller["app_controller<br/>BackgroundWorker<br/>AppController"]
+        magic_online_metagame_crawler_controllers_app_controller["app_controller<br/>BackgroundWorker, AppController"]
     end
 
     subgraph Services
-        magic_online_metagame_crawler_services___init__["__init__"]
-        magic_online_metagame_crawler_services_collection_service["collection_service<br/>CollectionStatus<br/>CollectionService"]
+        magic_online_metagame_crawler_services_collection_service["collection_service<br/>CollectionStatus, CollectionService"]
+        magic_online_metagame_crawler_services_deck_service["deck_service<br/>ZoneUpdateResult, DeckService"]
         magic_online_metagame_crawler_services_deck_research_service["deck_research_service<br/>DeckResearchService"]
-        magic_online_metagame_crawler_services_deck_service["deck_service<br/>ZoneUpdateResult<br/>DeckService"]
-        magic_online_metagame_crawler_services_image_service["image_service<br/>ImageService"]
-        magic_online_metagame_crawler_services_mtgo_background_service["mtgo_background_service"]
-        magic_online_metagame_crawler_services_radar_service["radar_service<br/>CardFrequency<br/>RadarData<br/>RadarService"]
-        magic_online_metagame_crawler_services_search_service["search_service<br/>SearchService"]
     end
 
     subgraph Repositories
-        magic_online_metagame_crawler_repositories___init__["__init__"]
-        magic_online_metagame_crawler_repositories_card_repository["card_repository<br/>CardRepository"]
         magic_online_metagame_crawler_repositories_deck_repository["deck_repository<br/>DeckRepository"]
+        magic_online_metagame_crawler_repositories_card_repository["card_repository<br/>CardRepository"]
         magic_online_metagame_crawler_repositories_metagame_repository["metagame_repository<br/>MetagameRepository"]
     end
 
     subgraph UI
         magic_online_metagame_crawler_widgets_app_frame["app_frame<br/>AppFrame"]
-        magic_online_metagame_crawler_widgets_buttons___init__["__init__"]
-        magic_online_metagame_crawler_widgets_buttons_deck_action_buttons["deck_action_buttons<br/>DeckActionButtons"]
-        magic_online_metagame_crawler_widgets_buttons_mana_button["mana_button"]
-        magic_online_metagame_crawler_widgets_buttons_toolbar_buttons["toolbar_buttons<br/>ToolbarButtons"]
-        magic_online_metagame_crawler_widgets_card_image_display["card_image_display<br/>CardImageDisplay"]
-        magic_online_metagame_crawler_widgets_dialogs___init__["__init__"]
-        magic_online_metagame_crawler_widgets_dialogs_guide_entry_dialog["guide_entry_dialog<br/>GuideEntryDialog"]
+        magic_online_metagame_crawler_widgets_panels_deck_builder_panel["deck_builder_panel<br/>_SearchResultsView, DeckBuilderPanel"]
+        magic_online_metagame_crawler_widgets_panels_card_table_panel["card_table_panel<br/>CardTablePanel"]
     end
 
     subgraph Utils
-        magic_online_metagame_crawler_utils_archetype_classifier["archetype_classifier<br/>DeckEntry<br/>Condition<br/>ArchetypeSpecific<br/>+4 more"]
-        magic_online_metagame_crawler_utils_background_worker["background_worker<br/>BackgroundWorker"]
+        magic_online_metagame_crawler_utils_archetype_classifier["archetype_classifier<br/>DeckEntry, Condition"]
+        magic_online_metagame_crawler_utils_mtgo_bridge_client["mtgo_bridge_client<br/>BridgeCommandError, BridgeCommandFuture"]
         magic_online_metagame_crawler_utils_card_data["card_data<br/>CardDataManager"]
-        magic_online_metagame_crawler_utils_card_images["card_images<br/>CardImageCache<br/>BulkImageDownloader"]
-        magic_online_metagame_crawler_utils_constants["constants"]
-        magic_online_metagame_crawler_utils_deck["deck"]
-        magic_online_metagame_crawler_utils_deck_text_cache["deck_text_cache<br/>DeckTextCache"]
-        magic_online_metagame_crawler_utils_find_opponent_names["find_opponent_names"]
     end
 
     subgraph Navigators
         magic_online_metagame_crawler_navigators_mtggoldfish["mtggoldfish"]
-        magic_online_metagame_crawler_navigators_mtgo_decklists["mtgo_decklists"]
     end
 
-    %% Dependencies
+    %% Key Dependencies
+    magic_online_metagame_crawler_controllers_app_controller --> magic_online_metagame_crawler_services_collection_service
+    magic_online_metagame_crawler_controllers_app_controller --> magic_online_metagame_crawler_widgets_app_frame
+    magic_online_metagame_crawler_services_collection_service --> magic_online_metagame_crawler_repositories_deck_repository
+    magic_online_metagame_crawler_services_collection_service --> magic_online_metagame_crawler_utils_archetype_classifier
+    magic_online_metagame_crawler_repositories_deck_repository --> magic_online_metagame_crawler_utils_archetype_classifier
+    magic_online_metagame_crawler_repositories_deck_repository --> magic_online_metagame_crawler_navigators_mtggoldfish
 
     %% Styling
     classDef controller fill:#ff9999,stroke:#333,stroke-width:2px
@@ -59,68 +47,19 @@ graph TB
     classDef ui fill:#ffcc99,stroke:#333,stroke-width:2px
     classDef util fill:#cc99ff,stroke:#333,stroke-width:2px
     classDef nav fill:#ffff99,stroke:#333,stroke-width:2px
-    class magic_online_metagame_crawler_controllers___init__ controller
     class magic_online_metagame_crawler_controllers_app_controller controller
-    class magic_online_metagame_crawler_services_store_service service
     class magic_online_metagame_crawler_services_collection_service service
-    class magic_online_metagame_crawler_services_radar_service service
-    class magic_online_metagame_crawler_services_image_service service
     class magic_online_metagame_crawler_services_deck_service service
-    class magic_online_metagame_crawler_services_mtgo_background_service service
-    class magic_online_metagame_crawler_services___init__ service
     class magic_online_metagame_crawler_services_deck_research_service service
     class magic_online_metagame_crawler_services_search_service service
-    class magic_online_metagame_crawler_services_state_service service
     class magic_online_metagame_crawler_repositories_deck_repository repo
     class magic_online_metagame_crawler_repositories_card_repository repo
     class magic_online_metagame_crawler_repositories_metagame_repository repo
-    class magic_online_metagame_crawler_repositories___init__ repo
-    class magic_online_metagame_crawler_widgets_mana_keyboard ui
-    class magic_online_metagame_crawler_widgets_identify_opponent ui
-    class magic_online_metagame_crawler_widgets_match_history ui
-    class magic_online_metagame_crawler_widgets_timer_alert ui
-    class magic_online_metagame_crawler_widgets_metagame_analysis ui
-    class magic_online_metagame_crawler_widgets_card_image_display ui
     class magic_online_metagame_crawler_widgets_app_frame ui
-    class magic_online_metagame_crawler_widgets_splash_frame ui
-    class magic_online_metagame_crawler_widgets_dialogs_guide_entry_dialog ui
-    class magic_online_metagame_crawler_widgets_dialogs_image_download_dialog ui
-    class magic_online_metagame_crawler_widgets_dialogs___init__ ui
-    class magic_online_metagame_crawler_widgets_panels_deck_stats_panel ui
-    class magic_online_metagame_crawler_widgets_panels_sideboard_card_selector ui
-    class magic_online_metagame_crawler_widgets_panels_deck_notes_panel ui
-    class magic_online_metagame_crawler_widgets_panels_radar_panel ui
-    class magic_online_metagame_crawler_widgets_panels_card_inspector_panel ui
-    class magic_online_metagame_crawler_widgets_panels___init__ ui
-    class magic_online_metagame_crawler_widgets_panels_sideboard_guide_panel ui
-    class magic_online_metagame_crawler_widgets_panels_card_box_panel ui
-    class magic_online_metagame_crawler_widgets_panels_deck_research_panel ui
     class magic_online_metagame_crawler_widgets_panels_deck_builder_panel ui
     class magic_online_metagame_crawler_widgets_panels_card_table_panel ui
-    class magic_online_metagame_crawler_widgets_handlers_app_event_handlers ui
     class magic_online_metagame_crawler_widgets_handlers_card_table_panel_handler ui
-    class magic_online_metagame_crawler_widgets_handlers___init__ ui
-    class magic_online_metagame_crawler_widgets_handlers_sideboard_guide_handlers ui
-    class magic_online_metagame_crawler_widgets_buttons_mana_button ui
-    class magic_online_metagame_crawler_widgets_buttons___init__ ui
-    class magic_online_metagame_crawler_widgets_buttons_toolbar_buttons ui
-    class magic_online_metagame_crawler_widgets_buttons_deck_action_buttons ui
-    class magic_online_metagame_crawler_utils_constants util
-    class magic_online_metagame_crawler_utils_background_worker util
-    class magic_online_metagame_crawler_utils_mana_icon_factory util
-    class magic_online_metagame_crawler_utils_mtgo_bridge util
     class magic_online_metagame_crawler_utils_archetype_classifier util
-    class magic_online_metagame_crawler_utils_stylize util
     class magic_online_metagame_crawler_utils_mtgo_bridge_client util
-    class magic_online_metagame_crawler_utils_card_images util
-    class magic_online_metagame_crawler_utils_metagame_stats util
-    class magic_online_metagame_crawler_utils_deck util
-    class magic_online_metagame_crawler_utils_find_opponent_names util
     class magic_online_metagame_crawler_utils_card_data util
-    class magic_online_metagame_crawler_utils_ui_helpers util
-    class magic_online_metagame_crawler_utils_search_filters util
-    class magic_online_metagame_crawler_utils_logging_config util
-    class magic_online_metagame_crawler_utils_gamelog_parser util
-    class magic_online_metagame_crawler_utils_deck_text_cache util
-    class magic_online_metagame_crawler_navigators_mtgo_decklists nav
     class magic_online_metagame_crawler_navigators_mtggoldfish nav
