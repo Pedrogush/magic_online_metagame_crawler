@@ -4,6 +4,7 @@ Card Inspector Panel - Displays detailed card information.
 Shows card image, metadata, oracle text, and allows navigation through different printings.
 """
 
+from pathlib import Path
 from typing import Any
 
 import wx
@@ -282,6 +283,26 @@ class CardInspectorPanel(wx.Panel):
         # Try to load from cache
         image_paths = self.image_cache.get_image_paths_by_uuid(uuid, "normal")
 
+        if not image_paths and len(self.inspector_printings) > 1:
+            alt_index, alt_paths = self._find_cached_printing_with_image()
+            if alt_paths:
+                self.inspector_current_printing = alt_index
+                printing = self.inspector_printings[alt_index]
+                image_paths = alt_paths
+                logger.debug(
+                    "Using cached image from printing #%s for %s",
+                    alt_index + 1,
+                    self.inspector_current_card_name,
+                )
+
+        if not image_paths:
+            fallback = get_card_image(self.inspector_current_card_name, "normal")
+            if fallback and fallback.exists():
+                self.card_image_display.show_image(fallback)
+                self.nav_panel.Hide()
+                self._set_display_mode(True)
+                return
+
         if image_paths:
             if len(image_paths) > 1:
                 self.card_image_display.show_images(image_paths)
@@ -312,6 +333,17 @@ class CardInspectorPanel(wx.Panel):
             self.nav_panel.Hide()
 
         self._set_display_mode(image_available)
+
+    def _find_cached_printing_with_image(self) -> tuple[int | None, list[Path]]:
+        """Return the first printing index with cached images, if any."""
+        for idx, printing in enumerate(self.inspector_printings):
+            uuid = printing.get("id")
+            if not uuid:
+                continue
+            paths = self.image_cache.get_image_paths_by_uuid(uuid, "normal")
+            if paths:
+                return idx, paths
+        return None, []
 
     def _on_prev_printing(self, _event: wx.Event) -> None:
         """Navigate to previous printing."""
