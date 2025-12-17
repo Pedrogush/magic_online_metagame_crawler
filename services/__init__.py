@@ -1,11 +1,30 @@
 """
 Services package - Business logic layer.
 
-This package exposes business services while avoiding heavy imports at module load time.
+This package contains service classes that handle all business logic,
+orchestrating between repositories and the UI layer.
 """
 
-from importlib import import_module
-from typing import Any
+try:  # wxPython may be missing in headless environments
+    from services.collection_service import (
+        CollectionService,
+        CollectionStatus,
+        get_collection_service,
+    )
+except Exception:  # pragma: no cover - collection service not available without wx
+    CollectionService = None
+    CollectionStatus = None
+
+    def get_collection_service():
+        raise RuntimeError("CollectionService is unavailable (wxPython not installed)")
+
+
+from services.deck_research_service import DeckResearchService
+from services.deck_service import DeckService, ZoneUpdateResult, get_deck_service
+from services.image_service import ImageService, get_image_service
+from services.search_service import SearchService, get_search_service
+from services.state_service import StateService
+from services.store_service import StoreService, get_store_service
 
 __all__ = [
     "CollectionService",
@@ -26,59 +45,10 @@ __all__ = [
     "get_store_service",
 ]
 
-_LAZY_MODULES = {
-    "DeckResearchService": "services.deck_research_service",
-    "DeckService": "services.deck_service",
-    "ZoneUpdateResult": "services.deck_service",
-    "get_deck_service": "services.deck_service",
-    "ImageService": "services.image_service",
-    "get_image_service": "services.image_service",
-    "SearchService": "services.search_service",
-    "get_search_service": "services.search_service",
-    "StateService": "services.state_service",
-    "StoreService": "services.store_service",
-    "get_store_service": "services.store_service",
-}
 
-_COLLECTION_EXPORTS = {"CollectionService", "CollectionStatus", "get_collection_service"}
-
-
-def __getattr__(name: str) -> Any:
-    if name in _COLLECTION_EXPORTS:
-        try:
-            module = import_module("services.collection_service")
-        except Exception as error:  # pragma: no cover - wx not installed in headless envs
-            if name == "get_collection_service":
-
-                def _raise_collection_error(exc=error):
-                    raise RuntimeError(
-                        "CollectionService is unavailable (wxPython not installed)"
-                    ) from exc
-
-                globals()[name] = _raise_collection_error
-                return _raise_collection_error
-            globals()[name] = None
-            return None
-        value = getattr(module, name)
-        globals()[name] = value
-        return value
-
-    if name in _LAZY_MODULES:
-        module = import_module(_LAZY_MODULES[name])
-        value = getattr(module, name)
-        globals()[name] = value
-        return value
-
-    raise AttributeError(f"module 'services' has no attribute '{name}'")
-
-
-def get_deck_research_service():
-    from services.deck_research_service import DeckResearchService
-
+def get_deck_research_service() -> DeckResearchService:
     return DeckResearchService()
 
 
-def get_state_service():
-    from services.state_service import StateService
-
+def get_state_service() -> StateService:
     return StateService()
