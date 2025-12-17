@@ -22,7 +22,16 @@ except Exception:  # pragma: no cover - collection service not available without
 from services.deck_research_service import DeckResearchService
 from services.deck_service import DeckService, ZoneUpdateResult, get_deck_service
 from services.image_service import ImageService, get_image_service
-from services.search_service import SearchService, get_search_service
+
+try:  # wxPython may be missing in headless environments
+    from services.search_service import SearchService, get_search_service
+except Exception:  # pragma: no cover - search service not available without wx
+    SearchService = None
+
+    def get_search_service():
+        raise RuntimeError("SearchService is unavailable (wxPython not installed)")
+
+
 from services.state_service import StateService
 from services.store_service import StoreService, get_store_service
 

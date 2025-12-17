@@ -97,6 +97,7 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "CONFIG_DIR": config,
         "CACHE_DIR": cache,
         "DECKS_DIR": decks,
+        "LOGS_DIR": root / "logs",
         "CONFIG_FILE": config / "config.json",
         "DECK_SELECTOR_SETTINGS_FILE": config / "deck_selector_settings.json",
         "DECK_MONITOR_CONFIG_FILE": config / "deck_monitor_config.json",
@@ -109,6 +110,8 @@ def ui_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "ARCHETYPE_DECKS_CACHE_FILE": cache / "archetype_decks_cache.json",
         "DECK_CACHE_FILE": cache / "deck_cache.json",
         "CURR_DECK_FILE": decks / "curr_deck.txt",
+        "DIAGNOSTICS_EVENT_LOG": cache / "event_log.jsonl",
+        "DIAGNOSTICS_SETTINGS_FILE": config / "diagnostics_settings.json",
     }
     for attr, value in replacements.items():
         monkeypatch.setattr(constants, attr, value, raising=False)

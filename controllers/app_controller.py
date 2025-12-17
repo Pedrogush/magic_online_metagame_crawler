@@ -28,6 +28,7 @@ from repositories.metagame_repository import get_metagame_repository
 from services.collection_service import get_collection_service
 from services.deck_service import get_deck_service
 from services.deck_workflow_service import DeckWorkflowService
+from services.diagnostics_service import DiagnosticsService, get_diagnostics_service
 from services.image_service import get_image_service
 from services.search_service import get_search_service
 from services.store_service import get_store_service
@@ -88,6 +89,7 @@ class AppController:
         store_service=None,
         session_manager: DeckSelectorSessionManager | None = None,
         deck_workflow_service: DeckWorkflowService | None = None,
+        diagnostics_service: DiagnosticsService | None = None,
     ):
         ensure_base_dirs()
 
@@ -100,6 +102,7 @@ class AppController:
         self.collection_service = collection_service or get_collection_service()
         self.image_service = image_service or get_image_service()
         self.store_service = store_service or get_store_service()
+        self.diagnostics_service = diagnostics_service or get_diagnostics_service()
 
         self.session_manager = session_manager or DeckSelectorSessionManager(self.deck_repo)
         self.workflow_service = deck_workflow_service or DeckWorkflowService(
@@ -149,6 +152,13 @@ class AppController:
         else:
             logger.info("MTGO decklists disabled; skipping background fetch.")
 
+    def log_event(self, name: str, **metadata: Any) -> None:
+        """Best-effort wrapper to emit anonymized usage events."""
+        try:
+            self.diagnostics_service.log_event(name, metadata=metadata or None)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug(f"Diagnostics log failed: {exc}")
+
     # ============= Card Data Management =============
 
     def ensure_card_data_loaded(
@@ -172,12 +182,14 @@ class AppController:
             self.card_repo.set_card_data_ready(True)
             on_status("Card database loaded")
             on_success(manager)
+            self.log_event("card_data_loaded")
 
         def error_handler(error: Exception):
             self.card_repo.set_card_data_loading(False)
             logger.error(f"Failed to load card data: {error}")
             on_status(f"Card database load failed: {error}")
             on_error(error)
+            self.log_event("card_data_failed", error=str(error))
 
         BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
 
@@ -206,12 +218,18 @@ class AppController:
             self.archetypes = archetypes
             self.filtered_archetypes = archetypes
             on_success(archetypes)
+            self.log_event(
+                "archetypes_loaded",
+                fmt=self.current_format,
+                count=len(archetypes),
+            )
 
         def error_handler(error: Exception):
             with self._loading_lock:
                 self.loading_archetypes = False
             logger.error(f"Failed to fetch archetypes: {error}")
             on_error(error)
+            self.log_event("archetypes_failed", fmt=self.current_format, error=str(error))
 
         BackgroundWorker(
             loader,
@@ -245,12 +263,24 @@ class AppController:
                 self.loading_decks = False
             self.workflow_service.set_decks_list(decks)
             on_success(name, decks)
+            self.log_event(
+                "decks_loaded",
+                archetype=name,
+                count=len(decks),
+                source_filter=source_filter,
+            )
 
         def error_handler(error: Exception):
             with self._loading_lock:
                 self.loading_decks = False
             logger.error(f"Failed to load decks: {error}")
             on_error(error)
+            self.log_event(
+                "decks_failed",
+                archetype=name,
+                source_filter=source_filter,
+                error=str(error),
+            )
 
         BackgroundWorker(
             loader,
@@ -280,7 +310,20 @@ class AppController:
         def worker(number: str):
             return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
-        BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+        def success_handler(content: str):
+            on_success(content)
+            self.log_event("deck_downloaded", source_filter=source_filter)
+
+        def error_handler(error: Exception):
+            on_error(error)
+            self.log_event("deck_download_failed", source_filter=source_filter, error=str(error))
+
+        BackgroundWorker(
+            worker,
+            deck_number,
+            on_success=success_handler,
+            on_error=error_handler,
+        ).start()
 
     def build_deck_text(self, zone_cards: dict[str, list[dict[str, Any]]] | None = None) -> str:
         zones = zone_cards if zone_cards is not None else self.zone_cards
@@ -293,13 +336,20 @@ class AppController:
         format_name: str,
         deck: dict[str, Any] | None = None,
     ) -> tuple[Path, int | None]:
-        return self.workflow_service.save_deck(
+        file_path, deck_id = self.workflow_service.save_deck(
             deck_name=deck_name,
             deck_content=deck_content,
             format_name=format_name,
             deck=deck,
             deck_save_dir=self.deck_save_dir,
         )
+        self.log_event(
+            "deck_saved",
+            format=format_name,
+            has_metadata=bool(deck),
+            database_id=bool(deck_id),
+        )
+        return file_path, deck_id
 
     def build_daily_average_deck(
         self,
@@ -316,6 +366,7 @@ class AppController:
         ]
 
         if not todays_decks:
+            self.log_event("daily_average_skipped", reason="no_today_decks")
             return False, "No decks from today found for this archetype."
 
         with self._loading_lock:
@@ -336,12 +387,23 @@ class AppController:
             with self._loading_lock:
                 self.loading_daily_average = False
             on_success(buffer, len(todays_decks))
+            self.log_event(
+                "daily_average_built",
+                deck_count=len(todays_decks),
+                source_filter=source_filter,
+            )
 
         def error_handler(error: Exception):
             with self._loading_lock:
                 self.loading_daily_average = False
             logger.error(f"Daily average error: {error}")
             on_error(error)
+            self.log_event(
+                "daily_average_failed",
+                deck_count=len(todays_decks),
+                source_filter=source_filter,
+                error=str(error),
+            )
 
         BackgroundWorker(
             worker,
@@ -398,11 +460,21 @@ class AppController:
         on_status("Fetching collection from MTGO...")
         logger.info("Fetching collection from MTGO Bridge")
 
+        def _on_success(filepath: Path, cards: list[Any]) -> None:
+            if on_success:
+                on_success(filepath, cards)
+            self.log_event("collection_refreshed", card_count=len(cards) if cards else 0)
+
+        def _on_error(msg: str) -> None:
+            if on_error:
+                on_error(msg)
+            self.log_event("collection_refresh_failed", error=msg)
+
         self.collection_service.refresh_from_bridge_async(
             directory=directory,
             force=force,
-            on_success=on_success,
-            on_error=on_error,
+            on_success=_on_success,
+            on_error=_on_error,
             cache_max_age_seconds=COLLECTION_CACHE_MAX_AGE_SECONDS,
         )
 
@@ -432,6 +504,7 @@ class AppController:
             if exists:
                 self.load_bulk_data_into_memory(on_status)
                 on_status("Card image database ready")
+                self.log_event("bulk_data_ready", source="cache")
                 return
 
             logger.info(f"Bulk data needs download: {reason}")
@@ -441,10 +514,12 @@ class AppController:
             def _on_download_complete(msg: str) -> None:
                 on_download_complete(msg)
                 self.load_bulk_data_into_memory(on_status, force=True)
+                self.log_event("bulk_data_ready", source="download", message=msg)
 
             def _on_download_failed(msg: str) -> None:
                 on_download_failed(msg)
                 on_status("Ready")
+                self.log_event("bulk_data_failed", error=msg)
 
             self.image_service.download_bulk_metadata_async(
                 on_success=_on_download_complete,
@@ -458,6 +533,7 @@ class AppController:
                 self.load_bulk_data_into_memory(on_status)
             else:
                 on_status("Ready")
+            self.log_event("bulk_data_failed", error=str(exc))
 
         BackgroundWorker(worker, on_success=success_handler, on_error=error_handler).start()
 
@@ -508,11 +584,13 @@ class AppController:
             self._bulk_check_worker_active = False
             on_download_complete(msg)
             self.load_bulk_data_into_memory(on_status, force=True)
+            self.log_event("bulk_data_ready", source="forced_download", message=msg)
 
         def _on_download_failed(msg: str) -> None:
             self._bulk_check_worker_active = False
             on_download_failed(msg)
             on_status("Ready")
+            self.log_event("bulk_data_failed", error=msg)
 
         self.image_service.download_bulk_metadata_async(
             on_success=_on_download_complete,
@@ -559,7 +637,20 @@ class AppController:
         def worker(number: str):
             return self.workflow_service.download_deck_text(number, source_filter=source_filter)
 
-        BackgroundWorker(worker, deck_number, on_success=on_success, on_error=on_error).start()
+        def success_handler(content: str):
+            on_success(content)
+            self.log_event("deck_downloaded", source_filter=source_filter)
+
+        def error_handler(error: Exception):
+            on_error(error)
+            self.log_event("deck_download_failed", source_filter=source_filter, error=str(error))
+
+        BackgroundWorker(
+            worker,
+            deck_number,
+            on_success=success_handler,
+            on_error=error_handler,
+        ).start()
 
     # ============= State Accessors =============
 

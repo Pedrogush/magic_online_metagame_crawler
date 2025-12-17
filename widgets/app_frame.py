@@ -208,6 +208,7 @@ class AppFrame(AppEventHandlers, SideboardGuideHandlers, CardTablePanelHandler, 
                 self, self.image_cache, self.image_downloader, self._set_status
             ),
             on_update_card_database=lambda: self.controller.force_bulk_data_update(),
+            on_open_feedback=self.open_feedback_dialog,
         )
 
     def _build_card_data_controls(self, parent: wx.Window) -> wx.Panel:

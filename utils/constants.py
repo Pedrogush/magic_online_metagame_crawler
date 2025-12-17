@@ -45,6 +45,8 @@ DECKS_DIR = BASE_DATA_DIR / "decks"
 DECK_SAVE_DIR = DECKS_DIR
 LOGS_DIR = BASE_DATA_DIR / "logs"
 CARD_DATA_DIR = BASE_DATA_DIR / "data"
+DIAGNOSTICS_SETTINGS_FILE = CONFIG_DIR / "diagnostics_settings.json"
+DIAGNOSTICS_EVENT_LOG = LOGS_DIR / "event_log.jsonl"
 
 
 def ensure_base_dirs() -> None:
@@ -77,6 +79,8 @@ __all__ = [
     "CONFIG_DIR",
     "CACHE_DIR",
     "DECKS_DIR",
+    "DIAGNOSTICS_EVENT_LOG",
+    "DIAGNOSTICS_SETTINGS_FILE",
     "CONFIG_FILE",
     "DECK_MONITOR_CONFIG_FILE",
     "DECK_MONITOR_CACHE_FILE",

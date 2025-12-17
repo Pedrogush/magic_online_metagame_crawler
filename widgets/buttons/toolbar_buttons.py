@@ -22,6 +22,7 @@ class ToolbarButtons(wx.Panel):
         on_load_collection: Callable[[], None] | None = None,
         on_download_card_images: Callable[[], None] | None = None,
         on_update_card_database: Callable[[], None] | None = None,
+        on_open_feedback: Callable[[], None] | None = None,
     ):
         """
         Initialize the toolbar button panel.
@@ -35,6 +36,7 @@ class ToolbarButtons(wx.Panel):
             on_load_collection: Callback for "Load Collection"
             on_download_card_images: Callback for "Download Card Images"
             on_update_card_database: Callback for "Update Card Database"
+            on_open_feedback: Callback for "Send Feedback / Export Diagnostics"
         """
         super().__init__(parent)
 
@@ -55,6 +57,9 @@ class ToolbarButtons(wx.Panel):
         )
         self.update_database_button = self._add_button(
             "Update Card Database", on_update_card_database
+        )
+        self.feedback_button = self._add_button(
+            "Send Feedback / Export Diagnostics", on_open_feedback
         )
 
         self._button_row.AddStretchSpacer(1)
